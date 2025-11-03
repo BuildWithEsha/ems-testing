@@ -2038,9 +2038,13 @@ app.get('/api/departments/:id/dashboard', async (req, res) => {
     const limit = parseInt(req.query.limit) || 50;
     const offset = (page - 1) * limit;
     
-    query = `SELECT * FROM employees${whereClause} ORDER BY created_at DESC LIMIT ? OFFSET ?`;
+    // NOTE: LIMIT and OFFSET cannot use placeholders in MySQL prepared statements
+    // Insert values directly into query (safe because we've validated them as integers)
+    const safeLimit = parseInt(limit, 10);
+    const safeOffset = parseInt(offset, 10);
+    query = `SELECT * FROM employees${whereClause} ORDER BY created_at DESC LIMIT ${safeLimit} OFFSET ${safeOffset}`;
     countQuery = `SELECT COUNT(*) as total FROM employees${whereClause}`;
-    params = [...whereParams, limit, offset];
+    params = [...whereParams]; // Don't include limit/offset in params
   }
               let connection;
               
@@ -4326,9 +4330,14 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
   query += ' ORDER BY created_at DESC';
   
   // Only add LIMIT and OFFSET if pagination is not skipped
+  // NOTE: LIMIT and OFFSET cannot use placeholders in MySQL prepared statements
   if (!skipPagination) {
-    query += ' LIMIT ? OFFSET ?';
-    params.push(limitNum, offset);
+    // Ensure limitNum and offset are integers and sanitize them
+    const safeLimit = parseInt(limitNum, 10);
+    const safeOffset = parseInt(offset, 10);
+    // Insert values directly into query (safe because we've validated them as integers)
+    query += ` LIMIT ${safeLimit} OFFSET ${safeOffset}`;
+    // Don't push limitNum and offset to params array
   }
   
   // Debug logging - show final query and params
