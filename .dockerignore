@@ -1,0 +1,61 @@
+# Dependencies
+node_modules
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Git
+.git
+.gitignore
+
+# Windows batch files
+*.bat
+~$*.xlsx
+~$*.xls
+
+# Documentation (optional - exclude for smaller image)
+README*.md
+EMPLOYEE_STARTUP_GUIDE.md
+ROLES_SETUP_GUIDE.md
+SECURITY_FIX_README.md
+PERFORMANCE_OPTIMIZATION_README.md
+DOCKER_DEPLOYMENT_ANALYSIS.md
+*_template.md
+
+# Setup scripts (not needed at runtime)
+setup_*.js
+run_*.js
+
+# SQL files (not executed by Docker)
+*.sql
+
+# Sample/template files
+import files/
+old excel files/
+*.xlsx
+*.xls
+guide.xlsx
+Achieved steps.xlsx
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Redundant files
+index.html
+
+# Environment files (will be provided via docker-compose or Portainer)
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Build artifacts (will be generated during Docker build)
+# Note: We keep build/ in source for initial build, but Dockerfile rebuilds it
+

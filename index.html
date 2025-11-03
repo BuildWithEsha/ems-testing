@@ -1,0 +1,4000 @@
+import React, { useState, useEffect, useRef } from 'react';
+
+import { Users, Plus, Clock, X, Briefcase, Mail, Phone, MapPin, Calendar, User, Building, Hash, Key, UserCheck, Image as ImageIcon, DollarSign, Slack, Award, MoreVertical, Eye, Trash2, Edit, ChevronDown, AlertTriangle, Play, Square, AlertCircle, Upload, Download, FileText, CheckCircle, ListChecks, Route, MessageSquare, Paperclip, GitCommit, Clock4, Home, BarChart2, Filter } from 'lucide-react';
+
+
+
+// =================================================================================================
+
+// --- Mock Data ---
+
+// This section contains sample data to simulate a database.
+
+// In a real application, this data would come from a backend API.
+
+// =================================================================================================
+
+const initialData = {
+
+    employees: [],
+
+    departments: [],
+
+    designations: [],
+
+    projects: [],
+
+    taskLabels: [],
+
+    tasks: [],
+
+    errors: [],
+
+    taskCategories: [],
+
+    milestones: [],
+
+};
+
+
+
+
+
+// =================================================================================================
+
+// --- Main Application Component (App.js) ---
+
+// This is the root of the application, managing state, views, and data flow.
+
+// =================================================================================================
+
+export default function App() {
+
+    // --- State Management ---
+
+    const [view, setView] = useState('dashboard');
+
+
+
+    // Data states initialized with mock data
+
+    const [employees, setEmployees] = useState(initialData.employees);
+
+    const [departments, setDepartments] = useState(initialData.departments);
+
+    const [designations, setDesignations] = useState(initialData.designations);
+
+    const [tasks, setTasks] = useState(initialData.tasks);
+
+    const [taskCategories, setTaskCategories] = useState(initialData.taskCategories);
+
+    const [projects, setProjects] = useState(initialData.projects);
+
+    const [taskLabels, setTaskLabels] = useState(initialData.taskLabels);
+
+    const [milestones, setMilestones] = useState(initialData.milestones);
+
+    const [errors, setErrors] = useState(initialData.errors);
+
+    
+
+    // Modal and selection states
+
+    const [isModalOpen, setIsModalOpen] = useState(false);
+
+    const [modalType, setModalType] = useState('');
+
+    const [editingItem, setEditingItem] = useState(null);
+
+    const [selectedEmployee, setSelectedEmployee] = useState(null);
+
+    const [selectedTask, setSelectedTask] = useState(null);
+
+    const [selectedDepartment, setSelectedDepartment] = useState(null);
+
+    const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+    const [deletingItemId, setDeletingItemId] = useState(null);
+
+    const [deletingItemType, setDeletingItemType] = useState('');
+
+    const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+
+    const [importType, setImportType] = useState('');
+
+    
+
+    const [taskFilters, setTaskFilters] = useState({});
+
+    const [isFilterSidebarOpen, setIsFilterSidebarOpen] = useState(false);
+
+    
+
+    const filteredTasks = React.useMemo(() => {
+
+        return tasks.filter(task => {
+
+            return Object.entries(taskFilters).every(([key, value]) => {
+
+                if (!value || value.length === 0) return true;
+
+                
+
+                const taskValue = task[key];
+
+                if (Array.isArray(taskValue)) {
+
+                    return Array.isArray(value) ? value.some(v => taskValue.includes(v)) : taskValue.includes(value);
+
+                }
+
+                
+
+                return Array.isArray(value) ? value.includes(taskValue) : taskValue === value;
+
+            });
+
+        });
+
+    }, [tasks, taskFilters]);
+
+
+
+
+
+    // --- Modal Control ---
+
+    const openModal = (type, item = null) => {
+
+        setModalType(type);
+
+        setEditingItem(item);
+
+        setIsModalOpen(true);
+
+    };
+
+    const closeModal = () => {
+
+        setEditingItem(null);
+
+        setIsModalOpen(false);
+
+        setModalType('');
+
+    };
+
+    
+
+    const openImportModal = (type) => {
+
+        setImportType(type);
+
+        setIsImportModalOpen(true);
+
+    };
+
+    const closeImportModal = () => {
+
+        setIsImportModalOpen(false);
+
+        setImportType('');
+
+    };
+
+
+
+    const toggleFilterSidebar = () => setIsFilterSidebarOpen(prev => !prev);
+
+
+
+    // --- Data Handling (Simulates Backend API calls) ---
+
+    const handleFormSubmit = (itemData, type, shouldClose = true) => {
+
+        const getSetter = (t) => {
+
+            switch(t) {
+
+                case 'employee': return setEmployees;
+
+                case 'department': return setDepartments;
+
+                case 'designation': return setDesignations;
+
+                case 'project': return setProjects;
+
+                case 'taskLabel': return setTaskLabels;
+
+                case 'task': return setTasks;
+
+                case 'error': return setErrors;
+
+                default: return () => {};
+
+            }
+
+        };
+
+        const setter = getSetter(type);
+
+
+
+        if (editingItem) {
+
+            setter(prev => prev.map(item => item.id === editingItem.id ? { ...item, ...itemData } : item));
+
+        } else {
+
+            const newItem = { id: crypto.randomUUID(), createdAt: new Date(), ...itemData };
+
+            setter(prev => [...prev, newItem]);
+
+        }
+
+        
+
+        if (shouldClose) closeModal();
+
+    };
+
+
+
+    const handleBulkImport = (data, type) => {
+        // This function is no longer used as we now use server-side import
+        return true;
+    };
+
+
+
+    const handleDelete = (itemId, type) => {
+
+        setDeletingItemId(itemId);
+
+        setDeletingItemType(type);
+
+        setShowDeleteConfirm(true);
+
+    };
+
+
+
+    const confirmDelete = () => {
+
+        if (!deletingItemId || !deletingItemType) return;
+
+        
+
+        const getSetter = (t) => {
+
+            switch(t) {
+
+                case 'employee': return setEmployees;
+
+                case 'department': return setDepartments;
+
+                case 'designation': return setDesignations;
+
+                case 'project': return setProjects;
+
+                case 'taskLabel': return setTaskLabels;
+
+                case 'task': return setTasks;
+
+                case 'error': return setErrors;
+
+                default: return () => {};
+
+            }
+
+        };
+
+        const setter = getSetter(deletingItemType);
+
+        
+
+        setter(prev => prev.filter(item => item.id !== deletingItemId));
+
+        
+
+        setShowDeleteConfirm(false);
+
+        setDeletingItemId(null);
+
+        setDeletingItemType('');
+
+    };
+
+    
+
+    const handleBulkDelete = (taskIds) => {
+
+        setTasks(prev => prev.filter(task => !taskIds.includes(task.id)));
+
+    };
+
+    
+
+    const handleTaskTimer = (task, action) => {
+
+        setTasks(prevTasks => prevTasks.map(t => {
+
+            if (t.id === task.id) {
+
+                if (action === 'start') {
+
+                    return { ...t, status: 'Doing', timerStartedAt: new Date() };
+
+                } else if (action === 'stop' && t.timerStartedAt) {
+
+                    const loggedSeconds = t.loggedSeconds || 0;
+
+                    const startTime = new Date(t.timerStartedAt);
+
+                    const newDuration = Math.round((new Date() - startTime) / 1000);
+
+                    return { ...t, status: 'Due', timerStartedAt: null, loggedSeconds: loggedSeconds + newDuration };
+
+                }
+
+            }
+
+            return t;
+
+        }));
+
+    };
+
+
+
+
+
+    // --- View Rendering ---
+
+    return (
+
+        <div className="flex h-screen bg-gray-100 font-sans">
+
+            <Sidebar view={view} setView={setView} />
+
+            <main className="flex-1 p-4 sm:p-6 lg:p-8 flex flex-col overflow-y-auto">
+
+                {view === 'dashboard' && <Dashboard tasks={tasks} employees={employees} />}
+
+                {view === 'employees' && (
+
+                    selectedEmployee ? (
+
+                        <EmployeeDetailView employee={selectedEmployee} onBack={() => setSelectedEmployee(null)} employees={employees} errors={errors} tasks={tasks}/>
+
+                    ) : (
+
+                        <>
+
+                            <Header openModal={() => openModal('employee')} onImportClick={() => openImportModal('employee')} title="Employees" buttonText="Add Employee" />
+
+                            <EmployeeDashboard employees={employees} />
+
+                            <EmployeeManagement employees={employees} onSelectEmployee={setSelectedEmployee} onEdit={(emp) => openModal('employee', emp)} onDelete={(id) => handleDelete(id, 'employee')} />
+
+                        </>
+
+                    )
+
+                )}
+
+                {view === 'departments' && (
+
+                     selectedDepartment ? (
+
+                        <DepartmentDetailView department={selectedDepartment} onBack={() => setSelectedDepartment(null)} tasks={tasks} />
+
+                     ) : (
+
+                        <>
+
+                            <Header openModal={() => openModal('department')} onImportClick={() => openImportModal('department')} title="Departments" buttonText="Add Department" />
+
+                            <DepartmentManagement departments={departments} onSelectDepartment={setSelectedDepartment} onEdit={(dept) => openModal('department', dept)} onDelete={(id) => handleDelete(id, 'department')} />
+
+                        </>
+
+                     )
+
+                )}
+
+                {view === 'designations' && (
+
+                     <>
+
+                        <Header openModal={() => openModal('designation')} onImportClick={() => openImportModal('designation')} title="Designations" buttonText="Add Designation" />
+
+                        <DesignationManagement designations={designations} onEdit={(desg) => openModal('designation', desg)} onDelete={(id) => handleDelete(id, 'designation')} />
+
+                    </>
+
+                )}
+
+                 {view === 'projects' && (
+
+                     <>
+
+                        <Header openModal={() => openModal('project')} onImportClick={() => openImportModal('project')} title="Projects" buttonText="Add Project" />
+
+                        <ProjectManagement projects={projects} onEdit={(proj) => openModal('project', proj)} onDelete={(id) => handleDelete(id, 'project')} />
+
+                    </>
+
+                )}
+
+                 {view === 'labels' && (
+
+                     <>
+
+                        <Header openModal={() => openModal('taskLabel')} onImportClick={() => openImportModal('taskLabel')} title="Labels" buttonText="Add Label" />
+
+                        <LabelManagement labels={taskLabels} onEdit={(label) => openModal('taskLabel', label)} onDelete={(id) => handleDelete(id, 'taskLabel')} />
+
+                    </>
+
+                )}
+
+                {view === 'tasks' && (
+
+                    selectedTask ? (
+
+                        <TaskDetailView task={selectedTask} onBack={() => setSelectedTask(null)} employees={employees} />
+
+                    ) : (
+
+                        <>
+
+                            <Header openModal={() => openModal('task')} onImportClick={() => openImportModal('task')} onFilterClick={toggleFilterSidebar} title="Tasks" buttonText="Add Task"/>
+
+                            <TaskDashboard tasks={tasks} />
+
+                            <TaskManagement 
+
+                                tasks={filteredTasks} 
+
+                                employees={employees} 
+
+                                onTaskTimer={handleTaskTimer} 
+
+                                onEdit={(task) => openModal('task', task)} 
+
+                                onDelete={(id) => handleDelete(id, 'task')} 
+
+                                onSelectTask={setSelectedTask}
+
+                                onBulkDelete={handleBulkDelete}
+
+                            />
+
+                        </>
+
+                    )
+
+                )}
+
+                {view === 'errors' && (
+
+                    <>
+
+                        <Header openModal={() => openModal('error')} onImportClick={() => openImportModal('error')} title="Errors" buttonText="Add Error" />
+
+                        <ErrorManagement errors={errors} employees={employees} tasks={tasks} onEdit={(error) => openModal('error', error)} onDelete={(id) => handleDelete(id, 'error')} />
+
+                    </>
+
+                )}
+
+                {view === 'taskReport' && <TaskReport allTasks={tasks} employees={employees} taskLabels={taskLabels} />}
+
+                {view === 'timeLogReport' && <div className="text-center p-10"><h1 className="text-2xl font-bold">Time Log Report</h1><p className="text-gray-500 mt-2">This feature is coming soon.</p></div>}
+
+                {view === 'dwmReport' && <DWMReport allTasks={tasks} employees={employees} departments={departments} />}
+
+
+
+
+
+            </main>
+
+            {isModalOpen && modalType === 'employee' && <EmployeeModal closeModal={closeModal} onFormSubmit={handleFormSubmit} departments={departments} designations={designations} employees={employees} existingEmployee={editingItem} />}
+
+            {isModalOpen && (modalType === 'department' || modalType === 'designation' || modalType === 'taskLabel' || modalType === 'project') && <SimpleModal type={modalType} closeModal={closeModal} onFormSubmit={handleFormSubmit} existingItem={editingItem} />}
+
+            {isModalOpen && modalType === 'task' && <TaskModal closeModal={closeModal} onFormSubmit={handleFormSubmit} employees={employees} taskCategories={taskCategories} projects={projects} taskLabels={taskLabels} milestones={milestones} departments={departments} existingTask={editingItem} />}
+
+            {isModalOpen && modalType === 'error' && <ErrorModal closeModal={closeModal} onFormSubmit={handleFormSubmit} employees={employees} tasks={tasks} existingError={editingItem} />}
+
+            {isImportModalOpen && <ImportModal type={importType} closeModal={closeImportModal} onImport={handleBulkImport} />}
+
+            {showDeleteConfirm && <ConfirmDeleteModal onConfirm={confirmDelete} onCancel={() => setShowDeleteConfirm(false)} itemType={deletingItemType} />}
+
+            {isFilterSidebarOpen && view === 'tasks' && (
+
+                <TaskFilterSidebar
+
+                    onClose={toggleFilterSidebar}
+
+                    filters={taskFilters}
+
+                    setFilters={setTaskFilters}
+
+                    employees={employees}
+
+                    taskLabels={taskLabels}
+
+                />
+
+            )}
+
+        </div>
+
+    );
+
+}
+
+
+
+// =================================================================================================
+
+// --- Sidebar Component ---
+
+// =================================================================================================
+
+const Sidebar = ({ view, setView }) => {
+
+    const [reportingOpen, setReportingOpen] = useState(false);
+
+    const navItems = [
+
+        { id: 'dashboard', icon: Home, label: 'Dashboard' },
+
+        { id: 'employees', icon: Users, label: 'Employees' },
+
+        { id: 'departments', icon: Building, label: 'Departments' },
+
+        { id: 'designations', icon: Award, label: 'Designations' },
+
+        { id: 'projects', icon: Briefcase, label: 'Projects' },
+
+        { id: 'labels', icon: Hash, label: 'Labels' },
+
+        { id: 'tasks', icon: Briefcase, label: 'Tasks' },
+
+        { id: 'errors', icon: AlertCircle, label: 'Errors' },
+
+    ];
+
+    return (
+
+        <aside className="w-16 sm:w-56 bg-white shadow-md flex flex-col flex-shrink-0">
+
+            <div className="flex items-center justify-center sm:justify-start sm:pl-6 h-16 border-b">
+
+                <Clock className="w-8 h-8 text-indigo-600" />
+
+                <span className="hidden sm:inline ml-3 text-lg font-bold text-gray-800">WorkTrack</span>
+
+            </div>
+
+            <nav className="flex-1 mt-6">
+
+                <ul>
+
+                    {navItems.map(item => (
+
+                        <li key={item.id} className="px-2 sm:px-4">
+
+                            <a href="#" onClick={(e) => { e.preventDefault(); setView(item.id); }} className={`flex items-center p-3 my-1 rounded-lg transition-colors ${view === item.id ? 'bg-indigo-100 text-indigo-600' : 'text-gray-600 hover:bg-gray-100'}`}>
+
+                                <item.icon className="w-6 h-6" />
+
+                                <span className="hidden sm:inline ml-4 font-medium">{item.label}</span>
+
+                            </a>
+
+                        </li>
+
+                    ))}
+
+                     <li className="px-2 sm:px-4">
+
+                        <a href="#" onClick={(e) => { e.preventDefault(); setReportingOpen(!reportingOpen); }} className={`flex items-center justify-between p-3 my-1 rounded-lg transition-colors text-gray-600 hover:bg-gray-100`}>
+
+                            <div className="flex items-center">
+
+                                <BarChart2 className="w-6 h-6" />
+
+                                <span className="hidden sm:inline ml-4 font-medium">Reporting</span>
+
+                            </div>
+
+                            <ChevronDown className={`w-4 h-4 hidden sm:inline transition-transform ${reportingOpen ? 'rotate-180' : ''}`} />
+
+                        </a>
+
+                        {reportingOpen && (
+
+                            <ul className="pl-4 sm:pl-8 mt-1">
+
+                                <li><a href="#" onClick={(e) => { e.preventDefault(); setView('taskReport'); }} className={`flex items-center p-2 my-1 rounded-lg text-sm transition-colors ${view === 'taskReport' ? 'text-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}>Task Report</a></li>
+
+                                <li><a href="#" onClick={(e) => { e.preventDefault(); setView('timeLogReport'); }} className={`flex items-center p-2 my-1 rounded-lg text-sm transition-colors ${view === 'timeLogReport' ? 'text-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}>Time Log Report</a></li>
+
+                                <li><a href="#" onClick={(e) => { e.preventDefault(); setView('dwmReport'); }} className={`flex items-center p-2 my-1 rounded-lg text-sm transition-colors ${view === 'dwmReport' ? 'text-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}>DWM Report</a></li>
+
+                            </ul>
+
+                        )}
+
+                    </li>
+
+                </ul>
+
+            </nav>
+
+        </aside>
+
+    );
+
+};
+
+
+
+// =================================================================================================
+
+// --- Header Component ---
+
+// =================================================================================================
+
+const Header = ({ openModal, onImportClick, onExportClick, onFilterClick, title, buttonText }) => (
+
+    <div className="flex-shrink-0 flex items-center justify-between mb-8">
+
+        <h1 className="text-2xl sm:text-3xl font-bold text-gray-800">{title}</h1>
+
+        <div className="flex items-center gap-2">
+
+            {onFilterClick && (
+
+                <button onClick={onFilterClick} className="flex items-center bg-white text-gray-700 border border-gray-300 px-4 py-2 rounded-lg shadow-sm hover:bg-gray-50 transition-colors">
+
+                    <Filter className="w-5 h-5 mr-2" />
+
+                    Filters
+
+                </button>
+
+            )}
+
+            {onImportClick && (
+
+                <button onClick={onImportClick} className="flex items-center bg-white text-gray-700 border border-gray-300 px-4 py-2 rounded-lg shadow-sm hover:bg-gray-50 transition-colors">
+
+                    <Upload className="w-5 h-5 mr-2" />
+
+                    Import
+
+                </button>
+
+            )}
+
+            {openModal && <button onClick={openModal} className="flex items-center bg-indigo-600 text-white px-4 py-2 rounded-lg shadow hover:bg-indigo-700 transition-colors">
+
+                <Plus className="w-5 h-5 mr-2" />
+
+                {buttonText}
+
+            </button>}
+
+        </div>
+
+    </div>
+
+);
+
+
+
+// =================================================================================================
+
+// --- Dashboard Component (New) ---
+
+// =================================================================================================
+
+const Dashboard = ({ tasks, employees, projects }) => {
+
+    const tasksCompleted = tasks.filter(t => t.status === 'Completed').length;
+
+    const tasksInProgress = tasks.filter(t => t.status === 'Doing').length;
+
+    const overdueTasks = tasks.filter(t => t.dueDate && new Date(t.dueDate) < new Date() && t.status !== 'Completed').length;
+
+    const uniqueProjects = [...new Set(tasks.map(t => t.project).filter(Boolean))].length;
+
+
+
+    const StatCard = ({ title, value, icon: Icon, color }) => (
+
+        <div className="bg-white p-6 rounded-lg shadow-md flex items-center">
+
+            <div className={`p-3 rounded-full mr-4 ${color}`}>
+
+                <Icon className="h-6 w-6 text-white" />
+
+            </div>
+
+            <div>
+
+                <p className="text-3xl font-bold text-gray-800">{value}</p>
+
+                <p className="text-sm font-medium text-gray-500">{title}</p>
+
+            </div>
+
+        </div>
+
+    );
+
+
+
+    return (
+
+        <div className="animate-fade-in">
+
+            <h1 className="text-3xl font-bold text-gray-800 mb-6">Dashboard</h1>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+
+                <StatCard title="Total Employees" value={employees.length} icon={Users} color="bg-blue-500" />
+
+                <StatCard title="Total Tasks" value={tasks.length} icon={Briefcase} color="bg-indigo-500" />
+
+                <StatCard title="Tasks Completed" value={tasksCompleted} icon={CheckCircle} color="bg-green-500" />
+
+                <StatCard title="Overdue Tasks" value={overdueTasks} icon={AlertTriangle} color="bg-red-500" />
+
+            </div>
+
+
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+
+                <div className="lg:col-span-2 bg-white p-6 rounded-lg shadow-md">
+
+                    <h2 className="text-xl font-semibold text-gray-800 mb-4">Recent Tasks</h2>
+
+                    <div className="overflow-auto max-h-96">
+
+                        <table className="w-full text-sm text-left text-gray-500">
+
+                            <thead className="text-xs text-gray-700 uppercase bg-gray-50 sticky top-0">
+
+                                <tr>
+
+                                    <th scope="col" className="px-6 py-3">Task</th>
+
+                                    <th scope="col" className="px-6 py-3">Assigned To</th>
+
+                                    <th scope="col" className="px-6 py-3">Status</th>
+
+                                    <th scope="col" className="px-6 py-3">Due Date</th>
+
+                                </tr>
+
+                            </thead>
+
+                            <tbody>
+
+                                {tasks.slice(0, 10).map(task => (
+
+                                    <tr key={task.id} className="bg-white border-b hover:bg-gray-50">
+
+                                        <td className="px-6 py-4 font-medium text-gray-900">{task.title}</td>
+
+                                        <td className="px-6 py-4">{employees.find(e => e.id === task.assignedTo)?.name || 'N/A'}</td>
+
+                                        <td className="px-6 py-4">
+
+                                            <span className={`px-2 py-1 text-xs font-semibold rounded-full ${ task.status === 'Doing' ? 'bg-blue-100 text-blue-800' : task.status === 'Completed' ? 'bg-green-100 text-green-800' : task.status === 'Due' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800' }`}>
+
+                                                {task.status || 'To Do'}
+
+                                            </span>
+
+                                        </td>
+
+                                        <td className="px-6 py-4">{task.dueDate || 'N/A'}</td>
+
+                                    </tr>
+
+                                ))}
+
+                            </tbody>
+
+                        </table>
+
+                    </div>
+
+                </div>
+
+                <div className="bg-white p-6 rounded-lg shadow-md">
+
+                     <h2 className="text-xl font-semibold text-gray-800 mb-4">Team Overview</h2>
+
+                     <ul className="space-y-4">
+
+                        {employees.slice(0, 7).map(emp => (
+
+                            <li key={emp.id} className="flex items-center">
+
+                                <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 font-bold mr-3 flex-shrink-0">
+
+                                    {emp.name ? emp.name.charAt(0).toUpperCase() : '?'}
+
+                                </div>
+
+                                <div>
+
+                                    <p className="font-medium text-gray-800">{emp.name}</p>
+
+                                    <p className="text-sm text-gray-500">{emp.designation}</p>
+
+                                </div>
+
+                            </li>
+
+                        ))}
+
+                     </ul>
+
+                </div>
+
+            </div>
+
+        </div>
+
+    );
+
+};
+
+
+
+
+
+// =================================================================================================
+
+// --- Import Modal Component ---
+
+// =================================================================================================
+
+const ImportModal = ({ type, closeModal, onImport }) => {
+
+    const [file, setFile] = useState(null);
+
+    const [isProcessing, setIsProcessing] = useState(false);
+
+    const [error, setError] = useState('');
+
+    const [success, setSuccess] = useState('');
+
+    const fileInputRef = useRef(null);
+
+
+
+    const templates = {
+
+        employee: {
+
+            filename: 'employee_template.csv',
+
+            headers: ['employeeId', 'salutation', 'name', 'email', 'password', 'designation', 'department', 'country', 'mobile', 'gender', 'joiningDate', 'dob', 'reportingToEmail', 'language', 'userRole', 'address', 'about', 'loginAllowed', 'emailNotifications', 'hourlyRate', 'slackId', 'skills', 'probationEndDate', 'noticePeriodStartDate', 'noticePeriodEndDate', 'employmentType', 'maritalStatus', 'businessAddress'],
+
+            instructions: 'Required columns: employeeId, name, email, designation, department, userRole. Use the manager\'s email for reportingToEmail. Dates should be YYYY-MM-DD.'
+
+        },
+
+        task: {
+
+            filename: 'task_template.csv',
+
+            headers: ['taskId', 'title', 'department', 'category', 'project', 'startDate', 'dueDate', 'createdOn', 'time_estimate_hours', 'time_estimate_minutes', 'assignedToEmail', 'status', 'description', 'priority', 'label', 'milestones', 'isPrivate', 'isShared', 'isRepeating', 'isDependent', 'validationBy', 'effortLabel', 'checklist', 'workflowGuide', 'trainedEmployeesEmails', 'responsibleEmails', 'accountableEmails', 'consultedEmails', 'informedEmails'],
+
+            instructions: 'To update a task, include its taskId. To create a new task, leave taskId blank. Required for new tasks: title. Optional: createdOn (YYYY-MM-DD or full datetime) to set Created On, time_estimate_hours, time_estimate_minutes. Use employee\'s email for assignment fields (separate multiple emails with a semicolon ;). For booleans (e.g., isPrivate), use TRUE/FALSE. For checklist/workflow, separate items with a semicolon (;). Dates should be YYYY-MM-DD.'
+
+        },
+
+        error: {
+
+            filename: 'error_template.csv',
+
+            headers: ['employeeEmail', 'taskTitle', 'severity', 'description'],
+
+            instructions: 'Required columns: employeeEmail, taskTitle, severity, description. Use exact employee email and task title.'
+
+        },
+
+        department: {
+
+            filename: 'department_template.csv',
+
+            headers: ['name'],
+
+            instructions: 'Required column: name.'
+
+        },
+
+        designation: {
+
+            filename: 'designation_template.csv',
+
+            headers: ['name'],
+
+            instructions: 'Required column: name.'
+
+        },
+
+        project: {
+
+            filename: 'projects_template.csv',
+
+            headers: ['name'],
+
+            instructions: 'Required column: name.'
+
+        },
+
+        taskLabel: {
+
+            filename: 'labels_template.csv',
+
+            headers: ['name'],
+
+            instructions: 'Required column: name.'
+
+        }
+
+    };
+
+
+
+    const currentTemplate = templates[type];
+
+
+
+    const handleFileChange = (e) => {
+
+        setFile(e.target.files[0]);
+
+        setError('');
+
+        setSuccess('');
+
+    };
+
+
+
+    const downloadTemplate = () => {
+
+        const csvContent = currentTemplate.headers.join(',') + '\n';
+
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+
+        const link = document.createElement('a');
+
+        if (link.download !== undefined) {
+
+            const url = URL.createObjectURL(blob);
+
+            link.setAttribute('href', url);
+
+            link.setAttribute('download', currentTemplate.filename);
+
+            link.style.visibility = 'hidden';
+
+            document.body.appendChild(link);
+
+            link.click();
+
+            document.body.removeChild(link);
+
+        }
+
+    };
+
+
+
+    const handleImport = async () => {
+
+        if (!file) {
+
+            setError('Please select a file to import.');
+
+            return;
+
+        }
+
+        setIsProcessing(true);
+
+        setError('');
+
+        setSuccess('');
+
+        try {
+
+            const formData = new FormData();
+
+            formData.append('file', file);
+
+            const response = await fetch(`/api/${type}s/import`, {
+
+                method: 'POST',
+
+                body: formData
+
+            });
+
+            const result = await response.json();
+
+            if (response.ok) {
+
+                if (result.errorCount > 0) {
+
+                    setError(`Import completed with errors. ${result.successCount} records imported successfully. ${result.errorCount} errors.`);
+
+                    if (result.errors) {
+
+                        setError(`Import completed with errors. ${result.successCount} records imported successfully. ${result.errorCount} errors.\n\nErrors:\n${result.errors.map(err => `• ${err}`).join('\n')}`);
+
+                    }
+
+                } else {
+
+                    setSuccess(`Import completed successfully! ${result.successCount} records imported.`);
+
+                    setFile(null);
+
+                    if(fileInputRef.current) fileInputRef.current.value = '';
+
+                }
+
+            } else {
+
+                setError(result.error || 'An error occurred during import.');
+
+            }
+
+        } catch (err) {
+
+            console.error('Import error:', err);
+
+            setError('Failed to import file. Please check your connection and try again.');
+
+        } finally {
+
+            setIsProcessing(false);
+
+        }
+
+    };
+
+
+
+    return (
+
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4">
+
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl flex flex-col max-h-[90vh]">
+
+                <div className="flex-shrink-0 bg-white p-6 border-b flex justify-between items-center">
+
+                    <h2 className="text-2xl font-bold text-gray-800">Import {type.charAt(0).toUpperCase() + type.slice(1)}s</h2>
+
+                    <button onClick={closeModal} className="p-2 rounded-full hover:bg-gray-100"><X className="w-6 h-6 text-gray-600" /></button>
+
+                </div>
+
+                <div className="p-8 overflow-y-auto space-y-6">
+
+                    <div>
+
+                        <h3 className="text-lg font-semibold text-gray-700 mb-2">Instructions</h3>
+
+                        <div className="p-4 bg-gray-50 rounded-lg border">
+
+                            <p className="text-sm text-gray-600 mb-2">{currentTemplate.instructions}</p>
+
+                            <button onClick={downloadTemplate} className="flex items-center text-sm font-medium text-indigo-600 hover:text-indigo-800">
+
+                                <Download size={16} className="mr-2" />
+
+                                Download CSV Template
+
+                            </button>
+
+                        </div>
+
+                    </div>
+
+                    <div>
+
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Upload File</label>
+
+                        <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-md">
+
+                            <div className="space-y-1 text-center">
+
+                                <FileText className="mx-auto h-12 w-12 text-gray-400" />
+
+                                <div className="flex text-sm text-gray-600">
+
+                                    <label htmlFor="file-upload" className="relative cursor-pointer bg-white rounded-md font-medium text-indigo-600 hover:text-indigo-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-indigo-500">
+
+                                        <span>{file ? file.name : 'Select a file'}</span>
+
+                                        <input id="file-upload" name="file-upload" type="file" className="sr-only" onChange={handleFileChange} ref={fileInputRef} accept=".csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel" />
+
+                                    </label>
+
+                                    <p className="pl-1">{!file && 'or drag and drop'}</p>
+
+                                </div>
+
+                                <p className="text-xs text-gray-500">CSV, XLS, or XLSX up to 10MB</p>
+
+                            </div>
+
+                        </div>
+
+                    </div>
+
+                    {error && <div className="p-3 bg-red-100 text-red-700 rounded-lg flex items-center"><AlertTriangle size={16} className="mr-2"/>{error}</div>}
+
+                    {success && <div className="p-3 bg-green-100 text-green-700 rounded-lg flex items-center"><CheckCircle size={16} className="mr-2"/>{success}</div>}
+
+                </div>
+
+                <div className="flex-shrink-0 flex items-center justify-end p-6 border-t bg-gray-50">
+
+                    <button type="button" onClick={closeModal} className="text-gray-600 hover:text-gray-800 font-medium mr-4 px-4 py-2 rounded-lg hover:bg-gray-100">Close</button>
+
+                    <button type="button" onClick={handleImport} disabled={!file || isProcessing} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg focus:outline-none focus:shadow-outline disabled:bg-indigo-300 disabled:cursor-not-allowed">
+
+                        {isProcessing ? 'Processing...' : 'Import Data'}
+
+                    </button>
+
+                </div>
+
+            </div>
+
+        </div>
+
+    );
+
+};
+
+
+
+// =================================================================================================
+
+// --- Department & Designation Management Components (New) ---
+
+// =================================================================================================
+
+const SimpleManagementTable = ({ items, onEdit, onDelete, type, onSelect }) => (
+
+    <div className="bg-white rounded-lg shadow flex-1 flex flex-col">
+
+        <div className="overflow-auto">
+
+            <table className="w-full text-sm text-left text-gray-500">
+
+                <thead className="text-xs text-gray-700 uppercase bg-gray-50 sticky top-0 z-10">
+
+                    <tr>
+
+                        <th scope="col" className="px-6 py-3">Name</th>
+
+                        <th scope="col" className="px-6 py-3 text-right">Action</th>
+
+                    </tr>
+
+                </thead>
+
+                <tbody>
+
+                    {items.map(item => (
+
+                        <tr key={item.id} className="bg-white border-b hover:bg-gray-50">
+
+                            <td className="px-6 py-4 font-medium text-gray-900">
+
+                                <a href="#" onClick={(e) => { e.preventDefault(); onSelect(item); }} className="hover:text-indigo-600">
+
+                                    {item.name}
+
+                                </a>
+
+                            </td>
+
+                            <td className="px-6 py-4 text-right">
+
+                                <ActionMenu onSelect={() => onSelect(item)} onEdit={() => onEdit(item)} onDelete={() => onDelete(item.id, type)} />
+
+                            </td>
+
+                        </tr>
+
+                    ))}
+
+                </tbody>
+
+            </table>
+
+        </div>
+
+    </div>
+
+);
+
+
+
+const DepartmentManagement = ({ departments, onEdit, onDelete, onSelectDepartment }) => <SimpleManagementTable items={departments} onEdit={onEdit} onDelete={onDelete} type="department" onSelect={onSelectDepartment} />;
+
+const DesignationManagement = ({ designations, onEdit, onDelete }) => <SimpleManagementTable items={designations} onEdit={onEdit} onDelete={onDelete} type="designation" onSelect={() => {}} />;
+
+const LabelManagement = ({ labels, onEdit, onDelete }) => <SimpleManagementTable items={labels} onEdit={onEdit} onDelete={onDelete} type="taskLabel" onSelect={() => {}} />;
+
+const ProjectManagement = ({ projects, onEdit, onDelete }) => <SimpleManagementTable items={projects} onEdit={onEdit} onDelete={onDelete} type="project" onSelect={() => {}} />;
+
+
+
+
+
+// =================================================================================================
+
+// --- Department & Designation Modal Component (New) ---
+
+// =================================================================================================
+
+const SimpleModal = ({ type, closeModal, onFormSubmit, existingItem = null }) => {
+
+    const formRef = useRef();
+
+    const typeName = (type === 'taskLabel' ? 'Label' : type.charAt(0).toUpperCase() + type.slice(1));
+
+
+
+    const handleSubmit = (e) => {
+
+        e.preventDefault();
+
+        const formData = new FormData(formRef.current);
+
+        const data = Object.fromEntries(formData.entries());
+
+        onFormSubmit(data, type);
+
+    };
+
+
+
+    useEffect(() => {
+
+        if (existingItem && formRef.current) {
+
+            formRef.current.elements.name.value = existingItem.name || '';
+
+        }
+
+    }, [existingItem]);
+
+
+
+    return (
+
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4">
+
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-lg flex flex-col">
+
+                <div className="flex-shrink-0 bg-white p-6 border-b flex justify-between items-center">
+
+                    <h2 className="text-2xl font-bold text-gray-800">{existingItem ? `Edit ${typeName}` : `Add ${typeName}`}</h2>
+
+                    <button onClick={closeModal} className="p-2 rounded-full hover:bg-gray-100"><X className="w-6 h-6 text-gray-600" /></button>
+
+                </div>
+
+                <form id={`${type}-form`} ref={formRef} onSubmit={handleSubmit} className="p-8">
+
+                    <InputField label={`${typeName} Name`} name="name" required />
+
+                </form>
+
+                <div className="flex-shrink-0 flex items-center justify-end p-6 border-t bg-gray-50">
+
+                    <button type="button" onClick={closeModal} className="text-gray-600 hover:text-gray-800 font-medium mr-4 px-4 py-2 rounded-lg hover:bg-gray-100">Cancel</button>
+
+                    <button type="submit" form={`${type}-form`} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg focus:outline-none focus:shadow-outline">Save</button>
+
+                </div>
+
+            </div>
+
+        </div>
+
+    );
+
+};
+
+
+
+
+
+// =================================================================================================
+
+// --- Error Management Component ---
+
+// =================================================================================================
+
+const ErrorManagement = ({ errors, employees, tasks, onEdit, onDelete }) => {
+
+    const getEmployeeName = (id) => employees.find(e => e.id === id)?.name || 'N/A';
+
+    const getTaskTitle = (id) => tasks.find(t => t.id === id)?.title || 'N/A';
+
+    const formatDate = (timestamp) => timestamp ? new Date(timestamp.seconds * 1000).toLocaleDateString() : 'N/A';
+
+
+
+    return (
+
+        <div className="bg-white rounded-lg shadow flex-1 flex flex-col">
+
+            <div className="overflow-auto">
+
+                <table className="w-full text-sm text-left text-gray-500">
+
+                    <thead className="text-xs text-gray-700 uppercase bg-gray-50 sticky top-0 z-10">
+
+                        <tr>
+
+                            <th scope="col" className="px-6 py-3">Employee</th>
+
+                            <th scope="col" className="px-6 py-3">Task</th>
+
+                            <th scope="col" className="px-6 py-3">Description</th>
+
+                            <th scope="col" className="px-6 py-3">Severity</th>
+
+                            <th scope="col" className="px-6 py-3">Date</th>
+
+                            <th scope="col" className="px-6 py-3 text-right">Action</th>
+
+                        </tr>
+
+                    </thead>
+
+                    <tbody>
+
+                        {errors.map(error => {
+
+                            const severityColor = error.severity === 'High' ? 'text-red-500' : error.severity === 'Medium' ? 'text-yellow-600' : 'text-gray-500';
+
+                            return (
+
+                                <tr key={error.id} className="bg-white border-b hover:bg-gray-50">
+
+                                    <td className="px-6 py-4 font-medium text-gray-900">{getEmployeeName(error.employeeId)}</td>
+
+                                    <td className="px-6 py-4">{getTaskTitle(error.taskId)}</td>
+
+                                    <td className="px-6 py-4 max-w-sm truncate">{error.description}</td>
+
+                                    <td className={`px-6 py-4 font-semibold ${severityColor}`}>{error.severity}</td>
+
+                                    <td className="px-6 py-4">{formatDate(error.createdAt)}</td>
+
+                                    <td className="px-6 py-4 text-right">
+
+                                        <ActionMenu onSelect={() => {}} onEdit={() => onEdit(error)} onDelete={() => onDelete(error.id, 'error')} isErrorMenu={true} />
+
+                                    </td>
+
+                                </tr>
+
+                            );
+
+                        })}
+
+                    </tbody>
+
+                </table>
+
+            </div>
+
+        </div>
+
+    );
+
+};
+
+
+
+// =================================================================================================
+
+// --- Error Modal Component ---
+
+// =================================================================================================
+
+const ErrorModal = ({ closeModal, onFormSubmit, employees, tasks, existingError = null }) => {
+
+    const formRef = useRef();
+
+    const [selectedEmployeeId, setSelectedEmployeeId] = useState(existingError?.employeeId || '');
+
+
+
+    const filteredTasks = React.useMemo(() => {
+
+        if (!selectedEmployeeId) return tasks;
+
+        return tasks.filter(task => {
+
+            const assignedToArray = Array.isArray(task.assignedTo) ? task.assignedTo : [task.assignedTo];
+
+            return assignedToArray.includes(selectedEmployeeId);
+
+        });
+
+    }, [tasks, selectedEmployeeId]);
+
+
+
+    const handleSubmit = (e) => {
+
+        e.preventDefault();
+
+        const formData = new FormData(formRef.current);
+
+        const data = Object.fromEntries(formData.entries());
+
+        onFormSubmit(data, 'error');
+
+    };
+
+
+
+    return (
+
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4">
+
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl flex flex-col max-h-[90vh]">
+
+                <div className="flex-shrink-0 bg-white p-6 border-b flex justify-between items-center">
+
+                    <h2 className="text-2xl font-bold text-gray-800">{existingError ? 'Edit Error' : 'Add Error'}</h2>
+
+                    <button onClick={closeModal} className="p-2 rounded-full hover:bg-gray-100"><X className="w-6 h-6 text-gray-600" /></button>
+
+                </div>
+
+                <form id="error-form" ref={formRef} onSubmit={handleSubmit} className="p-8 overflow-y-auto">
+
+                    <div className="space-y-6">
+
+                        <SearchableSelectField 
+
+                            label="Employee" 
+
+                            name="employeeId" 
+
+                            options={employees.map(e => ({ value: e.id, label: e.name }))} 
+
+                            isObject 
+
+                            required 
+
+                            value={selectedEmployeeId}
+
+                            onChange={(name, value) => setSelectedEmployeeId(value)}
+
+                        />
+
+                        <SearchableSelectField 
+
+                            label="Related Task" 
+
+                            name="taskId" 
+
+                            options={filteredTasks.map(t => ({ value: t.id, label: t.title }))} 
+
+                            isObject 
+
+                            required 
+
+                            defaultValue={existingError?.taskId} 
+
+                        />
+
+                        <SelectField label="Severity" name="severity" options={['Low', 'Medium', 'High']} required defaultValue={existingError?.severity} />
+
+                        <TextareaField label="Description" name="description" placeholder="Describe the error in detail..." required defaultValue={existingError?.description} />
+
+                    </div>
+
+                </form>
+
+                <div className="flex-shrink-0 flex items-center justify-end p-6 border-t bg-gray-50">
+
+                    <button type="button" onClick={closeModal} className="text-gray-600 hover:text-gray-800 font-medium mr-4 px-4 py-2 rounded-lg hover:bg-gray-100">Cancel</button>
+
+                    <button type="submit" form="error-form" className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg focus:outline-none focus:shadow-outline">Save Error</button>
+
+                </div>
+
+            </div>
+
+        </div>
+
+    );
+
+};
+
+
+
+
+
+// =================================================================================================
+
+// --- Task Management Component ---
+
+// =================================================================================================
+
+const TaskManagement = ({ tasks, employees, onTaskTimer, onEdit, onDelete, onSelectTask, onBulkDelete }) => {
+
+    const [selectedTasks, setSelectedTasks] = useState([]);
+
+    const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+
+
+    const getEmployeeById = (id) => employees.find(e => e.id === id);
+
+
+
+    const handleSelectAll = (e) => {
+
+        if (e.target.checked) {
+
+            setSelectedTasks(tasks.map(t => t.id));
+
+        } else {
+
+            setSelectedTasks([]);
+
+        }
+
+    };
+
+
+
+    const handleSelect = (e, taskId) => {
+
+        if (e.target.checked) {
+
+            setSelectedTasks(prev => [...prev, taskId]);
+
+        } else {
+
+            setSelectedTasks(prev => prev.filter(id => id !== taskId));
+
+        }
+
+    };
+
+    
+
+    const confirmBulkDelete = () => {
+
+        onBulkDelete(selectedTasks);
+
+        setSelectedTasks([]);
+
+        setShowDeleteConfirm(false);
+
+    };
+
+
+
+    return (
+
+        <div className="bg-white rounded-lg shadow flex-1 flex flex-col mt-6">
+
+            {selectedTasks.length > 0 && (
+
+                <div className="flex-shrink-0 bg-indigo-50 border-b border-indigo-200 p-3 flex items-center justify-between">
+
+                    <span className="text-sm font-medium text-indigo-700">{selectedTasks.length} task(s) selected</span>
+
+                    <button onClick={() => setShowDeleteConfirm(true)} className="flex items-center bg-red-500 text-white px-3 py-1 rounded-md shadow-sm hover:bg-red-600 transition-colors text-sm">
+
+                        <Trash2 size={14} className="mr-2" />
+
+                        Delete Selected
+
+                    </button>
+
+                </div>
+
+            )}
+
+            <div className="overflow-auto">
+
+                <table className="w-full text-sm text-left text-gray-500">
+
+                    <thead className="text-xs text-gray-700 uppercase bg-gray-50 sticky top-0 z-10">
+
+                        <tr>
+
+                            <th scope="col" className="p-4">
+
+                                <div className="flex items-center">
+
+                                    <input 
+
+                                        type="checkbox" 
+
+                                        className="w-4 h-4 text-indigo-600 bg-gray-100 border-gray-300 rounded focus:ring-indigo-500"
+
+                                        onChange={handleSelectAll}
+
+                                        checked={tasks.length > 0 && selectedTasks.length === tasks.length}
+
+                                    />
+
+                                </div>
+
+                            </th>
+
+                            <th scope="col" className="px-6 py-3">Task</th>
+
+                            <th scope="col" className="px-6 py-3">Assigned To</th>
+
+                            <th scope="col" className="px-6 py-3">Priority</th>
+
+                            <th scope="col" className="px-6 py-3">Status</th>
+
+                            <th scope="col" className="px-6 py-3">Timer</th>
+
+                            <th scope="col" className="px-6 py-3 text-right">Action</th>
+
+                        </tr>
+
+                    </thead>
+
+                    <tbody>
+
+                        {tasks.map(task => {
+
+                            const assignedTo = getEmployeeById(task.assignedTo);
+
+                            const priorityColor = task.priority === 'High' ? 'text-red-500' : task.priority === 'Medium' ? 'text-yellow-500' : 'text-gray-500';
+
+                            return (
+
+                                <tr key={task.id} className={`bg-white border-b hover:bg-gray-50 ${selectedTasks.includes(task.id) ? 'bg-indigo-50' : ''}`}>
+
+                                    <td className="w-4 p-4">
+
+                                        <div className="flex items-center">
+
+                                            <input 
+
+                                                type="checkbox" 
+
+                                                className="w-4 h-4 text-indigo-600 bg-gray-100 border-gray-300 rounded focus:ring-indigo-500"
+
+                                                checked={selectedTasks.includes(task.id)}
+
+                                                onChange={(e) => handleSelect(e, task.id)}
+
+                                            />
+
+                                        </div>
+
+                                    </td>
+
+                                            <td className="px-6 py-4 font-medium text-gray-900 hover:text-indigo-600 cursor-pointer" onClick={() => onSelectTask(task)}>{task.title}</td>
+
+                                    <td className="px-6 py-4">
+
+                                        {assignedTo ? (
+
+                                            <div className="flex items-center">
+
+                                                <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 font-bold mr-2 text-xs">
+
+                                                    {assignedTo.name ? assignedTo.name.charAt(0).toUpperCase() : '?'}
+
+                                                </div>
+
+                                                {assignedTo.name}
+
+                                            </div>
+
+                                        ) : 'Unassigned'}
+
+                                    </td>
+
+                                    <td className={`px-6 py-4 font-semibold ${priorityColor}`}>{task.priority}</td>
+
+                                    <td className="px-6 py-4">
+
+                                        <span className={`px-2 py-1 text-xs font-semibold rounded-full ${ task.status === 'Doing' ? 'bg-blue-100 text-blue-800' : task.status === 'Due' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800' }`}>
+
+                                            {task.status || 'To Do'}
+
+                                        </span>
+
+                                    </td>
+
+                                    <td className="px-6 py-4">
+
+                                        {task.status === 'Doing' ? (
+
+                                            <button onClick={() => onTaskTimer(task, 'stop')} className="p-2 bg-red-500 text-white rounded-full hover:bg-red-600"><Square size={14} /></button>
+
+                                        ) : (
+
+                                            <button onClick={() => onTaskTimer(task, 'start')} className="p-2 bg-green-500 text-white rounded-full hover:bg-green-600" disabled={!task.assignedTo}><Play size={14} /></button>
+
+                                        )}
+
+                                    </td>
+
+                                    <td className="px-6 py-4 text-right">
+
+                                                <ActionMenu onSelect={() => onSelectTask(task)} onEdit={() => onEdit(task)} onDelete={() => onDelete(task.id, 'task')} />
+
+                                    </td>
+
+                                </tr>
+
+                            );
+
+                        })}
+
+                    </tbody>
+
+                </table>
+
+            </div>
+
+            {showDeleteConfirm && <ConfirmDeleteModal onConfirm={confirmBulkDelete} onCancel={() => setShowDeleteConfirm(false)} itemType={`${selectedTasks.length} tasks`} />}
+
+        </div>
+
+    );
+
+};
+
+
+
+// =================================================================================================
+
+// --- Task Modal Component ---
+
+// =================================================================================================
+
+const TaskModal = ({ closeModal, onFormSubmit, employees, taskCategories, projects, taskLabels, milestones, departments, onAddDynamicField, existingTask = null }) => {
+
+    const formRef = useRef();
+
+    const [noDueDate, setNoDueDate] = useState(false);
+
+    const [formValues, setFormValues] = useState({});
+
+
+
+    const handleMultiSelectChange = (name, values) => {
+
+        setFormValues(prev => ({...prev, [name]: values}));
+
+    };
+
+
+
+    const handleSubmit = (e, shouldClose) => {
+
+        e.preventDefault();
+
+        const formData = new FormData(formRef.current);
+
+        const data = {};
+
+        
+
+        for (let [key, value] of formData.entries()) {
+
+            if (!key.startsWith('multiselect-')) {
+
+                 data[key] = value;
+
+            }
+
+        }
+
+        
+
+        Object.assign(data, formValues);
+
+
+
+        data.isPrivate = formData.has('isPrivate');
+
+        data.isShared = formData.has('isShared');
+
+        data.isRepeating = formData.has('isRepeating');
+
+        data.isDependent = formData.has('isDependent');
+
+        
+
+        if (noDueDate) {
+
+            data.dueDate = '';
+
+        }
+
+
+
+        onFormSubmit(data, 'task', shouldClose);
+
+        if (!shouldClose) {
+
+            formRef.current.reset();
+
+            setNoDueDate(false);
+
+            setFormValues({});
+
+            formRef.current.elements.title.focus();
+
+        }
+
+    };
+
+
+
+    useEffect(() => {
+
+        if (existingTask) {
+
+            const initialValues = {};
+
+            const multiSelectFields = ['responsible', 'accountable', 'consulted', 'informed', 'trainedEmployees'];
+
+            multiSelectFields.forEach(field => {
+
+                if (existingTask[field]) {
+
+                    const value = existingTask[field];
+
+                    initialValues[field] = Array.isArray(value) ? value : (value ? [value] : []);
+
+                }
+
+            });
+
+            // Handle single 'assignedTo' field
+
+            if (existingTask.assignedTo) {
+
+                initialValues.assignedTo = existingTask.assignedTo;
+
+            }
+
+
+
+            setFormValues(initialValues);
+
+
+
+            if (!existingTask.dueDate) {
+
+                setNoDueDate(true);
+
+            }
+
+        }
+
+    }, [existingTask]);
+
+
+
+    return (
+
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4">
+
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-6xl flex flex-col max-h-[90vh]">
+
+                <div className="flex-shrink-0 bg-white p-6 border-b flex justify-between items-center z-10">
+
+                    <h2 className="text-2xl font-bold text-gray-800">{existingTask ? 'Edit Task' : 'Add Task'}</h2>
+
+                    <button onClick={closeModal} className="p-2 rounded-full hover:bg-gray-100"><X className="w-6 h-6 text-gray-600" /></button>
+
+                </div>
+
+                <form id="task-form" ref={formRef} onSubmit={(e) => handleSubmit(e, true)} className="p-8 overflow-y-auto">
+
+                    <div className="space-y-10">
+
+                        <div>
+
+                            <h3 className="text-lg font-semibold text-gray-700 mb-4 border-b pb-2">Task Info</h3>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+                                <InputField label="Title" name="title" defaultValue={existingTask?.title} required className="md:col-span-2" />
+
+                                <DynamicSelectField label="Department" name="department" options={departments} onAdd={(val) => onAddDynamicField('departments', val)} defaultValue={existingTask?.department} className="md:col-span-2"/>
+
+                                <DynamicSelectField label="Task Category" name="category" options={taskCategories} onAdd={(val) => onAddDynamicField('taskCategories', val)} defaultValue={existingTask?.category} />
+
+                                <DynamicSelectField label="Project" name="project" options={projects} onAdd={(val) => onAddDynamicField('projects', val)} defaultValue={existingTask?.project} />
+
+                                <InputField label="Start Date" name="startDate" type="date" defaultValue={existingTask?.startDate} />
+
+                                <div>
+
+                                    <InputField label="Due Date" name="dueDate" type="date" disabled={noDueDate} defaultValue={existingTask?.dueDate} />
+
+                                    <CheckboxField label="Without due date" name="noDueDate" checked={noDueDate} onChange={(e) => setNoDueDate(e.target.checked)} />
+
+                                </div>
+
+                                <SearchableSelectField 
+
+                                    label="Assigned To" 
+
+                                    name="assignedTo" 
+
+                                    options={employees.map(e => ({ value: e.id, label: e.name }))} 
+
+                                    isObject 
+
+                                    value={formValues.assignedTo}
+
+                                    onChange={(name, value) => setFormValues(prev => ({...prev, [name]: value}))}
+
+                                />
+
+                                <SelectField label="Status" name="status" options={['To Do', 'Doing', 'Due', 'Completed']} defaultValue={existingTask?.status} />
+
+                            </div>
+
+                            <div className="mt-6">
+
+                                <TextareaField label="Description" name="description" placeholder="Add task description..." defaultValue={existingTask?.description} />
+
+                            </div>
+
+                        </div>
+
+
+
+                        <div>
+
+                            <h3 className="text-lg font-semibold text-gray-700 mb-4 border-b pb-2">RACIT Matrix</h3>
+
+                            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-6">
+
+                                <MultiSelectField label="Responsible" name="responsible" options={employees} onChange={handleMultiSelectChange} defaultValue={formValues.responsible || []} />
+
+                                <MultiSelectField label="Accountable" name="accountable" options={employees} onChange={handleMultiSelectChange} defaultValue={formValues.accountable || []} />
+
+                                <MultiSelectField label="Consulted" name="consulted" options={employees} onChange={handleMultiSelectChange} defaultValue={formValues.consulted || []} />
+
+                                <MultiSelectField label="Informed" name="informed" options={employees} onChange={handleMultiSelectChange} defaultValue={formValues.informed || []} />
+
+                                <MultiSelectField label="Trained" name="trainedEmployees" options={employees} onChange={handleMultiSelectChange} defaultValue={formValues.trainedEmployees || []} />
+
+                            </div>
+
+                        </div>
+
+
+
+                        <div>
+
+                            <h3 className="text-lg font-semibold text-gray-700 mb-4 border-b pb-2">Other Details</h3>
+
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+
+                                <DynamicSelectField label="Label" name="label" options={taskLabels} onAdd={(val) => onAddDynamicField('taskLabels', val)} defaultValue={existingTask?.label} />
+
+                                <DynamicSelectField label="Milestones" name="milestones" options={milestones} onAdd={(val) => onAddDynamicField('milestones', val)} defaultValue={existingTask?.milestones} />
+
+                                <SelectField label="Priority" name="priority" options={['Low', 'Medium', 'High']} defaultValue={existingTask?.priority} />
+
+                                <div className="md:col-span-3 grid grid-cols-4 gap-6">
+
+                                    <CheckboxField label="Make Private" name="isPrivate" defaultChecked={existingTask?.isPrivate}/>
+
+                                    <CheckboxField label="Share" name="isShared" defaultChecked={existingTask?.isShared}/>
+
+                                    <CheckboxField label="Repeat" name="isRepeating" defaultChecked={existingTask?.isRepeating}/>
+
+                                    <CheckboxField label="Task is dependent on another task" name="isDependent" defaultChecked={existingTask?.isDependent}/>
+
+                                </div>
+
+                                <InputField label="Validation By" name="validationBy" defaultValue={existingTask?.validationBy} />
+
+                                <InputField label="Effort Label" name="effortLabel" defaultValue={existingTask?.effortLabel} />
+
+                                 <div className="md:col-span-3 grid grid-cols-1 sm:grid-cols-2 gap-6">
+
+                                    <TextareaField label="Checklist" name="checklist" placeholder="Add checklist items, one per line." defaultValue={existingTask?.checklist} />
+
+                                    <TextareaField label="Workflow Guide" name="workflowGuide" placeholder="Add workflow guidance, one step per line." defaultValue={existingTask?.workflowGuide} />
+
+                                </div>
+
+                            </div>
+
+                        </div>
+
+                    </div>
+
+                </form>
+
+                <div className="flex-shrink-0 flex items-center justify-end p-6 border-t bg-gray-50">
+
+                    <button type="button" onClick={closeModal} className="text-gray-600 hover:text-gray-800 font-medium mr-4 px-4 py-2 rounded-lg hover:bg-gray-100">Cancel</button>
+
+                    <button type="button" onClick={(e) => handleSubmit(e, false)} className="bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-2 px-4 rounded-lg focus:outline-none focus:shadow-outline">Save & Add More</button>
+
+                    <button type="submit" form="task-form" className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg focus:outline-none focus:shadow-outline ml-2">Save Task</button>
+
+                </div>
+
+            </div>
+
+        </div>
+
+    );
+
+};
+
+
+
+
+
+// =================================================================================================
+
+// --- Employee Management Component ---
+
+// =================================================================================================
+
+const EmployeeManagement = ({ employees, onSelectEmployee, onEdit, onDelete }) => {
+
+    const allColumns = { employeeId: "Employee ID", name: "Name", email: "Email", userRole: "User Role", department: "Department", joiningDate: "Joining Date", workFrom: "Work From", status: "Status" };
+
+    const [visibleColumns, setVisibleColumns] = useState(() => { try { const saved = localStorage.getItem('visibleColumns'); return saved ? JSON.parse(saved) : Object.keys(allColumns); } catch (e) { return Object.keys(allColumns); } });
+
+    useEffect(() => { localStorage.setItem('visibleColumns', JSON.stringify(visibleColumns)); }, [visibleColumns]);
+
+    const toggleColumn = (col) => { setVisibleColumns(prev => prev.includes(col) ? prev.filter(c => c !== col) : [...prev, col]); };
+
+    const isNewHire = (joiningDate) => { if (!joiningDate) return false; const joinDate = new Date(joiningDate); const today = new Date(); const diffTime = Math.abs(today - joinDate); const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); return diffDays <= 30; };
+
+
+
+    return (
+
+        <div className="bg-white rounded-lg shadow flex-1 flex flex-col mt-6">
+
+            <div className="p-4 flex justify-end border-b flex-shrink-0">
+
+                <ColumnSelector allColumns={allColumns} visibleColumns={visibleColumns} toggleColumn={toggleColumn} />
+
+            </div>
+
+            <div className="overflow-auto">
+
+                <table className="w-full text-sm text-left text-gray-500">
+
+                    <thead className="text-xs text-gray-700 uppercase bg-gray-50 sticky top-0 z-10">
+
+                        <tr>
+
+                            {visibleColumns.map(colKey => (<th key={colKey} scope="col" className="px-6 py-3">{allColumns[colKey]}</th>))}
+
+                            <th scope="col" className="px-6 py-3 text-right">Action</th>
+
+                        </tr>
+
+                    </thead>
+
+                    <tbody>
+
+                        {employees.map(emp => (
+
+                            <tr key={emp.id} className="bg-white border-b hover:bg-gray-50">
+
+                                {visibleColumns.includes('employeeId') && <td className="px-6 py-4">{emp.employeeId}</td>}
+
+                                {visibleColumns.includes('name') && (<th scope="row" className="px-6 py-4 font-medium text-gray-900 whitespace-nowrap">
+
+                                    <a href="#" onClick={(e) => { e.preventDefault(); onSelectEmployee(emp); }} className="flex items-center hover:text-indigo-600">
+
+                                        <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 font-bold mr-3 flex-shrink-0">{emp.name ? emp.name.charAt(0).toUpperCase() : '?'}</div>
+
+                                        <div>{emp.name}{isNewHire(emp.joiningDate) && <span className="ml-2 text-xs bg-cyan-100 text-cyan-800 font-semibold px-2 py-0.5 rounded-full">New Hire</span>}</div>
+
+                                    </a>
+
+                                </th>)}
+
+                                {visibleColumns.includes('email') && <td className="px-6 py-4">{emp.email}</td>}
+
+                                {visibleColumns.includes('userRole') && <td className="px-6 py-4">{emp.userRole}</td>}
+
+                                {visibleColumns.includes('department') && <td className="px-6 py-4">{emp.department}</td>}
+
+                                {visibleColumns.includes('joiningDate') && <td className="px-6 py-4">{emp.joiningDate}</td>}
+
+                                {visibleColumns.includes('workFrom') && <td className="px-6 py-4">{emp.workFrom}</td>}
+
+                                {visibleColumns.includes('status') && (<td className="px-6 py-4"><span className="flex items-center text-xs font-medium text-green-700"><span className="flex w-2 h-2 bg-green-500 rounded-full mr-2"></span>Active</span></td>)}
+
+                                <td className="px-6 py-4 text-right"><ActionMenu onSelect={() => onSelectEmployee(emp)} onEdit={() => onEdit(emp)} onDelete={() => onDelete(emp.id, 'employee')} /></td>
+
+                            </tr>
+
+                        ))}
+
+                    </tbody>
+
+                </table>
+
+            </div>
+
+        </div>
+
+    );
+
+};
+
+
+
+// =================================================================================================
+
+// --- Employee Modal Component ---
+
+// =================================================================================================
+
+const EmployeeModal = ({ closeModal, onFormSubmit, onAddDynamicField, departments, designations, employees, existingEmployee = null }) => {
+
+    const formRef = useRef();
+
+    const handleSubmit = (e) => { e.preventDefault(); const formData = new FormData(formRef.current); const data = Object.fromEntries(formData.entries()); onFormSubmit(data, 'employee', true); };
+
+    useEffect(() => { if (existingEmployee && formRef.current) { Object.keys(existingEmployee).forEach(key => { const field = formRef.current.elements[key]; if(field) { if (field.type === 'radio' && field.name === key) { const radioGroup = formRef.current.elements[key]; const valueToSelect = existingEmployee[key]; for (const radio of radioGroup) { if (radio.value === valueToSelect) { radio.checked = true; break; } } } else { field.value = existingEmployee[key] || ''; } } }); } }, [existingEmployee]);
+
+    
+
+    return ( 
+
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4"> 
+
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-6xl flex flex-col max-h-[90vh]"> 
+
+                <div className="flex-shrink-0 bg-white p-6 border-b flex justify-between items-center z-10"> 
+
+                    <h2 className="text-2xl font-bold text-gray-800">{existingEmployee ? 'Edit Employee' : 'Add Employee'}</h2> 
+
+                    <button onClick={closeModal} className="p-2 rounded-full hover:bg-gray-100"><X className="w-6 h-6 text-gray-600" /></button> 
+
+                </div> 
+
+                <form id="employee-form" ref={formRef} onSubmit={handleSubmit} className="p-8 overflow-y-auto"> 
+
+                    <div className="space-y-10"> 
+
+                        <div> 
+
+                            <h3 className="text-lg font-semibold text-gray-700 mb-4 border-b pb-2">Account Details</h3> 
+
+                            <div className="grid grid-cols-1 md:grid-cols-4 gap-6"> 
+
+                                <InputField label="Employee ID" name="employeeId" required /> 
+
+                                <SelectField label="Salutation" name="salutation" options={['Mr', 'Mrs', 'Miss', 'Ms', 'Dr']} /> 
+
+                                <InputField label="Employee Name" name="name" required /> 
+
+                                <InputField label="Employee Email" name="email" type="email" required /> 
+
+                                <InputField label="Password" name="password" type="password" required={!existingEmployee} placeholder={existingEmployee ? 'Leave blank to keep unchanged' : 'Min. 8 characters'}/> 
+
+                                <DynamicSelectField label="Designation" name="designation" options={designations} onAdd={(val) => onAddDynamicField('designations', val)} required /> 
+
+                                <DynamicSelectField label="Department" name="department" options={departments} onAdd={(val) => onAddDynamicField('departments', val)} required /> 
+
+                                <SelectField label="Work From" name="workFrom" options={['Office', 'Remotely', 'Hybrid']} />
+
+                                <InputField label="Country" name="country" /> 
+
+                                <InputField label="Mobile" name="mobile" type="tel" /> 
+
+                                <SelectField label="Gender" name="gender" options={['Male', 'Female', 'Other']} /> 
+
+                                <InputField label="Joining Date" name="joiningDate" type="date" /> 
+
+                                <InputField label="Date of Birth" name="dob" type="date" /> 
+
+                                <SelectField label="Reporting To" name="reportingTo" options={employees.filter(e => e.id !== existingEmployee?.id).map(e => ({ value: e.id, label: e.name }))} isObject /> 
+
+                                <SelectField label="Language" name="language" options={['English', 'Spanish', 'French']} /> 
+
+                                <SelectField label="User Role" name="userRole" options={['Admin', 'Manager', 'Employee']} required /> 
+
+                                <TextareaField label="Address" name="address" className="md:col-span-2" /> 
+
+                                <TextareaField label="About" name="about" className="md:col-span-2" /> 
+
+                            </div> 
+
+                        </div> 
+
+                        <div> 
+
+                            <h3 className="text-lg font-semibold text-gray-700 mb-4 border-b pb-2">Other Details</h3> 
+
+                            <div className="grid grid-cols-1 md:grid-cols-4 gap-6"> 
+
+                                <RadioField label="Login Allowed?" name="loginAllowed" options={['Yes', 'No']} /> 
+
+                                <RadioField label="Receive email notifications?" name="emailNotifications" options={['Yes', 'No']} /> 
+
+                                <InputField label="Hourly Rate" name="hourlyRate" type="number" /> 
+
+                                <InputField label="Slack Member ID" name="slackId" /> 
+
+                                <InputField label="Skills" name="skills" className="md:col-span-2" /> 
+
+                                <InputField label="Probation End Date" name="probationEndDate" type="date" /> 
+
+                                <InputField label="Notice Period Start Date" name="noticePeriodStartDate" type="date" /> 
+
+                                <InputField label="Notice Period End Date" name="noticePeriodEndDate" type="date" /> 
+
+                                <SelectField label="Employment Type" name="employmentType" options={['Full-time', 'Part-time', 'Contract', 'Intern']} /> 
+
+                                <SelectField label="Marital Status" name="maritalStatus" options={['Single', 'Married', 'Divorced', 'Widowed']} /> 
+
+                                <TextareaField label="Business Address" name="businessAddress" className="md:col-span-2" /> 
+
+                            </div> 
+
+                        </div> 
+
+                    </div> 
+
+                </form> 
+
+                <div className="flex-shrink-0 flex items-center justify-end p-6 border-t bg-gray-50"> 
+
+                    <button type="button" onClick={closeModal} className="text-gray-600 hover:text-gray-800 font-medium mr-4 px-4 py-2 rounded-lg hover:bg-gray-100">Cancel</button> 
+
+                    <button type="submit" form="employee-form" className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg focus:outline-none focus:shadow-outline"> Save Employee </button> 
+
+                </div> 
+
+            </div> 
+
+        </div> 
+
+    );
+
+};
+
+
+
+// =================================================================================================
+
+// --- Employee Detail View Component ---
+
+// =================================================================================================
+
+const EmployeeDetailView = ({ employee, onBack, employees, errors, tasks }) => { 
+
+    const reportingToManager = employees.find(e => e.id === employee.reportingTo)?.name; 
+
+    
+
+    // Performance Metrics Calculation
+
+    const employeeTasks = tasks.filter(t => t.assignedTo === employee.id && t.status === 'Completed');
+
+    const employeeErrors = errors.filter(e => e.employeeId === employee.id);
+
+    const errorRate = employeeTasks.length > 0 ? ((employeeErrors.length / employeeTasks.length) * 100).toFixed(2) : 0;
+
+    const qualityScore = 100 - errorRate > 0 ? (100 - errorRate).toFixed(2) : 0;
+
+
+
+    const detailItems = [ 
+
+        { icon: Hash, label: 'Employee ID', value: employee.employeeId }, 
+
+        { icon: Briefcase, label: 'Designation', value: employee.designation }, 
+
+        { icon: Building, label: 'Department', value: employee.department }, 
+
+        { icon: Mail, label: 'Email', value: employee.email }, 
+
+        { icon: Phone, label: 'Mobile', value: employee.mobile }, 
+
+        { icon: User, label: 'Gender', value: employee.gender }, 
+
+        { icon: Calendar, label: 'Date of Birth', value: employee.dob }, 
+
+        { icon: Calendar, label: 'Joining Date', value: employee.joiningDate }, 
+
+        { icon: Briefcase, label: 'Employment Type', value: employee.employmentType }, 
+
+        { icon: UserCheck, label: 'User Role', value: employee.userRole }, 
+
+        { icon: Users, label: 'Reporting To', value: reportingToManager }, 
+
+        { icon: DollarSign, label: 'Hourly Rate', value: employee.hourlyRate ? `$${employee.hourlyRate}` : null }, 
+
+        { icon: Slack, label: 'Slack Member ID', value: employee.slackId }, 
+
+        { icon: Award, label: 'Skills', value: employee.skills }, 
+
+        { icon: User, label: 'Marital Status', value: employee.maritalStatus }, 
+
+        { icon: MapPin, label: 'Address', value: employee.address, fullWidth: true }, 
+
+        { icon: MapPin, label: 'Business Address', value: employee.businessAddress, fullWidth: true }, 
+
+    ]; 
+
+    
+
+    return ( 
+
+        <div className="bg-white p-6 sm:p-8 rounded-lg shadow-lg animate-fade-in"> 
+
+            <button onClick={onBack} className="text-indigo-600 hover:text-indigo-800 font-medium mb-4">&larr; Back to all employees</button> 
+
+            <div className="flex flex-col md:flex-row items-start mb-6"> 
+
+                <div className="flex items-center mb-4 md:mb-0">
+
+                    <div className="w-20 h-20 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 font-bold text-4xl mr-6 flex-shrink-0"> {employee.name ? employee.name.charAt(0).toUpperCase() : '?'} </div> 
+
+                    <div> 
+
+                        <h2 className="text-3xl font-bold text-gray-900">{employee.name}</h2> 
+
+                        <p className="text-lg text-gray-500">{employee.designation}</p> 
+
+                    </div> 
+
+                </div>
+
+                <div className="md:ml-auto w-full md:w-auto grid grid-cols-2 sm:grid-cols-3 gap-4 text-center">
+
+                    <div className="p-4 bg-gray-50 rounded-lg">
+
+                        <p className="text-2xl font-bold text-indigo-600">{employeeTasks.length}</p>
+
+                        <p className="text-sm text-gray-500">Tasks Done</p>
+
+                    </div>
+
+                   <div className="p-4 bg-gray-50 rounded-lg">
+
+                        <p className="text-2xl font-bold text-red-600">{employeeErrors.length}</p>
+
+                        <p className="text-sm text-gray-500">Errors</p>
+
+                    </div>
+
+                   <div className="p-4 bg-gray-50 rounded-lg">
+
+                        <p className="text-2xl font-bold text-green-600">{qualityScore}%</p>
+
+                        <p className="text-sm text-gray-500">Quality Score</p>
+
+                    </div>
+
+                </div>
+
+            </div> 
+
+            <div className="border-t border-gray-200 pt-6"> 
+
+                <h3 className="text-lg font-semibold text-gray-800 mb-4">Profile Info</h3> 
+
+                <dl className="grid grid-cols-1 md:grid-cols-3 gap-x-6 gap-y-4"> 
+
+                    {detailItems.map(item => ( item.value && ( 
+
+                        <div key={item.label} className={`flex items-start py-2 ${item.fullWidth ? 'md:col-span-3' : ''}`}> 
+
+                            <item.icon className="w-5 h-5 text-gray-400 mt-1 mr-3 flex-shrink-0" /> 
+
+                            <div> 
+
+                                <dt className="text-sm font-medium text-gray-500">{item.label}</dt> 
+
+                                <dd className="text-base text-gray-900 whitespace-pre-wrap">{item.value}</dd> 
+
+                            </div> 
+
+                        </div> 
+
+                    )))} 
+
+                </dl> 
+
+            </div> 
+
+        </div> 
+
+    ); 
+
+};
+
+
+
+// =================================================================================================
+
+// --- Task Detail View Component (New) ---
+
+// =================================================================================================
+
+const TaskDetailView = ({ task, onBack, employees }) => {
+
+    const [activeTab, setActiveTab] = useState('files');
+
+    
+
+    const mapIdsToNames = (ids, placeholder = 'Not Assigned') => {
+
+        if (!ids) return placeholder;
+
+        const idArray = Array.isArray(ids) ? ids : [ids];
+
+        if (idArray.length === 0) return placeholder;
+
+        return idArray.map(id => employees.find(e => e.id === id)?.name || 'Unknown').join(', ');
+
+    };
+
+    
+
+    const DetailItem = ({ label, value, color = 'text-gray-900' }) => value ? (
+
+        <div className="py-2">
+
+            <dt className="text-sm font-medium text-gray-500">{label}</dt>
+
+            <dd className={`text-base ${color} whitespace-pre-wrap`}>{value}</dd>
+
+        </div>
+
+    ) : null;
+
+
+
+    const MultiLineDetailItem = ({ label, value }) => {
+
+        if (!value || typeof value !== 'string') return null;
+
+        const items = value.split(/[\n;]/).map(s => s.trim()).filter(line => line !== '');
+
+        if (items.length === 0) return null;
+
+        return (
+
+            <div className="py-2 md:col-span-2">
+
+                <dt className="text-sm font-medium text-gray-500">{label}</dt>
+
+                <dd className="text-base text-gray-900 bg-gray-50 p-3 rounded-md mt-1">
+
+                    <ul className="list-disc list-inside space-y-1">
+
+                        {items.map((item, index) => <li key={index}>{item}</li>)}
+
+                    </ul>
+
+                </dd>
+
+            </div>
+
+        );
+
+    };
+
+
+
+    const RacitCard = ({ label, employeeIds }) => (
+
+        <div className="bg-gray-50 p-3 rounded-lg text-center flex flex-col justify-center">
+
+            <p className="text-sm font-semibold text-gray-600 mb-2">{label}</p>
+
+            <p className="font-medium text-gray-800 text-sm flex-grow">{mapIdsToNames(employeeIds)}</p>
+
+        </div>
+
+    );
+
+
+
+    const formatDate = (timestamp) => {
+
+        if (!timestamp) return '--';
+
+        return new Date(timestamp).toLocaleString();
+
+    };
+
+
+
+    const TabButton = ({ id, label, icon: Icon }) => (
+
+        <button
+
+            onClick={() => setActiveTab(id)}
+
+            className={`flex items-center px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+
+                activeTab === id ? 'bg-indigo-100 text-indigo-700' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+
+            }`}
+
+        >
+
+            <Icon className="w-4 h-4 mr-2" />
+
+            {label}
+
+        </button>
+
+    );
+
+
+
+    return (
+
+        <div className="bg-white p-6 sm:p-8 rounded-lg shadow-lg animate-fade-in">
+
+            <button onClick={onBack} className="text-indigo-600 hover:text-indigo-800 font-medium mb-4">&larr; Back to all tasks</button>
+
+            <div className="flex flex-col md:flex-row justify-between items-start">
+
+                <div className="flex-1">
+
+                    <h2 className="text-3xl font-bold text-gray-900 mb-4">{task.title}</h2>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-2">
+
+                        <DetailItem label="Project" value={task.project} />
+
+                        <DetailItem label="Priority" value={task.priority} color={task.priority === 'High' ? 'text-red-500' : 'text-gray-900'} />
+
+                        <DetailItem label="Assigned To" value={mapIdsToNames(task.assignedTo)} />
+
+                        <DetailItem label="Short Code" value={task.shortCode || '--'} />
+
+                        <DetailItem label="Milestones" value={task.milestones} />
+
+                        <DetailItem label="Assigned By" value={mapIdsToNames(task.assignedBy)} />
+
+                        <DetailItem label="Label" value={task.label} />
+
+                        <DetailItem label="Task category" value={task.category} />
+
+                        <DetailItem label="Department" value={task.department} />
+
+                        <DetailItem label="Description" value={task.description} />
+
+                        <MultiLineDetailItem label="Checklist" value={task.checklist} />
+
+                        <MultiLineDetailItem label="Workflow Guide" value={task.workflowGuide} />
+
+                    </div>
+
+                </div>
+
+                <div className="w-full md:w-64 mt-6 md:mt-0 md:ml-8 flex-shrink-0 bg-gray-50 p-4 rounded-lg">
+
+                    <h3 className="font-semibold text-lg mb-4">Task Details</h3>
+
+                    <div className="space-y-3">
+
+                        <DetailItem label="Status" value={task.status} />
+
+                        <DetailItem label="Created On" value={formatDate(task.createdAt)} />
+
+                        <DetailItem label="Start Date" value={task.startDate || '--'} />
+
+                        <DetailItem label="Due Date" value={task.dueDate || '--'} />
+
+                        <DetailItem label="Hours Logged" value={task.loggedSeconds ? `${(task.loggedSeconds / 3600).toFixed(2)} hrs` : '0s'} />
+
+                    </div>
+
+                </div>
+
+            </div>
+
+            <div className="border-t mt-8 pt-6">
+
+                <h3 className="text-xl font-semibold text-gray-800 mb-4">RACIT Matrix</h3>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+
+                    <RacitCard label="Responsible" employeeIds={task.responsible} />
+
+                    <RacitCard label="Accountable" employeeIds={task.accountable} />
+
+                    <RacitCard label="Consulted" employeeIds={task.consulted} />
+
+                    <RacitCard label="Informed" employeeIds={task.informed} />
+
+                    <RacitCard label="Trained" employeeIds={task.trainedEmployees} />
+
+                </div>
+
+            </div>
+
+
+
+            <div className="border-t mt-8 pt-6">
+
+                <div className="border-b border-gray-200">
+
+                    <nav className="-mb-px flex space-x-6" aria-label="Tabs">
+
+                        <TabButton id="files" label="Files" icon={Paperclip} />
+
+                        <TabButton id="subtasks" label="Sub Tasks" icon={ListChecks} />
+
+                        <TabButton id="comments" label="Comments" icon={MessageSquare} />
+
+                        <TabButton id="timesheet" label="Timesheet" icon={Clock4} />
+
+                        <TabButton id="notes" label="Notes" icon={FileText} />
+
+                        <TabButton id="history" label="History" icon={GitCommit} />
+
+                    </nav>
+
+                </div>
+
+                <div className="py-6">
+
+                    {/* Placeholder for tab content */}
+
+                    <div className="text-gray-500">Content for {activeTab} will be displayed here.</div>
+
+                </div>
+
+            </div>
+
+        </div>
+
+    );
+
+};
+
+
+
+
+
+// =================================================================================================
+
+// --- Common Form Control Components ---
+
+// =================================================================================================
+
+const InputField = ({ label, name, type = "text", placeholder, required = false, className = '', disabled = false, defaultValue, onChange }) => ( <div className={className}> <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor={name}>{label}</label> <input onChange={onChange} className={`shadow-sm appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-indigo-500 ${disabled ? 'bg-gray-100 cursor-not-allowed' : ''}`} id={name} name={name} type={type} placeholder={placeholder || `e.g. ${label}`} required={required} disabled={disabled} defaultValue={defaultValue} /> </div> );
+
+const TextareaField = ({ label, name, placeholder, required = false, className = '', defaultValue }) => ( <div className={className}> <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor={name}>{label}</label> <textarea className="shadow-sm appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-indigo-500" rows="3" id={name} name={name} placeholder={placeholder || `e.g. ${label}`} required={required} defaultValue={defaultValue}></textarea> </div> );
+
+const SelectField = ({ label, name, options, required = false, isObject = false, multiple = false, className = '', defaultValue, onChange }) => ( <div className={className}> <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor={name}>{label}</label> <select onChange={onChange} className="shadow-sm appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-indigo-500" id={name} name={name} required={required} multiple={multiple} defaultValue={defaultValue}> {!multiple && <option value="" >Select...</option>} {isObject ? options.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>) : options.map(opt => <option key={opt} value={opt}>{opt}</option>)} </select> </div> );
+
+const CheckboxField = ({ label, name, checked, onChange, defaultChecked }) => ( <label className="flex items-center text-sm text-gray-700 py-1 mt-2"> <input type="checkbox" name={name} checked={checked} onChange={onChange} defaultChecked={defaultChecked} className="h-4 w-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500" /> <span className="ml-2">{label}</span> </label> );
+
+const RadioField = ({ label, name, options }) => ( <div> <label className="block text-gray-700 text-sm font-bold mb-2">{label}</label> <div className="flex items-center space-x-4 mt-2"> {options.map(opt => ( <label key={opt} className="flex items-center"> <input type="radio" name={name} value={opt} className="h-4 w-4 text-indigo-600 border-gray-300 focus:ring-indigo-500" /> <span className="ml-2 text-sm text-gray-700">{opt}</span> </label> ))} </div> </div> );
+
+const DynamicSelectField = ({ label, name, options, onAdd, required = false, className = '', defaultValue }) => { const [isAdding, setIsAdding] = useState(false); const [newValue, setNewValue] = useState(""); const handleSave = () => { if (newValue.trim()) { onAdd(newValue.trim()); setNewValue(""); setIsAdding(false); } }; return ( <div className={className}> <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor={name}>{label}</label> <div className="flex items-center gap-2"> <select className="shadow-sm appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-indigo-500" id={name} name={name} required={required} defaultValue={defaultValue || ""}> <option value="" disabled>Select...</option> {options.map(opt => <option key={opt.id} value={opt.name}>{opt.name}</option>)} </select> <button type="button" onClick={() => setIsAdding(true)} className="flex-shrink-0 bg-gray-200 text-gray-700 px-3 py-2 rounded-md text-sm font-semibold hover:bg-gray-300">Add</button> </div> {isAdding && ( <div className="mt-2 flex items-center gap-2"> <input className="shadow-sm appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-indigo-500" value={newValue} onChange={(e) => setNewValue(e.target.value)} placeholder={`New ${label}`} autoFocus /> <button type="button" onClick={handleSave} className="bg-indigo-600 text-white px-3 py-2 rounded-lg text-sm">Save</button> <button type="button" onClick={() => setIsAdding(false)} className="text-gray-500 p-2 rounded-lg hover:bg-gray-100"><X size={16}/></button> </div> )} </div> ); };
+
+const MultiSelectField = ({ label, name, options, onChange, defaultValue = [] }) => {
+
+    const [isOpen, setIsOpen] = useState(false);
+
+    const [selectedValues, setSelectedValues] = useState(defaultValue);
+
+    const [searchTerm, setSearchTerm] = useState('');
+
+    const optionsMap = new Map(options.map(opt => [opt.id, opt.name]));
+
+    const wrapperRef = useRef(null);
+
+
+
+    useEffect(() => {
+
+        setSelectedValues(defaultValue);
+
+    }, [defaultValue]);
+
+
+
+    useEffect(() => {
+
+        function handleClickOutside(event) {
+
+            if (wrapperRef.current && !wrapperRef.current.contains(event.target)) {
+
+                setIsOpen(false);
+
+            }
+
+        }
+
+        document.addEventListener("mousedown", handleClickOutside);
+
+        return () => document.removeEventListener("mousedown", handleClickOutside);
+
+    }, [wrapperRef]);
+
+
+
+    const handleSelect = (value) => {
+
+        const newSelectedValues = selectedValues.includes(value)
+
+            ? selectedValues.filter(v => v !== value)
+
+            : [...selectedValues, value];
+
+        setSelectedValues(newSelectedValues);
+
+        onChange(name, newSelectedValues);
+
+    };
+
+
+
+    const removeValue = (valueToRemove) => {
+
+        const newSelectedValues = selectedValues.filter(v => v !== valueToRemove);
+
+        setSelectedValues(newSelectedValues);
+
+        onChange(name, newSelectedValues);
+
+    };
+
+
+
+    const filteredOptions = options.filter(option => 
+
+        option.name.toLowerCase().includes(searchTerm.toLowerCase())
+
+    );
+
+
+
+    return (
+
+        <div className="relative" ref={wrapperRef}>
+
+            <label className="block text-gray-700 text-sm font-bold mb-2">{label}</label>
+
+            <div onClick={() => setIsOpen(!isOpen)} className="shadow-sm bg-white border rounded w-full p-2 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-indigo-500 min-h-[42px] flex flex-wrap items-center gap-1 cursor-pointer">
+
+                {selectedValues.map(value => (
+
+                    <span key={value} className="bg-indigo-100 text-indigo-700 text-sm font-medium px-2 py-1 rounded-full flex items-center gap-1">
+
+                        {optionsMap.get(value) || '...'}
+
+                        <button type="button" onClick={(e) => { e.stopPropagation(); removeValue(value); }} className="text-indigo-500 hover:text-indigo-700">
+
+                            <X size={14} />
+
+                        </button>
+
+                    </span>
+
+                ))}
+
+                {selectedValues.length === 0 && <span className="text-gray-400 px-1">Select...</span>}
+
+            </div>
+
+            {isOpen && (
+
+                <div className="absolute z-20 mt-1 w-full bg-white shadow-lg border rounded-md max-h-60 flex flex-col">
+
+                    <div className="p-2 border-b">
+
+                        <input
+
+                            type="text"
+
+                            placeholder="Search employees..."
+
+                            className="w-full px-2 py-1 border rounded-md text-sm"
+
+                            value={searchTerm}
+
+                            onChange={(e) => setSearchTerm(e.target.value)}
+
+                            onClick={(e) => e.stopPropagation()}
+
+                        />
+
+                    </div>
+
+                    <div className="overflow-y-auto">
+
+                        {filteredOptions.map(option => (
+
+                            <label key={option.id} className="flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 cursor-pointer">
+
+                                <input
+
+                                    type="checkbox"
+
+                                    className="h-4 w-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+
+                                    checked={selectedValues.includes(option.id)}
+
+                                    onChange={() => handleSelect(option.id)}
+
+                                />
+
+                                <span className="ml-3">{option.name}</span>
+
+                            </label>
+
+                        ))}
+
+                    </div>
+
+                </div>
+
+            )}
+
+        </div>
+
+    );
+
+};
+
+const SearchableSelectField = ({ label, name, options, required = false, isObject = false, className = '', value, onChange }) => {
+
+    const [isOpen, setIsOpen] = useState(false);
+
+    const [searchTerm, setSearchTerm] = useState('');
+
+    const wrapperRef = useRef(null);
+
+
+
+    const optionsMap = isObject ? new Map(options.map(opt => [opt.value, opt.label])) : new Map(options.map(opt => [opt, opt]));
+
+    const [displayValue, setDisplayValue] = useState(value ? optionsMap.get(value) || '' : '');
+
+
+
+    useEffect(() => {
+
+        if (!isOpen) {
+
+            setDisplayValue(value ? optionsMap.get(value) || '' : '');
+
+        }
+
+    }, [value, optionsMap, isOpen]);
+
+
+
+
+
+    useEffect(() => {
+
+        function handleClickOutside(event) {
+
+            if (wrapperRef.current && !wrapperRef.current.contains(event.target)) {
+
+                setIsOpen(false);
+
+                setSearchTerm('');
+
+                setDisplayValue(value ? optionsMap.get(value) || '' : '');
+
+            }
+
+        }
+
+        document.addEventListener("mousedown", handleClickOutside);
+
+        return () => document.removeEventListener("mousedown", handleClickOutside);
+
+    }, [wrapperRef, value, optionsMap]);
+
+
+
+    const handleSelect = (newValue, newLabel) => {
+
+        setDisplayValue(newLabel);
+
+        setIsOpen(false);
+
+        setSearchTerm('');
+
+        if(onChange) onChange(name, newValue);
+
+    };
+
+
+
+    const filteredOptions = options.filter(option => {
+
+        const label = isObject ? option.label : option;
+
+        return label.toLowerCase().includes(searchTerm.toLowerCase());
+
+    });
+
+
+
+    const handleInputChange = (e) => {
+
+        const currentInput = e.target.value;
+
+        setSearchTerm(currentInput);
+
+        setDisplayValue(currentInput);
+
+        if (!isOpen) {
+
+            setIsOpen(true);
+
+        }
+
+        if (currentInput === '') {
+
+            if (onChange) {
+
+                onChange(name, '');
+
+            }
+
+        }
+
+    };
+
+    
+
+    const handleInputClick = () => {
+
+        setIsOpen(true);
+
+    };
+
+
+
+    return (
+
+        <div className={className} ref={wrapperRef}>
+
+            <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor={name}>{label}</label>
+
+            <div className="relative">
+
+                <input
+
+                    className="shadow-sm appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-indigo-500"
+
+                    id={`${name}-search`}
+
+                    type="text"
+
+                    placeholder="Type to search..."
+
+                    onClick={handleInputClick}
+
+                    value={displayValue}
+
+                    onChange={handleInputChange}
+
+                    autoComplete="off"
+
+                />
+
+                 <input type="hidden" name={name} value={value} required={required} />
+
+
+
+                {isOpen && (
+
+                    <div className="absolute z-20 mt-1 w-full bg-white shadow-lg border rounded-md max-h-60 overflow-y-auto">
+
+                        {filteredOptions.length > 0 ? filteredOptions.map(option => {
+
+                            const optionValue = isObject ? option.value : option;
+
+                            const optionLabel = isObject ? option.label : option;
+
+                            return (
+
+                                <div
+
+                                    key={optionValue}
+
+                                    className="px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 cursor-pointer"
+
+                                    onMouseDown={() => handleSelect(optionValue, optionLabel)}
+
+                                >
+
+                                    {optionLabel}
+
+                                </div>
+
+                            );
+
+                        }) : <div className="px-4 py-2 text-sm text-gray-500">No results found</div>}
+
+                    </div>
+
+                )}
+
+            </div>
+
+        </div>
+
+    );
+
+};
+
+
+
+
+
+// =================================================================================================
+
+// --- Common UI Components ---
+
+// =================================================================================================
+
+const ActionMenu = ({ onSelect, onEdit, onDelete, isErrorMenu = false }) => { const [isOpen, setIsOpen] = useState(false); const [position, setPosition] = useState({ top: 0, left: 0 }); const buttonRef = useRef(null); const handleToggle = (e) => { e.stopPropagation(); if (buttonRef.current) { const rect = buttonRef.current.getBoundingClientRect(); setPosition({ top: rect.bottom + 2, left: rect.right - 160, }); } setIsOpen(prev => !prev); }; useEffect(() => { const close = () => setIsOpen(false); if (isOpen) { window.addEventListener('click', close); window.addEventListener('scroll', close, true); } return () => { window.removeEventListener('click', close); window.removeEventListener('scroll', close, true); }; }, [isOpen]); return ( <> <button ref={buttonRef} onClick={handleToggle} className="p-2 rounded-full hover:bg-gray-100"> <MoreVertical size={16} /> </button> {isOpen && ( <div style={{ position: 'fixed', top: `${position.top}px`, left: `${position.left}px` }} className="w-40 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 z-50" onClick={(e) => e.stopPropagation()}> <div className="py-1" role="menu" aria-orientation="vertical"> {!isErrorMenu && <a href="#" onClick={(e) => { e.preventDefault(); onSelect(); setIsOpen(false); }} className="flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-100" role="menuitem"><Eye size={14} className="mr-3"/> View</a>} <a href="#" onClick={(e) => { e.preventDefault(); onEdit(); setIsOpen(false); }} className="flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-100" role="menuitem"><Edit size={14} className="mr-3"/> Edit</a> <a href="#" onClick={(e) => { e.preventDefault(); onDelete(); setIsOpen(false); }} className="flex items-center px-4 py-2 text-sm text-red-600 hover:bg-gray-100" role="menuitem"><Trash2 size={14} className="mr-3"/> Delete</a> </div> </div> )} </> ); };
+
+const ColumnSelector = ({ allColumns, visibleColumns, toggleColumn }) => { const [isOpen, setIsOpen] = useState(false); const [position, setPosition] = useState({ top: 0, left: 0 }); const buttonRef = useRef(null); const handleToggle = (e) => { e.stopPropagation(); if (buttonRef.current) { const rect = buttonRef.current.getBoundingClientRect(); setPosition({ top: rect.bottom + 2, left: rect.right - 224, }); } setIsOpen(prev => !prev); }; useEffect(() => { const close = () => setIsOpen(false); if (isOpen) { window.addEventListener('click', close); window.addEventListener('scroll', close, true); } return () => { window.removeEventListener('click', close); window.removeEventListener('scroll', close, true); }; }, [isOpen]); return ( <> <button ref={buttonRef} onClick={handleToggle} className="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"> Columns <ChevronDown className="-mr-1 ml-2 h-5 w-5" /> </button> {isOpen && ( <div style={{ position: 'fixed', top: `${position.top}px`, left: `${position.left}px` }} className="w-56 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 z-50" onClick={(e) => e.stopPropagation()}> <div className="py-1"> {Object.entries(allColumns).map(([key, value]) => ( <label key={key} className="flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 cursor-pointer"> <input type="checkbox" className="h-4 w-4 text-indigo-600 border-gray-300 rounded" checked={visibleColumns.includes(key)} onChange={() => toggleColumn(key)} /> <span className="ml-3">{value}</span> </label> ))} </div> </div> )} </> ); };
+
+const ConfirmDeleteModal = ({ onConfirm, onCancel, itemType }) => ( <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4"> <div className="bg-white rounded-lg shadow-xl w-full max-w-sm"> <div className="p-6 text-center"> <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-red-100"> <AlertTriangle className="h-6 w-6 text-red-600" /> </div> <h3 className="mt-5 text-lg font-medium text-gray-900">Delete {itemType}?</h3> <p className="mt-2 text-sm text-gray-500">Are you sure you want to delete this {itemType}? This action cannot be undone.</p> </div> <div className="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse rounded-b-lg"> <button type="button" onClick={onConfirm} className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-red-600 text-base font-medium text-white hover:bg-red-700 sm:ml-3 sm:w-auto sm:text-sm"> Delete </button> <button type="button" onClick={onCancel} className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 sm:mt-0 sm:w-auto sm:text-sm"> Cancel </button> </div> </div> </div> );
+
+
+
+// =================================================================================================
+
+// --- Tab Components for Task Details ---
+
+// =================================================================================================
+
+const FilesTab = ({ taskId, files, appId }) => {
+
+    return <div>
+
+        <p className="text-gray-500">File management is not available in this version.</p>
+
+    </div>;
+
+};
+
+
+
+const SubtasksTab = ({ taskId, subtasks, appId }) => {
+
+    return <div>
+
+        <p className="text-gray-500">Subtask management is not available in this version.</p>
+
+    </div>;
+
+};
+
+
+
+const CommentsTab = ({ taskId, comments, appId }) => {
+
+    return <div>
+
+        <p className="text-gray-500">Comment management is not available in this version.</p>
+
+    </div>;
+
+};
+
+
+
+const NotesTab = ({ taskId, notes, appId }) => {
+
+    return <div>
+
+        <p className="text-gray-500">Note management is not available in this version.</p>
+
+    </div>;
+
+};
+
+
+
+const HistoryTab = ({ history }) => {
+
+    return <div>
+
+        <p className="text-gray-500">History tracking is not available in this version.</p>
+
+    </div>
+
+};
+
+
+
+// =================================================================================================
+
+// --- Task Filter Sidebar Component (New) ---
+
+// =================================================================================================
+
+const TaskFilterSidebar = ({ onClose, filters, setFilters, employees, taskLabels }) => {
+
+    const handleFilterChange = (filterName, value) => {
+
+        setFilters(prev => ({ ...prev, [filterName]: value }));
+
+    };
+
+
+
+    const handleMultiSelectChange = (filterName, values) => {
+
+        setFilters(prev => ({ ...prev, [filterName]: values }));
+
+    };
+
+
+
+    return (
+
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-40" onClick={onClose}>
+
+            <div className="fixed top-0 right-0 h-full w-80 bg-white shadow-lg flex flex-col" onClick={e => e.stopPropagation()}>
+
+                <div className="flex justify-between items-center p-6 border-b flex-shrink-0">
+
+                    <h2 className="text-xl font-bold">Filters</h2>
+
+                    <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-100"><X /></button>
+
+                </div>
+
+                <div className="p-6 overflow-y-auto flex-grow space-y-6">
+
+                    <SearchableSelectField
+
+                        label="Assigned To"
+
+                        name="assignedTo"
+
+                        options={employees.map(e => ({ value: e.id, label: e.name }))}
+
+                        isObject
+
+                        value={filters.assignedTo}
+
+                        onChange={(name, value) => handleFilterChange(name, value)}
+
+                    />
+
+                    <SelectField
+
+                        label="Priority"
+
+                        name="priority"
+
+                        options={['', 'Low', 'Medium', 'High']}
+
+                        defaultValue={filters.priority}
+
+                        onChange={(e) => handleFilterChange('priority', e.target.value)}
+
+                    />
+
+                    <SelectField
+
+                        label="Label"
+
+                        name="label"
+
+                        options={['', ...taskLabels.map(l => l.name)]}
+
+                        defaultValue={filters.label}
+
+                        onChange={(e) => handleFilterChange('label', e.target.value)}
+
+                    />
+
+                    <MultiSelectField label="Responsible" name="responsible" options={employees} onChange={handleMultiSelectChange} defaultValue={filters.responsible || []} />
+
+                    <MultiSelectField label="Accountable" name="accountable" options={employees} onChange={handleMultiSelectChange} defaultValue={filters.accountable || []} />
+
+                    <MultiSelectField label="Consulted" name="consulted" options={employees} onChange={handleMultiSelectChange} defaultValue={filters.consulted || []} />
+
+                    <MultiSelectField label="Informed" name="informed" options={employees} onChange={handleMultiSelectChange} defaultValue={filters.informed || []} />
+
+                    <MultiSelectField label="Trained" name="trainedEmployees" options={employees} onChange={handleMultiSelectChange} defaultValue={filters.trainedEmployees || []} />
+
+                </div>
+
+                <div className="p-6 border-t flex-shrink-0">
+
+                    <button 
+
+                        onClick={() => setFilters({})} 
+
+                        className="w-full text-center py-2 px-4 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+
+                    >
+
+                        Clear Filters
+
+                    </button>
+
+                </div>
+
+            </div>
+
+        </div>
+
+    );
+
+};
+
+
+
+
+
+// =================================================================================================
+
+// --- Task Report Component (New) ---
+
+// =================================================================================================
+
+const TaskReport = ({ allTasks, employees, taskLabels }) => {
+
+    const [filters, setFilters] = useState({});
+
+    const [dateRange, setDateRange] = useState({ start: '', end: '' });
+
+    const [isFilterSidebarOpen, setIsFilterSidebarOpen] = useState(false);
+
+
+
+    const toggleFilterSidebar = () => setIsFilterSidebarOpen(prev => !prev);
+
+
+
+
+
+    const filteredTasks = React.useMemo(() => {
+
+        return allTasks.filter(task => {
+
+            const taskDate = task.createdAt;
+
+            if (dateRange.start && (!taskDate || taskDate < new Date(dateRange.start))) return false;
+
+            if (dateRange.end && (!taskDate || taskDate > new Date(dateRange.end))) return false;
+
+            
+
+            return Object.entries(filters).every(([key, value]) => {
+
+                 if (!value || value.length === 0) return true;
+
+                const taskValue = task[key];
+
+                if (Array.isArray(taskValue)) {
+
+                    return Array.isArray(value) ? value.some(v => taskValue.includes(v)) : taskValue.includes(value);
+
+                }
+
+                return Array.isArray(value) ? value.includes(taskValue) : taskValue === value;
+
+            });
+
+        });
+
+    }, [allTasks, filters, dateRange]);
+
+
+
+    const tasksCompleted = filteredTasks.filter(t => t.status === 'Completed').length;
+
+    const tasksInProgress = filteredTasks.filter(t => t.status === 'Doing').length;
+
+    const overdueTasks = filteredTasks.filter(t => t.dueDate && new Date(t.dueDate) < new Date() && t.status !== 'Completed').length;
+
+
+
+    const StatCard = ({ title, value, icon: Icon, color }) => (
+
+        <div className="bg-white p-6 rounded-lg shadow-md flex items-center">
+
+            <div className={`p-3 rounded-full mr-4 ${color}`}>
+
+                <Icon className="h-6 w-6 text-white" />
+
+            </div>
+
+            <div>
+
+                <p className="text-3xl font-bold text-gray-800">{value}</p>
+
+                <p className="text-sm font-medium text-gray-500">{title}</p>
+
+            </div>
+
+        </div>
+
+    );
+
+
+
+    return (
+
+        <div className="animate-fade-in">
+
+            <Header title="Task Report" onFilterClick={toggleFilterSidebar} />
+
+             <div className="bg-white p-4 rounded-lg shadow-md mb-6">
+
+                <h3 className="font-semibold mb-2">Date Range</h3>
+
+                <div className="grid grid-cols-2 gap-4">
+
+                    <InputField label="Start Date" name="startDate" type="date" onChange={e => setDateRange(prev => ({...prev, start: e.target.value}))} />
+
+                    <InputField label="End Date" name="endDate" type="date" onChange={e => setDateRange(prev => ({...prev, end: e.target.value}))} />
+
+                </div>
+
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+
+                <StatCard title="Total Tasks" value={filteredTasks.length} icon={Briefcase} color="bg-indigo-500" />
+
+                <StatCard title="Tasks Completed" value={tasksCompleted} icon={CheckCircle} color="bg-green-500" />
+
+                <StatCard title="Tasks In Progress" value={tasksInProgress} icon={Clock} color="bg-blue-500" />
+
+                <StatCard title="Overdue Tasks" value={overdueTasks} icon={AlertTriangle} color="bg-red-500" />
+
+            </div>
+
+            <div className="bg-white rounded-lg shadow-md">
+
+                <div className="overflow-auto">
+
+                     <table className="w-full text-sm text-left text-gray-500">
+
+                        <thead className="text-xs text-gray-700 uppercase bg-gray-50 sticky top-0">
+
+                            <tr>
+
+                                <th scope="col" className="px-6 py-3">Task</th>
+
+                                <th scope="col" className="px-6 py-3">Assigned To</th>
+
+                                <th scope="col" className="px-6 py-3">Status</th>
+
+                                <th scope="col" className="px-6 py-3">Due Date</th>
+
+                            </tr>
+
+                        </thead>
+
+                        <tbody>
+
+                            {filteredTasks.map(task => (
+
+                                <tr key={task.id} className="bg-white border-b hover:bg-gray-50">
+
+                                    <td className="px-6 py-4 font-medium text-gray-900">{task.title}</td>
+
+                                    <td className="px-6 py-4">{employees.find(e => e.id === task.assignedTo)?.name || 'N/A'}</td>
+
+                                    <td className="px-6 py-4">
+
+                                        <span className={`px-2 py-1 text-xs font-semibold rounded-full ${ task.status === 'Doing' ? 'bg-blue-100 text-blue-800' : task.status === 'Completed' ? 'bg-green-100 text-green-800' : task.status === 'Due' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800' }`}>
+
+                                            {task.status || 'To Do'}
+
+                                        </span>
+
+                                    </td>
+
+                                    <td className="px-6 py-4">{task.dueDate || 'N/A'}</td>
+
+                                </tr>
+
+                            ))}
+
+                        </tbody>
+
+                    </table>
+
+                </div>
+
+            </div>
+
+             {isFilterSidebarOpen && (
+
+                <TaskFilterSidebar
+
+                    onClose={toggleFilterSidebar}
+
+                    filters={filters}
+
+                    setFilters={setFilters}
+
+                    employees={employees}
+
+                    taskLabels={taskLabels}
+
+                />
+
+            )}
+
+        </div>
+
+    );
+
+};
+
+
+
+// =================================================================================================
+
+// --- Employee Dashboard Component (New) ---
+
+// =================================================================================================
+
+const EmployeeDashboard = ({ employees }) => {
+
+    const roles = employees.reduce((acc, emp) => {
+
+        const role = emp.userRole || 'Employee';
+
+        acc[role] = (acc[role] || 0) + 1;
+
+        return acc;
+
+    }, {});
+
+
+
+    const StatCard = ({ title, value, icon: Icon, color }) => (
+
+        <div className="bg-white p-6 rounded-lg shadow-md flex items-center">
+
+            <div className={`p-3 rounded-full mr-4 ${color}`}>
+
+                <Icon className="h-6 w-6 text-white" />
+
+            </div>
+
+            <div>
+
+                <p className="text-3xl font-bold text-gray-800">{value}</p>
+
+                <p className="text-sm font-medium text-gray-500">{title}</p>
+
+            </div>
+
+        </div>
+
+    );
+
+
+
+    return (
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+
+            <StatCard title="Total Employees" value={employees.length} icon={Users} color="bg-blue-500" />
+
+            <StatCard title="Managers" value={roles['Manager'] || 0} icon={UserCheck} color="bg-indigo-500" />
+
+            <StatCard title="Admins" value={roles['Admin'] || 0} icon={Key} color="bg-purple-500" />
+
+            <StatCard title="Employees" value={roles['Employee'] || 0} icon={User} color="bg-green-500" />
+
+        </div>
+
+    );
+
+};
+
+
+
+// =================================================================================================
+
+// --- DWM Report Component (New) ---
+
+// =================================================================================================
+
+const DWMReport = ({ allTasks, employees, departments }) => {
+
+    const [filters, setFilters] = useState({ employeeId: '', departmentId: '', startDate: '', endDate: '' });
+
+
+
+    const filteredEmployees = React.useMemo(() => {
+
+        if (!filters.departmentId) return employees;
+
+        const departmentName = departments.find(d => d.id === filters.departmentId)?.name;
+
+        return employees.filter(emp => emp.department === departmentName);
+
+    }, [employees, filters.departmentId, departments]);
+
+
+
+    const reportData = React.useMemo(() => {
+
+        if (!filters.employeeId || !filters.startDate || !filters.endDate) return [];
+
+
+
+        const employeeTasks = allTasks.filter(task => {
+
+            const assignedToArray = Array.isArray(task.assignedTo) ? task.assignedTo : [task.assignedTo];
+
+            return assignedToArray.includes(filters.employeeId);
+
+        });
+
+
+
+        const startDate = new Date(filters.startDate);
+
+        const endDate = new Date(filters.endDate);
+
+        const dateMap = new Map();
+
+
+
+        for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+
+            const dateString = d.toISOString().split('T')[0];
+
+            dateMap.set(dateString, {
+
+                daily: { completed: 0, total: 0 },
+
+                weekly: { completed: 0, total: 0 },
+
+                monthly: { completed: 0, total: 0 },
+
+            });
+
+        }
+
+
+
+        employeeTasks.forEach(task => {
+
+            // Daily Tasks
+
+            if (task.label === 'Daily Task') {
+
+                dateMap.forEach((value, dateString) => {
+
+                    value.daily.total++;
+
+                    if (task.status === 'Completed' && task.completedAt?.toDate().toISOString().split('T')[0] === dateString) {
+
+                        value.daily.completed++;
+
+                    }
+
+                });
+
+            }
+
+
+
+            // Weekly Tasks
+
+            const weeklyMatch = task.title.match(/\((Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\)/i);
+
+            if (weeklyMatch) {
+
+                const dayOfWeek = weeklyMatch[1];
+
+                dateMap.forEach((value, dateString) => {
+
+                    const [year, month, day] = dateString.split('-').map(Number);
+
+                    const date = new Date(Date.UTC(year, month - 1, day));
+
+                    if (date.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' }) === dayOfWeek) {
+
+                        value.weekly.total++;
+
+                         if (task.status === 'Completed' && task.completedAt?.toDate().toISOString().split('T')[0] === dateString) {
+
+                            value.weekly.completed++;
+
+                        }
+
+                    }
+
+                });
+
+            }
+
+
+
+            // Monthly Tasks
+
+            const monthlyMatch = task.title.match(/\((\d+)(?:st|nd|rd|th)? of month\)/i);
+
+            if (monthlyMatch) {
+
+                const dayOfMonth = parseInt(monthlyMatch[1]);
+
+                 dateMap.forEach((value, dateString) => {
+
+                    const [year, month, day] = dateString.split('-').map(Number);
+
+                    const date = new Date(Date.UTC(year, month - 1, day));
+
+                    if (date.getUTCDate() === dayOfMonth) {
+
+                        value.monthly.total++;
+
+                         if (task.status === 'Completed' && task.completedAt?.toDate().toISOString().split('T')[0] === dateString) {
+
+                            value.monthly.completed++;
+
+                        }
+
+                    }
+
+                });
+
+            }
+
+        });
+
+
+
+        return Array.from(dateMap.entries()).map(([date, data]) => ({ date, ...data }));
+
+
+
+    }, [allTasks, filters]);
+
+
+
+    return (
+
+        <div className="animate-fade-in">
+
+            <Header title="DWM Report" />
+
+            <div className="bg-white p-4 rounded-lg shadow-md mb-6 grid grid-cols-1 md:grid-cols-4 gap-4">
+
+                <SearchableSelectField
+
+                    label="Department"
+
+                    name="departmentId"
+
+                    options={departments.map(d => ({ value: d.id, label: d.name }))}
+
+                    isObject
+
+                    value={filters.departmentId}
+
+                    onChange={(name, value) => setFilters(prev => ({...prev, [name]: value, employeeId: ''}))}
+
+                />
+
+                <SearchableSelectField
+
+                    label="Employee"
+
+                    name="employeeId"
+
+                    options={filteredEmployees.map(e => ({ value: e.id, label: e.name }))}
+
+                    isObject
+
+                    value={filters.employeeId}
+
+                    onChange={(name, value) => setFilters(prev => ({...prev, [name]: value}))}
+
+                />
+
+                <InputField label="Start Date" name="startDate" type="date" onChange={e => setFilters(prev => ({...prev, startDate: e.target.value}))} />
+
+                <InputField label="End Date" name="endDate" type="date" onChange={e => setFilters(prev => ({...prev, endDate: e.target.value}))} />
+
+            </div>
+
+             <div className="bg-white rounded-lg shadow-md overflow-auto">
+
+                <table className="w-full text-sm text-left text-gray-500">
+
+                    <thead className="text-xs text-gray-700 uppercase bg-gray-50">
+
+                        <tr>
+
+                            <th scope="col" className="px-6 py-3">Date</th>
+
+                            <th scope="col" className="px-6 py-3">Daily</th>
+
+                            <th scope="col" className="px-6 py-3">Weekly</th>
+
+                            <th scope="col" className="px-6 py-3">Monthly</th>
+
+                        </tr>
+
+                    </thead>
+
+                    <tbody>
+
+                        {reportData.map(row => (
+
+                            <tr key={row.date} className="bg-white border-b">
+
+                                <td className="px-6 py-4 font-medium">{new Date(row.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</td>
+
+                                <td className="px-6 py-4">{row.daily.total > 0 ? `${row.daily.completed}/${row.daily.total}` : 'N/A'}</td>
+
+                                <td className="px-6 py-4">{row.weekly.total > 0 ? `${row.weekly.completed}/${row.weekly.total}` : 'N/A'}</td>
+
+                                <td className="px-6 py-4">{row.monthly.total > 0 ? `${row.monthly.completed}/${row.monthly.total}` : 'N/A'}</td>
+
+                            </tr>
+
+                        ))}
+
+                    </tbody>
+
+                </table>
+
+            </div>
+
+        </div>
+
+    );
+
+};
+
+// =================================================================================================
+
+// --- Task Dashboard Component (New) ---
+
+// =================================================================================================
+
+const TaskDashboard = ({ tasks }) => {
+
+    const totalTasks = tasks.length;
+
+    const completedTasks = tasks.filter(t => t.status === 'Completed').length;
+
+    const inProgressTasks = tasks.filter(t => t.status === 'Doing').length;
+
+    const overdueTasks = tasks.filter(t => t.dueDate && new Date(t.dueDate) < new Date() && t.status !== 'Completed').length;
+
+
+
+    const StatCard = ({ title, value, icon: Icon, color }) => (
+
+        <div className="bg-white p-6 rounded-lg shadow-md flex items-center">
+
+            <div className={`p-3 rounded-full mr-4 ${color}`}>
+
+                <Icon className="h-6 w-6 text-white" />
+
+            </div>
+
+            <div>
+
+                <p className="text-3xl font-bold text-gray-800">{value}</p>
+
+                <p className="text-sm font-medium text-gray-500">{title}</p>
+
+            </div>
+
+        </div>
+
+    );
+
+
+
+    return (
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+
+            <StatCard title="Total Tasks" value={totalTasks} icon={Briefcase} color="bg-indigo-500" />
+
+            <StatCard title="Completed" value={completedTasks} icon={CheckCircle} color="bg-green-500" />
+
+            <StatCard title="In Progress" value={inProgressTasks} icon={Clock} color="bg-blue-500" />
+
+            <StatCard title="Overdue" value={overdueTasks} icon={AlertTriangle} color="bg-red-500" />
+
+        </div>
+
+    );
+
+};
+
+
+
+// =================================================================================================
+
+// --- Department Detail View Component (New) ---
+
+// =================================================================================================
+
+const DepartmentDetailView = ({ department, onBack, tasks }) => {
+
+    const departmentTasks = tasks.filter(task => task.department === department.name);
+
+    const tasksCompleted = departmentTasks.filter(t => t.status === 'Completed').length;
+
+    const tasksInProgress = departmentTasks.filter(t => t.status === 'Doing').length;
+
+    const overdueTasks = departmentTasks.filter(t => t.dueDate && new Date(t.dueDate) < new Date() && t.status !== 'Completed').length;
+
+
+
+    const StatCard = ({ title, value, icon: Icon, color }) => (
+
+        <div className="bg-white p-6 rounded-lg shadow-md flex items-center">
+
+            <div className={`p-3 rounded-full mr-4 ${color}`}>
+
+                <Icon className="h-6 w-6 text-white" />
+
+            </div>
+
+            <div>
+
+                <p className="text-3xl font-bold text-gray-800">{value}</p>
+
+                <p className="text-sm font-medium text-gray-500">{title}</p>
+
+            </div>
+
+        </div>
+
+    );
+
+
+
+    return (
+
+        <div className="animate-fade-in">
+
+            <button onClick={onBack} className="text-indigo-600 hover:text-indigo-800 font-medium mb-4">&larr; Back to all departments</button>
+
+            <h1 className="text-3xl font-bold text-gray-800 mb-6">{department.name} Department</h1>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+
+                <StatCard title="Total Tasks" value={departmentTasks.length} icon={Briefcase} color="bg-indigo-500" />
+
+                <StatCard title="Completed" value={tasksCompleted} icon={CheckCircle} color="bg-green-500" />
+
+                <StatCard title="In Progress" value={tasksInProgress} icon={Clock} color="bg-blue-500" />
+
+                <StatCard title="Overdue" value={overdueTasks} icon={AlertTriangle} color="bg-red-500" />
+
+            </div>
+
+             <div className="bg-white rounded-lg shadow-md">
+
+                <div className="overflow-auto">
+
+                     <table className="w-full text-sm text-left text-gray-500">
+
+                        <thead className="text-xs text-gray-700 uppercase bg-gray-50 sticky top-0">
+
+                            <tr>
+
+                                <th scope="col" className="px-6 py-3">Task</th>
+
+                                <th scope="col" className="px-6 py-3">Status</th>
+
+                                <th scope="col" className="px-6 py-3">Priority</th>
+
+                                <th scope="col" className="px-6 py-3">Due Date</th>
+
+                            </tr>
+
+                        </thead>
+
+                        <tbody>
+
+                            {departmentTasks.map(task => (
+
+                                <tr key={task.id} className="bg-white border-b hover:bg-gray-50">
+
+                                    <td className="px-6 py-4 font-medium text-gray-900">{task.title}</td>
+
+                                    <td className="px-6 py-4">
+
+                                        <span className={`px-2 py-1 text-xs font-semibold rounded-full ${ task.status === 'Doing' ? 'bg-blue-100 text-blue-800' : task.status === 'Completed' ? 'bg-green-100 text-green-800' : task.status === 'Due' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800' }`}>
+
+                                            {task.status || 'To Do'}
+
+                                        </span>
+
+                                    </td>
+
+                                    <td className="px-6 py-4">{task.priority || 'N/A'}</td>
+
+                                    <td className="px-6 py-4">{task.dueDate || 'N/A'}</td>
+
+                                </tr>
+
+                            ))}
+
+                        </tbody>
+
+                    </table>
+
+                </div>
+
+            </div>
+
+        </div>
+
+    );
+
+};
