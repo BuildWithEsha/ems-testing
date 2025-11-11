@@ -188,7 +188,6 @@ const logTaskHistory = async (taskId, action, description, userName, userId, old
     }
   });
 };
-
 // Normalize various Assigned To payload shapes into a comma-separated string of names
 const toAssignedToString = (taskData) => {
   if (!taskData) return '';
@@ -386,7 +385,6 @@ app.get('/api/reports/dwm', async (req, res) => {
     if (employee) {
       completedParams.push(`%${employee}%`);
     }
-    
     const [completedRows] = await connection.execute(completedQuery, completedParams);
     const [totalRows] = await connection.execute(totalQuery, totalParams);
     
@@ -565,7 +563,6 @@ const formatAttendanceDate = (value) => {
     .toLocaleString('sv-SE', { timeZone: 'Asia/Karachi' })
     .replace(' ', 'T');
 };
-
 // Attendance APIs
 // Get current status for an employee
 app.get('/api/attendance/status', async (req, res) => {
@@ -963,7 +960,6 @@ app.delete('/api/attendance/clear-all', async (req, res) => {
     }
   }
 });
-
 // Bulk delete attendance records - MUST come BEFORE /:id route
 app.delete('/api/attendance/bulk', async (req, res) => {
   const { ids } = req.body;
@@ -1132,7 +1128,6 @@ app.get('/api/attendance/debug', async (req, res) => {
     }
   }
 });
-
 // Get attendance summary statistics
 app.get('/api/attendance/summary', async (req, res) => {
   const { employee_id, from_date, to_date, exclude_imported } = req.query;
@@ -1329,7 +1324,6 @@ app.post('/api/attendance/import', upload.single('file'), async (req, res) => {
             formattedClockIn = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
           }
         }
-
         // Format clock out time
         let formattedClockOut = clockOut;
         if (clockOut instanceof Date) {
@@ -1507,7 +1501,6 @@ app.get('/api/reports/timelog', async (req, res) => {
     }
   }
 });
-
 // Consolidated Time Log Report - grouped by task (parent-level) and assignee across selected dates
 app.get('/api/reports/timelog/consolidated', async (req, res) => {
   const { start, end, employee, department } = req.query;
@@ -1606,7 +1599,6 @@ app.get('/api/attendance/day-summary', async (req, res) => {
     }
   }
 });
-
 // Errors APIs
 app.get('/api/errors', async (req, res) => {
   const query = `
@@ -1702,7 +1694,6 @@ app.delete('/api/errors/:id', async (req, res) => {
     }
   }
 });
-
 // Delete multiple errors
 app.delete('/api/errors/bulk', async (req, res) => {
   console.log('Bulk delete request received:', req.body);
@@ -1901,7 +1892,6 @@ app.get('/api/appreciation-types', async (req, res) => {
     }
   }
 });
-
 app.post('/api/appreciation-types', async (req, res) => {
   const { name } = req.body;
   if (!name || !String(name).trim()) {
@@ -3184,7 +3174,6 @@ app.put('/api/employees/:id', async (req, res) => {
     employeeData.emergency_contact_relation,
     req.params.id
   ];
-  
   let connection;
   try {
     // Get a connection from the pool
@@ -3368,7 +3357,6 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
             employeeData.working_hours, employeeData.job_title, employeeData.emergency_contact_number,
             employeeData.emergency_contact_relation, employeeData.status
           ];
-
           // Use MySQL connection for import
           try {
             console.log(`Processing row ${index + 1}: ${employeeData.name} (${employeeData.email})`);
@@ -3564,7 +3552,6 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                 }
               }
             });
-
             // Import departments from Excel file
             app.post('/api/departments/import', upload.single('file'), async (req, res) => {
               if (!req.file) {
@@ -3763,7 +3750,6 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                 res.status(500).json({ error: 'Database error' });
               }
             });
-
             // Import designations from Excel file
             app.post('/api/designations/import', upload.single('file'), async (req, res) => {
               if (!req.file) {
@@ -3926,7 +3912,6 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                 }
               }
             });
-
             // Update label
             app.put('/api/labels/:id', async (req, res) => {
               const labelData = req.body;
@@ -4092,7 +4077,6 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                 res.status(500).json({ error: 'Error processing file' });
               }
             });
-
             // Task Configuration API Routes
             // Get task configuration (scoring weights and points)
             app.get('/api/task-config', async (req, res) => {
@@ -4212,9 +4196,7 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                 }
               }
             });
-
             // Task API Routes
-
             // Get all tasks (optimized)
             app.get('/api/tasks', async (req, res) => {
   const { user_id, role, employee_name, department, employee, page = 1, limit = 50, all, search, status, priority, complexity, impact, effortEstimateLabel, unit, target, labels, assignedTo } = req.query;
@@ -4293,7 +4275,6 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
     query += ' AND 1=0'; // Show no tasks
     countQuery += ' AND 1=0';
   }
-
   // Add search functionality
   if (search) {
     query += ' AND (title LIKE ? OR description LIKE ? OR assigned_to LIKE ?)';
@@ -4450,7 +4431,6 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                   res.status(500).json({ error: 'Database error' });
                 }
             });
-
             // Export tasks to CSV/Excel (must be before /api/tasks/:id route)
             app.get('/api/tasks/export', async (req, res) => {
               const { format = 'csv' } = req.query;
@@ -4610,7 +4590,6 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                 res.status(500).json({ error: 'Database error' });
               }
             });
-
             // Create new task
             app.post('/api/tasks', async (req, res) => {
               // Get user permissions from headers
@@ -5188,7 +5167,6 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                 }
               }
             });
-
             // Delete multiple tasks (bulk delete) - MUST be before /api/tasks/:id route
             app.delete('/api/tasks/bulk', async (req, res) => {
               console.log('🔥 BULK DELETE ENDPOINT CALLED!');
@@ -5344,7 +5322,6 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
               try {
                 connection = await mysqlPool.getConnection();
                 await connection.ping();
-              
               // First get the task to get the timer start time
               const getTaskQuery = 'SELECT timer_started_at FROM tasks WHERE id = ?';
                 const [tasks] = await connection.execute(getTaskQuery, [taskId]);
@@ -5535,7 +5512,6 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                 }
               });
             });
-
             // Get task attachments
             app.get('/api/tasks/:id/attachments', async (req, res) => {
               const taskId = req.params.id;
@@ -5709,7 +5685,6 @@ app.post('/api/tasks/import', upload.single('file'), async (req, res) => {
       
       const headers = parseCSVLine(lines[0]);
       const dataRows = lines.slice(1);
-      
       console.log('CSV Headers:', headers);
       console.log('CSV Headers count:', headers.length);
       console.log('Total data rows:', dataRows.length);
@@ -5910,7 +5885,6 @@ app.post('/api/tasks/import', upload.single('file'), async (req, res) => {
         console.error('Full error:', err);
       }
     }
-
     // Send response after all rows are processed
     res.json({
       message: `Import completed. ${successCount} tasks imported successfully. ${errorCount} errors.`,
@@ -6068,7 +6042,6 @@ app.post('/api/auth/login', async (req, res) => {
       }
     });
   }
-
   // Check employee login
   let connection;
   try {
@@ -6391,7 +6364,6 @@ app.get('/api/reports/dwm/details', async (req, res) => {
   if (!date || !category) {
     return res.status(400).json({ error: 'date (YYYY-MM-DD) and category (daily|weekly|monthly) are required' });
   }
-
   let connection;
   try {
     connection = await mysqlPool.getConnection();
@@ -6555,7 +6527,6 @@ app.get('/api/notifications/dwm-incomplete', async (req, res) => {
     const dailyTitleQuery = `SELECT id, title, labels, status FROM tasks WHERE LOWER(title) LIKE '%daily task%'`;
     const [dailyTitleRows] = await connection.execute(dailyTitleQuery);
     console.log('🔔 DWM Debug: Tasks with "Daily Task" in title:', dailyTitleRows);
-
     // Query to find incomplete DWM tasks that were ACTUALLY due on the specified date
     const query = `
       SELECT DISTINCT
@@ -7106,7 +7077,6 @@ app.post('/api/tickets', async (req, res) => {
     }
   }
 });
-
 // Get single ticket
 app.get('/api/tickets/:id', async (req, res) => {
   const { id } = req.params;
@@ -7156,7 +7126,6 @@ app.get('/api/tickets/:id', async (req, res) => {
     }
   }
 });
-
 // Update ticket
 app.put('/api/tickets/:id', async (req, res) => {
   const { id } = req.params;
@@ -7297,7 +7266,6 @@ app.get('/api/tickets/:id/replies', async (req, res) => {
     }
   }
 });
-
 // Add a reply to a ticket
 app.post('/api/tickets/:id/replies', upload.any(), async (req, res) => {
   const { id } = req.params;
@@ -7638,7 +7606,6 @@ app.get('/api/notifications/unread-count', async (req, res) => {
     }
   }
 });
-
 // Mark notification as read
 app.put('/api/notifications/:id/read', async (req, res) => {
   const { id } = req.params;
@@ -7792,7 +7759,6 @@ app.get('/api/clet-notifications', async (req, res) => {
       requiredPermission: 'clet_view'
     });
   }
-
   let connection;
   try {
     connection = await mysqlPool.getConnection();
@@ -7881,7 +7847,6 @@ app.get('/api/clet-notifications', async (req, res) => {
     }
   }
 });
-
 // Consecutive Absence Notifications API
 app.get('/api/notifications/consecutive-absences', async (req, res) => {
   // Check if user has ca_view permission
@@ -7989,7 +7954,6 @@ app.get('/api/notifications/consecutive-absences', async (req, res) => {
     }
   }
 });
-
 // Missed Task Week (MTW) Notifications API
 app.get('/api/notifications/missed-tasks', async (req, res) => {
   // Check if user has mtw_view permission
@@ -8376,7 +8340,6 @@ app.post('/api/auth/change-password', async (req, res) => {
         isDefaultMatch: currentPassword === 'admin123',
         isHardcodedMatch: currentPassword === 'Allahrasoolmuhammad'
       });
-      
       // For admin, accept either the stored password, the default 'admin123', or the hardcoded 'Allahrasoolmuhammad'
       const isCurrentPasswordValid = 
         adminUser.password === currentPassword || 
@@ -8547,7 +8510,6 @@ app.get('/api/health-settings', async (req, res) => {
     }
   }
 });
-
 app.put('/api/health-settings', async (req, res) => {
   const settings = req.body;
   let connection;
