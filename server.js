@@ -78,19 +78,6 @@ const mysqlPool = mysql.createPool({
 
 console.log('MySQL connection pool created');
 
-mysqlPool.on('connection', (connection) => {
-  connection
-    .query(
-      "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'ONLY_FULL_GROUP_BY',''))"
-    )
-    .then(() => {
-      console.log('MySQL session sql_mode adjusted (ONLY_FULL_GROUP_BY removed)');
-    })
-    .catch((err) => {
-      console.error('Failed to adjust session sql_mode:', err);
-    });
-});
-
 // Add connection pool monitoring and cleanup
 setInterval(async () => {
   try {
