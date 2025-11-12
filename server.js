@@ -618,13 +618,15 @@ app.post('/api/notices', async (req, res) => {
 
     await connection.beginTransaction();
 
+    const normalizedStatus = (status || 'draft').toLowerCase();
+
     const noticeQuery = `
       INSERT INTO notices (title, description, priority, status, created_by)
       VALUES (?, ?, ?, ?, ?)
     `;
     const [noticeResult] = await connection.execute(
       noticeQuery,
-      [title, description, priority || 'medium', status || 'draft', created_by]
+      [title, description, priority || 'medium', normalizedStatus, created_by]
     );
 
     const noticeId = noticeResult.insertId;
@@ -683,6 +685,8 @@ app.put('/api/notices/:id', async (req, res) => {
 
     await connection.beginTransaction();
 
+    const normalizedStatus = (status || 'draft').toLowerCase();
+
     const noticeQuery = `
       UPDATE notices
       SET title = ?, description = ?, priority = ?, status = ?, updated_at = CURRENT_TIMESTAMP
@@ -690,7 +694,7 @@ app.put('/api/notices/:id', async (req, res) => {
     `;
     await connection.execute(
       noticeQuery,
-      [title, description, priority, status, id]
+      [title, description, priority, normalizedStatus, id]
     );
 
     await connection.execute('DELETE FROM notice_recipients WHERE notice_id = ?', [id]);
