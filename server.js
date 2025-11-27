@@ -1186,7 +1186,7 @@ app.post('/api/attendance/clock-in', async (req, res) => {
     await connection.ping();
     
     // Store local Pakistan time - use consistent timezone handling
-    const now = when || new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Karachi' });
+    const now = when || new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Karachi' }).replace(' ', 'T');
     const today = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Karachi' }).split(' ')[0]; // Get date in YYYY-MM-DD format
     
     // Get employee name
@@ -1263,7 +1263,7 @@ app.post('/api/attendance/clock-out', async (req, res) => {
     await connection.ping();
     
     // Store local Pakistan time - use consistent timezone handling
-    const now = when || new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Karachi' });
+    const now = when || new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Karachi' }).replace(' ', 'T');
     const today = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Karachi' }).split(' ')[0]; // Get date in YYYY-MM-DD format
     
     // Get the open attendance record for today
@@ -5534,8 +5534,8 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                     return;
                   }
                   
-                  // Get current local Pakistan time in DATETIME format for MySQL
-                  const now = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Karachi' });
+                  // Get current local Pakistan time in ISO format to avoid timezone issues
+                  const now = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Karachi' }).replace(' ', 'T') + '.000Z';
                   
                   // Start the timer with current local timestamp
                   const startTimerQuery = `

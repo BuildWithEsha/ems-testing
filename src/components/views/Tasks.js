@@ -2364,6 +2364,9 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
       activeTime = Math.floor((Date.now() - startTime) / 1000);
     }
     
+    // Clamp to 0 to prevent negative values (timezone mismatch protection)
+    activeTime = Math.max(0, activeTime);
+    
     // If timer is currently active, show only the current session time (starting from 00:00:00)
     // If timer is stopped, show the cumulative logged time
     if (isActive || isActiveFromDB) {
