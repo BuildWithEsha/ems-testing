@@ -1114,24 +1114,36 @@ const formatAttendanceDate = (value) => {
     return null;
   }
 
-  let date;
-
+  // If it's already a Date object, convert to ISO with Z (matching backup format)
   if (value instanceof Date) {
-    date = value;
-  } else {
-    const parsed = new Date(value);
-    if (!Number.isNaN(parsed.getTime())) {
-      date = parsed;
-    }
+    return value.toISOString();
   }
 
-  if (!date) {
-    return typeof value === 'string' ? value : null;
+  const strValue = String(value).trim();
+  if (!strValue) {
+    return null;
   }
 
-  return date
-    .toLocaleString('sv-SE', { timeZone: 'Asia/Karachi' })
-    .replace(' ', 'T');
+  // If already in ISO format (has T), ensure it has Z (matching backup)
+  if (strValue.includes('T')) {
+    return strValue.includes('Z') ? strValue : strValue + (strValue.includes('.') ? 'Z' : '.000Z');
+  }
+
+  // If it's DATETIME format (space), convert to ISO format with Z (matching backup)
+  // MySQL DATETIME: "2025-11-11 19:57:15" -> ISO: "2025-11-11T19:57:15.000Z"
+  if (strValue.includes(' ')) {
+    const [datePart, timePart] = strValue.split(' ');
+    const timeWithMs = timePart.includes('.') ? timePart : timePart + '.000';
+    return `${datePart}T${timeWithMs}Z`;
+  }
+
+  // Fallback: try to parse as Date
+  const parsed = new Date(strValue);
+  if (!Number.isNaN(parsed.getTime())) {
+    return parsed.toISOString();
+  }
+
+  return strValue;
 };
 // Attendance APIs
 // Get current status for an employee
@@ -4894,20 +4906,20 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                 
                 const total = countResult[0][0].total;
                 
-                // Format timer_started_at to ISO format for JavaScript Date parsing
+                // Format timer_started_at to ISO format for JavaScript Date parsing (matching backup format)
                 const formattedTasks = results[0].map(task => {
                   if (task.timer_started_at) {
-                    // Convert DATETIME format (space) to ISO format (T) for JavaScript
+                    // Convert DATETIME format (space) to ISO format with Z (like backup)
                     let timerValue;
                     if (task.timer_started_at instanceof Date) {
                       timerValue = task.timer_started_at.toISOString();
                     } else {
                       const timerStr = String(task.timer_started_at);
-                      // If already in ISO format (has T), keep it; otherwise convert from DATETIME format
+                      // If already in ISO format (has T), ensure it has Z
                       if (timerStr.includes('T')) {
-                        timerValue = timerStr.includes('Z') ? timerStr : timerStr + '.000Z';
+                        timerValue = timerStr.includes('Z') ? timerStr : timerStr + (timerStr.includes('.') ? 'Z' : '.000Z');
                       } else {
-                        // Convert "YYYY-MM-DD HH:mm:ss" to "YYYY-MM-DDTHH:mm:ss.000Z"
+                        // Convert "YYYY-MM-DD HH:mm:ss" to "YYYY-MM-DDTHH:mm:ss.000Z" (matching backup)
                         timerValue = timerStr.replace(' ', 'T') + '.000Z';
                       }
                     }
