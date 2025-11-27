@@ -1197,10 +1197,8 @@ app.post('/api/attendance/clock-in', async (req, res) => {
     connection = await mysqlPool.getConnection();
     await connection.ping();
     
-    // Store local Pakistan time - use consistent timezone handling
-    // Create ISO format for JavaScript, but convert to DATETIME format for MySQL
-    const nowISO = when || new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Karachi' }).replace(' ', 'T');
-    const now = nowISO.replace('T', ' '); // Convert to DATETIME format for MySQL
+    // Store local Pakistan time in ISO format (matching backup - MySQL accepts ISO format)
+    const now = when || new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Karachi' }).replace(' ', 'T');
     const today = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Karachi' }).split(' ')[0]; // Get date in YYYY-MM-DD format
     
     // Get employee name
@@ -1238,7 +1236,7 @@ app.post('/api/attendance/clock-in', async (req, res) => {
         employee_id,
         employee_name: employeeName,
         date: today,
-        clock_in: formatAttendanceDate(nowISO), // Use ISO format for JavaScript
+        clock_in: formatAttendanceDate(now), // Return ISO format for JavaScript
         session_count: currentSessionCount + 1
       });
     } else {
@@ -1252,7 +1250,7 @@ app.post('/api/attendance/clock-in', async (req, res) => {
         employee_id,
         employee_name: employeeName,
         date: today,
-        clock_in: formatAttendanceDate(nowISO), // Use ISO format for JavaScript
+        clock_in: formatAttendanceDate(now), // Return ISO format for JavaScript
         session_count: 1
       });
     }
@@ -1276,10 +1274,8 @@ app.post('/api/attendance/clock-out', async (req, res) => {
     connection = await mysqlPool.getConnection();
     await connection.ping();
     
-    // Store local Pakistan time - use consistent timezone handling
-    // Create ISO format for JavaScript, but convert to DATETIME format for MySQL
-    const nowISO = when || new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Karachi' }).replace(' ', 'T');
-    const now = nowISO.replace('T', ' '); // Convert to DATETIME format for MySQL
+    // Store local Pakistan time in ISO format (matching backup - MySQL accepts ISO format)
+    const now = when || new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Karachi' }).replace(' ', 'T');
     const today = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Karachi' }).split(' ')[0]; // Get date in YYYY-MM-DD format
     
     // Get the open attendance record for today
@@ -1320,8 +1316,8 @@ app.post('/api/attendance/clock-out', async (req, res) => {
     };
 
     const clockInTime = normalizeToDate(row.clock_in);
-    const nowDate = normalizeToDate(nowISO); // Use ISO format for JavaScript Date parsing
-    const nowForDb = now; // Already in DATETIME format
+    const nowDate = normalizeToDate(now); // Use ISO format for JavaScript Date parsing
+    const nowForDb = now; // Store ISO format directly (MySQL accepts it)
 
     const currentSessionDuration = Math.max(0, Math.floor(((nowDate || new Date()) - (clockInTime || new Date())) / 1000));
     
@@ -1340,7 +1336,7 @@ app.post('/api/attendance/clock-out', async (req, res) => {
       id: row.id, 
       employee_id, 
       clock_in: formatAttendanceDate(clockInTime || row.clock_in), 
-      clock_out: formatAttendanceDate(nowDate || nowISO), // Use ISO format for JavaScript
+      clock_out: formatAttendanceDate(nowDate || now), // Use ISO format for JavaScript
       duration_seconds: totalDurationSeconds,
       hours_worked: totalHoursWorked,
       session_count: row.session_count || 1
@@ -5572,9 +5568,8 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                     return;
                   }
                   
-                  // Get current local Pakistan time in ISO format for JavaScript, but convert to DATETIME for MySQL
-                  const nowISO = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Karachi' }).replace(' ', 'T') + '.000Z';
-                  const now = nowISO.replace('T', ' ').replace('.000Z', ''); // Convert to DATETIME format for MySQL
+                  // Get current local Pakistan time in ISO format (matching backup - MySQL accepts ISO format)
+                  const now = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Karachi' }).replace(' ', 'T') + '.000Z';
                   
                   // Start the timer with current local timestamp
                   const startTimerQuery = `

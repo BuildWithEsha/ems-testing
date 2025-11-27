@@ -2163,11 +2163,21 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
       startTime = new Date(activeTimers[taskId]);
     } else {
       // Calculate start time from current time minus the elapsed time shown in timer display
-      const elapsedSeconds = Math.floor((Date.now() - new Date(task.timer_started_at).getTime()) / 1000);
-      startTime = new Date(endTime.getTime() - (elapsedSeconds * 1000));
+      try {
+        const timerStart = new Date(task.timer_started_at);
+        const elapsedSeconds = Math.floor((Date.now() - timerStart.getTime()) / 1000);
+        // Ensure elapsed time is non-negative
+        const safeElapsedSeconds = Math.max(0, elapsedSeconds);
+        startTime = new Date(endTime.getTime() - (safeElapsedSeconds * 1000));
+      } catch (error) {
+        console.error('Error calculating start time:', error, 'timer_started_at:', task.timer_started_at);
+        // Fallback: use current time as start time
+        startTime = endTime;
+      }
     }
     
-    const totalSeconds = Math.floor((endTime - startTime) / 1000);
+    // Calculate total seconds, ensuring non-negative
+    const totalSeconds = Math.max(0, Math.floor((endTime.getTime() - startTime.getTime()) / 1000));
     
     updateTimerState({
       stopTimerTaskId: taskId,
