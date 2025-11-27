@@ -1186,7 +1186,7 @@ app.post('/api/attendance/clock-in', async (req, res) => {
     await connection.ping();
     
     // Store local Pakistan time - use consistent timezone handling
-    const now = when || new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Karachi' }).replace(' ', 'T');
+    const now = when || new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Karachi' });
     const today = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Karachi' }).split(' ')[0]; // Get date in YYYY-MM-DD format
     
     // Get employee name
@@ -1263,7 +1263,7 @@ app.post('/api/attendance/clock-out', async (req, res) => {
     await connection.ping();
     
     // Store local Pakistan time - use consistent timezone handling
-    const now = when || new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Karachi' }).replace(' ', 'T');
+    const now = when || new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Karachi' });
     const today = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Karachi' }).split(' ')[0]; // Get date in YYYY-MM-DD format
     
     // Get the open attendance record for today
