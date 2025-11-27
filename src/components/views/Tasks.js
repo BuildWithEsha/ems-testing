@@ -845,7 +845,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
   const setEditingCommentText = useCallback((editingCommentText) => updateTaskDetailState({ editingCommentText }), [updateTaskDetailState]);
   const { editingTask, importLoading, selectedFile, importResult, bulkStatus, newValues, newScores, editingItem, editingScore } = formState;
   const { status: filterStatus, priority: filterPriority, complexity: filterComplexity, impact: filterImpact, effortEstimateLabel: filterEffortEstimateLabel, unit: filterUnit, target: filterTarget, department: filterDepartment, assignedTo: filterAssignedTo, labels: filterLabels, responsible: filterResponsible, accountable: filterAccountable, consulted: filterConsulted, informed: filterInformed, trained: filterTrained } = filterState;
-  const { activeTimers, intervals: timerIntervals, stopTimerTaskId, stopTimerMemo, stopTimerStartTime, stopTimerEndTime, stopTimerTotalTime } = timerState;
+  const { activeTimers, intervals: timerIntervals, tick, stopTimerTaskId, stopTimerMemo, stopTimerStartTime, stopTimerEndTime, stopTimerTotalTime } = timerState;
   const { historyToDelete, checklistWarningTask, checklistCompletion } = modalState;
 
   // All timer and modal states are now consolidated above
@@ -2107,20 +2107,34 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
       }));
 
       if (response.ok) {
-        // Set local timer state for accurate stop timer calculations
+        // OPTIMISTIC UPDATE: Update UI immediately before async refresh
         const currentTime = Date.now();
+        const now = Date.now();
         
-        // Start interval to update timer display with throttling
+        // Start interval to update timer display immediately
         const interval = setInterval(() => {
           updateTimerState(prev => ({ ...prev, tick: Date.now() })); // Update tick to force re-render
         }, 1000);
         
-        updateTimerState(prev => ({ ...prev, intervals: { ...prev.intervals, [taskId]: interval } }));
+        // Update state immediately in a single batch for instant UI update
+        updateTimerState(prev => ({ 
+          ...prev, 
+          activeTimers: { ...prev.activeTimers, [taskId]: currentTime },
+          intervals: { ...prev.intervals, [taskId]: interval },
+          tick: now // Force immediate re-render
+        }));
         
-        // Set local timer state AFTER setting up the interval
-        updateTimerState(prev => ({ ...prev, activeTimers: { ...prev.activeTimers, [taskId]: currentTime } }));
+        // Update local tasks array optimistically to show timer is active
+        updateDataState(prev => ({
+          ...prev,
+          tasks: prev.tasks.map(task => 
+            task.id === taskId 
+              ? { ...task, timer_started_at: new Date(currentTime).toISOString().replace('T', ' ').replace('.000Z', '') }
+              : task
+          )
+        }));
         
-        // Use optimized refresh instead of full data reload
+        // Use optimized refresh in background (doesn't block UI)
         refreshTasksOnly();
         
         // Reload task details if task detail modal is open
@@ -2189,7 +2203,10 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
 
     try {
       const startTime = activeTimers[stopTimerTaskId];
+      const task = tasks.find(t => t.id === stopTimerTaskId);
       const loggedSeconds = startTime ? Math.floor((Date.now() - startTime) / 1000) : 0;
+      const currentLoggedSeconds = task?.logged_seconds || 0;
+      const newLoggedSeconds = currentLoggedSeconds + loggedSeconds;
 
       const response = await fetch(`/api/tasks/${stopTimerTaskId}/stop-timer`, {
         method: 'POST',
@@ -2224,13 +2241,17 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
           };
         });
         
-        // Update local tasks array immediately to set timer_started_at to null
-        // This ensures getTimerDisplay shows logged_seconds instead of active time
+        // OPTIMISTIC UPDATE: Update local tasks array immediately with new logged_seconds
+        // This ensures getTimerDisplay shows logged_seconds instead of 00:00:00
         updateDataState(prev => ({
           ...prev,
           tasks: prev.tasks.map(task => 
             task.id === stopTimerTaskId 
-              ? { ...task, timer_started_at: null } 
+              ? { 
+                  ...task, 
+                  timer_started_at: null,
+                  logged_seconds: newLoggedSeconds // Update logged_seconds optimistically
+                } 
               : task
           )
         }));
@@ -2366,12 +2387,15 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
   };
 
   const getTimerDisplay = (task) => {
+    // Read tick to make this function depend on it, forcing re-render when tick changes
+    const currentTick = tick || 0;
+    
     const isActive = activeTimers[task.id];
     const isActiveFromDB = task.timer_started_at;
     
     let activeTime = 0;
     if (isActive) {
-      // Timer is active in local state
+      // Timer is active in local state - use current time for real-time updates
       activeTime = Math.floor((Date.now() - isActive) / 1000);
     } else if (isActiveFromDB) {
       // Timer is active in database but not in local state (e.g., after page refresh)

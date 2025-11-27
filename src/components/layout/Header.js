@@ -147,6 +147,18 @@ const Header = ({ onSearch, onLogout, tasks, employees, onStartTimer, onStopTime
   const handleClockIn = async () => {
     if (!user?.id) return;
     try {
+      // OPTIMISTIC UPDATE: Update UI immediately before API call
+      const clockInTime = new Date().toISOString();
+      setAttendance({
+        active: true,
+        entry: {
+          clock_in: clockInTime,
+          employee_id: user.id
+        }
+      });
+      // Force immediate re-render by updating now
+      setNow(Date.now());
+      
       const res = await fetch('/api/attendance/clock-in', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -154,17 +166,22 @@ const Header = ({ onSearch, onLogout, tasks, employees, onStartTimer, onStopTime
       });
       
       if (res.ok) {
+        // Refresh with actual server data (in background)
         const statusRes = await fetch(`/api/attendance/status?employee_id=${user.id}`);
         if (statusRes.ok) {
           setAttendance(await statusRes.json());
           console.log('✅ Clocked in successfully');
         }
       } else {
+        // Rollback on error
+        setAttendance({ active: false, entry: null });
         const errorData = await res.json();
         console.error('❌ Clock in failed:', errorData.error);
         alert(`Clock in failed: ${errorData.error || 'Unknown error'}`);
       }
     } catch (error) {
+      // Rollback on error
+      setAttendance({ active: false, entry: null });
       console.error('❌ Clock in error:', error);
       alert('Clock in failed: Network error');
     }
