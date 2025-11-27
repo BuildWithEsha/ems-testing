@@ -2162,8 +2162,11 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
         return;
       }
       
-      // Refresh in background (optional - UI already updated)
-      refreshTasksOnly();
+      // Delay refresh to avoid overwriting optimistic state
+      // Wait 500ms to ensure server has processed the request
+      setTimeout(() => {
+        refreshTasksOnly();
+      }, 500);
       
       // Reload task details if task detail modal is open
       if (selectedTask && selectedTask.id === taskId) {
@@ -2296,8 +2299,11 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
       });
 
       if (response.ok) {
-        // Use optimized refresh instead of full data reload (async - happens after state update)
-        refreshTasksOnly();
+        // Delay refresh to avoid overwriting optimistic state
+        // Wait 500ms to ensure server has processed the request
+        setTimeout(() => {
+          refreshTasksOnly();
+        }, 500);
         
         // Reload task details if task detail modal is open
         if (selectedTask && selectedTask.id === stopTimerTaskId) {
@@ -2464,8 +2470,9 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
   };
 
   const getTimerDisplay = (task) => {
-    // Read tick to make this function depend on it, forcing re-render when tick changes
-    const currentTick = tick || 0;
+    // Use tick in calculation to force re-render when tick changes
+    // Even though we use Date.now(), reading tick ensures React knows to re-render
+    const _ = tick || 0; // Read tick to create dependency
     
     const isActive = activeTimers[task.id];
     const isActiveFromDB = task.timer_started_at;
@@ -2473,6 +2480,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
     let activeTime = 0;
     if (isActive) {
       // Timer is active in local state - use current time for real-time updates
+      // Use tick to ensure this recalculates on every tick update
       activeTime = Math.floor((Date.now() - isActive) / 1000);
     } else if (isActiveFromDB) {
       // Timer is active in database but not in local state (e.g., after page refresh)
