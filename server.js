@@ -5878,7 +5878,21 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                 }
                 
                 const task = tasks[0];
-                const startTime = new Date(task.timer_started_at);
+                // Format timer_started_at from DATETIME to ISO format (same as /api/tasks endpoint)
+                let timerValue;
+                if (task.timer_started_at instanceof Date) {
+                  timerValue = task.timer_started_at.toISOString();
+                } else {
+                  const timerStr = String(task.timer_started_at);
+                  // If already in ISO format (has T), ensure it has Z
+                  if (timerStr.includes('T')) {
+                    timerValue = timerStr.includes('Z') ? timerStr : timerStr + (timerStr.includes('.') ? 'Z' : '.000Z');
+                  } else {
+                    // Convert "YYYY-MM-DD HH:mm:ss" to "YYYY-MM-DDTHH:mm:ss.000Z" (matching backup)
+                    timerValue = timerStr.replace(' ', 'T') + '.000Z';
+                  }
+                }
+                const startTime = new Date(timerValue);
                 const endTime = new Date();
                 
                 // Calculate actual duration in seconds
