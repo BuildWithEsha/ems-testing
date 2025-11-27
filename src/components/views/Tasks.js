@@ -2301,13 +2301,14 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
       if (response.ok) {
         // Get the updated logged_seconds from server response
         const responseData = await response.json();
+        console.log('✅ Server response after stop timer:', responseData); // Debug log
         const serverLoggedSeconds = responseData.logged_seconds || newLoggedSeconds;
+        console.log('✅ Using logged_seconds:', serverLoggedSeconds, 'for task:', stopTimerTaskId); // Debug log
         
         // Update local task state immediately with server's logged_seconds
         // This ensures getTimerDisplay shows the correct total time instead of 00:00:00
-        updateDataState(prev => ({
-          ...prev,
-          tasks: prev.tasks.map(task => 
+        updateDataState(prev => {
+          const updatedTasks = prev.tasks.map(task => 
             task.id === stopTimerTaskId 
               ? { 
                   ...task, 
@@ -2315,11 +2316,18 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
                   logged_seconds: serverLoggedSeconds // Use server's logged_seconds
                 } 
               : task
-          )
-        }));
+          );
+          const updatedTask = updatedTasks.find(t => t.id === stopTimerTaskId);
+          console.log('✅ Updated task state - ID:', updatedTask?.id, 'logged_seconds:', updatedTask?.logged_seconds, 'timer_started_at:', updatedTask?.timer_started_at); // Debug log
+          return { ...prev, tasks: updatedTasks };
+        });
         
-        // Refresh in background to get latest data (but don't wait for it)
-        refreshTasksOnly();
+        // Delay refresh significantly to avoid overwriting our correct state update
+        // Wait 3 seconds to ensure server has fully processed the update and our state update is visible
+        setTimeout(() => {
+          console.log('🔄 Refreshing tasks after 3 second delay...'); // Debug log
+          refreshTasksOnly();
+        }, 3000);
         
         // Reload task details if task detail modal is open
         if (selectedTask && selectedTask.id === stopTimerTaskId) {
@@ -2512,7 +2520,12 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
     if (isActive || isActiveFromDB) {
       return formatTime(activeTime);
     } else {
-      return formatTime(task.logged_seconds || 0);
+      const displayTime = formatTime(task.logged_seconds || 0);
+      // Debug log when logged_seconds is 0 but we expect it to have a value
+      if ((task.logged_seconds || 0) === 0 && task.id && !isActive && !isActiveFromDB) {
+        console.log('⚠️ getTimerDisplay - Task ID:', task.id, 'logged_seconds:', task.logged_seconds, 'timer_started_at:', task.timer_started_at, 'isActive:', isActive, 'isActiveFromDB:', isActiveFromDB, 'displayTime:', displayTime);
+      }
+      return displayTime;
     }
   };
 

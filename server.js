@@ -5962,6 +5962,7 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                     user_id || 1
                   );
                   
+                  console.log('✅ Stop timer response - taskId:', taskId, 'logged_seconds:', updatedLoggedSeconds, 'finalLoggedSeconds:', finalLoggedSeconds); // Debug log
                   res.json({ 
                     message: 'Timer stopped successfully',
                     logged_seconds: updatedLoggedSeconds // Return the updated logged_seconds
