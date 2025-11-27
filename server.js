@@ -1186,7 +1186,9 @@ app.post('/api/attendance/clock-in', async (req, res) => {
     await connection.ping();
     
     // Store local Pakistan time - use consistent timezone handling
-    const now = when || new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Karachi' }).replace(' ', 'T');
+    // Create ISO format for JavaScript, but convert to DATETIME format for MySQL
+    const nowISO = when || new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Karachi' }).replace(' ', 'T');
+    const now = nowISO.replace('T', ' '); // Convert to DATETIME format for MySQL
     const today = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Karachi' }).split(' ')[0]; // Get date in YYYY-MM-DD format
     
     // Get employee name
@@ -1224,7 +1226,7 @@ app.post('/api/attendance/clock-in', async (req, res) => {
         employee_id,
         employee_name: employeeName,
         date: today,
-        clock_in: formatAttendanceDate(now),
+        clock_in: formatAttendanceDate(nowISO), // Use ISO format for JavaScript
         session_count: currentSessionCount + 1
       });
     } else {
@@ -1238,7 +1240,7 @@ app.post('/api/attendance/clock-in', async (req, res) => {
         employee_id,
         employee_name: employeeName,
         date: today,
-        clock_in: formatAttendanceDate(now),
+        clock_in: formatAttendanceDate(nowISO), // Use ISO format for JavaScript
         session_count: 1
       });
     }
@@ -1263,7 +1265,9 @@ app.post('/api/attendance/clock-out', async (req, res) => {
     await connection.ping();
     
     // Store local Pakistan time - use consistent timezone handling
-    const now = when || new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Karachi' }).replace(' ', 'T');
+    // Create ISO format for JavaScript, but convert to DATETIME format for MySQL
+    const nowISO = when || new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Karachi' }).replace(' ', 'T');
+    const now = nowISO.replace('T', ' '); // Convert to DATETIME format for MySQL
     const today = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Karachi' }).split(' ')[0]; // Get date in YYYY-MM-DD format
     
     // Get the open attendance record for today
@@ -1292,7 +1296,7 @@ app.post('/api/attendance/clock-out', async (req, res) => {
       }
 
       if (strValue.includes('T')) {
-        return new Date(strValue.replace(' ', 'T'));
+        return new Date(strValue);
       }
 
       if (strValue.includes(' ')) {
@@ -1304,8 +1308,8 @@ app.post('/api/attendance/clock-out', async (req, res) => {
     };
 
     const clockInTime = normalizeToDate(row.clock_in);
-    const nowDate = normalizeToDate(now);
-    const nowForDb = now.replace('T', ' ');
+    const nowDate = normalizeToDate(nowISO); // Use ISO format for JavaScript Date parsing
+    const nowForDb = now; // Already in DATETIME format
 
     const currentSessionDuration = Math.max(0, Math.floor(((nowDate || new Date()) - (clockInTime || new Date())) / 1000));
     
@@ -1324,7 +1328,7 @@ app.post('/api/attendance/clock-out', async (req, res) => {
       id: row.id, 
       employee_id, 
       clock_in: formatAttendanceDate(clockInTime || row.clock_in), 
-      clock_out: formatAttendanceDate(nowDate || now), 
+      clock_out: formatAttendanceDate(nowDate || nowISO), // Use ISO format for JavaScript
       duration_seconds: totalDurationSeconds,
       hours_worked: totalHoursWorked,
       session_count: row.session_count || 1
@@ -4890,11 +4894,33 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                 
                 const total = countResult[0][0].total;
                 
+                // Format timer_started_at to ISO format for JavaScript Date parsing
+                const formattedTasks = results[0].map(task => {
+                  if (task.timer_started_at) {
+                    // Convert DATETIME format (space) to ISO format (T) for JavaScript
+                    let timerValue;
+                    if (task.timer_started_at instanceof Date) {
+                      timerValue = task.timer_started_at.toISOString();
+                    } else {
+                      const timerStr = String(task.timer_started_at);
+                      // If already in ISO format (has T), keep it; otherwise convert from DATETIME format
+                      if (timerStr.includes('T')) {
+                        timerValue = timerStr.includes('Z') ? timerStr : timerStr + '.000Z';
+                      } else {
+                        // Convert "YYYY-MM-DD HH:mm:ss" to "YYYY-MM-DDTHH:mm:ss.000Z"
+                        timerValue = timerStr.replace(' ', 'T') + '.000Z';
+                      }
+                    }
+                    return { ...task, timer_started_at: timerValue };
+                  }
+                  return task;
+                });
+                
                 if (skipPagination) {
                   // Return all tasks without pagination (for admin users or when all=true)
-                  console.log(`🔍 Backend Debug - Query returned ${results[0].length} tasks (pagination skipped)`);
+                  console.log(`🔍 Backend Debug - Query returned ${formattedTasks.length} tasks (pagination skipped)`);
                   res.json({
-                    data: results[0],
+                    data: formattedTasks,
                     pagination: {
                       page: 1,
                       limit: total,
@@ -4907,9 +4933,9 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                 } else {
                   // Normal pagination
                   const totalPages = Math.ceil(total / limitNum);
-                  console.log(`🔍 Backend Debug - Query returned ${results[0].length} tasks out of ${total} total`);
+                  console.log(`🔍 Backend Debug - Query returned ${formattedTasks.length} tasks out of ${total} total`);
                   res.json({
-                    data: results[0],
+                    data: formattedTasks,
                     pagination: {
                       page: pageNum,
                       limit: limitNum,
@@ -5534,8 +5560,9 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                     return;
                   }
                   
-                  // Get current local Pakistan time in ISO format to avoid timezone issues
-                  const now = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Karachi' }).replace(' ', 'T') + '.000Z';
+                  // Get current local Pakistan time in ISO format for JavaScript, but convert to DATETIME for MySQL
+                  const nowISO = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Karachi' }).replace(' ', 'T') + '.000Z';
+                  const now = nowISO.replace('T', ' ').replace('.000Z', ''); // Convert to DATETIME format for MySQL
                   
                   // Start the timer with current local timestamp
                   const startTimerQuery = `
