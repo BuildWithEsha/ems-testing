@@ -246,9 +246,9 @@ const TimerModal = ({ isOpen, onClose, onStartTimer, onStopTimer, onOpenTask }) 
   const calculateActiveTime = (timerStartedAt) => {
     if (!timerStartedAt) return 0;
     try {
-      // Calculate elapsed time directly - server now stores Pakistan time
-      const startTime = new Date(timerStartedAt).getTime();
-      const elapsedSeconds = Math.floor((currentTime - startTime) / 1000);
+    // Calculate elapsed time directly - server now stores Pakistan time
+    const startTime = new Date(timerStartedAt).getTime();
+    const elapsedSeconds = Math.floor((currentTime - startTime) / 1000);
       // Clamp to 0 to prevent negative values (timezone mismatch protection)
       return Math.max(0, elapsedSeconds);
     } catch (error) {
@@ -260,23 +260,23 @@ const TimerModal = ({ isOpen, onClose, onStartTimer, onStopTimer, onOpenTask }) 
   const formatDateTime = (dateString) => {
     if (!dateString) return '';
     try {
-      // Display the time as stored (server now stores Pakistan time)
-      const date = new Date(dateString);
+    // Display the time as stored (server now stores Pakistan time)
+    const date = new Date(dateString);
       // If date is invalid, return empty string
       if (isNaN(date.getTime())) {
         console.warn('Invalid date string:', dateString);
         return '';
       }
-      return date.toLocaleDateString('en-US', { 
-        weekday: 'short', 
-        day: '2-digit', 
-        month: 'short', 
-        year: 'numeric' 
-      }) + ' ' + date.toLocaleTimeString('en-US', { 
-        hour: '2-digit', 
-        minute: '2-digit',
-        hour12: false
-      });
+    return date.toLocaleDateString('en-US', { 
+      weekday: 'short', 
+      day: '2-digit', 
+      month: 'short', 
+      year: 'numeric' 
+    }) + ' ' + date.toLocaleTimeString('en-US', { 
+      hour: '2-digit', 
+      minute: '2-digit',
+      hour12: false
+    });
     } catch (error) {
       console.error('Error formatting date:', error, 'dateString:', dateString);
       return '';

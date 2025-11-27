@@ -5919,6 +5919,10 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                     return;
                   }
                   
+                  // Fetch the updated logged_seconds to return to frontend
+                  const [updatedTask] = await connection.execute('SELECT logged_seconds FROM tasks WHERE id = ?', [taskId]);
+                  const updatedLoggedSeconds = updatedTask[0]?.logged_seconds || 0;
+                  
                   // Save timesheet entry
                   const timesheetQuery = `
                     INSERT INTO task_timesheet (
@@ -5958,7 +5962,10 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                     user_id || 1
                   );
                   
-                  res.json({ message: 'Timer stopped successfully' });
+                  res.json({ 
+                    message: 'Timer stopped successfully',
+                    logged_seconds: updatedLoggedSeconds // Return the updated logged_seconds
+                  });
                 
               } catch (err) {
                 console.error('Error stopping timer:', err);
@@ -7221,13 +7228,13 @@ app.get('/api/notifications', async (req, res) => {
     return res.status(400).json({ error: 'user_id is required' });
   }
 
-  let connection;
-  try {
-    connection = await mysqlPool.getConnection();
-    await connection.ping();
-
+              let connection;
+              try {
+                connection = await mysqlPool.getConnection();
+                await connection.ping();
+                
     const query = `
-      SELECT 
+                    SELECT 
         tn.id,
         tn.user_id,
         tn.ticket_id,
@@ -7248,28 +7255,28 @@ app.get('/api/notifications', async (req, res) => {
 
     const [notifications] = await connection.execute(query, [user_id]);
     res.json(notifications);
-  } catch (err) {
+              } catch (err) {
     console.error('Error fetching notifications:', err);
-    res.status(500).json({ error: 'Database error' });
-  } finally {
-    if (connection) {
-      connection.release();
-    }
-  }
-});
+                res.status(500).json({ error: 'Database error' });
+              } finally {
+                if (connection) {
+                  connection.release();
+                }
+              }
+            });
 
 app.get('/api/notifications/unread-count', async (req, res) => {
   const { user_id } = req.query;
-
-  if (!user_id) {
-    return res.status(400).json({ error: 'user_id is required' });
-  }
-
-  let connection;
-  try {
-    connection = await mysqlPool.getConnection();
-    await connection.ping();
-
+              
+              if (!user_id) {
+                return res.status(400).json({ error: 'user_id is required' });
+              }
+              
+              let connection;
+              try {
+                connection = await mysqlPool.getConnection();
+                await connection.ping();
+                
     const query = `
       SELECT COUNT(*) as unread_count
       FROM ticket_notifications
@@ -7278,25 +7285,25 @@ app.get('/api/notifications/unread-count', async (req, res) => {
 
     const [result] = await connection.execute(query, [user_id]);
     res.json({ unread_count: result[0].unread_count });
-  } catch (err) {
+              } catch (err) {
     console.error('Error fetching unread count:', err);
-    res.status(500).json({ error: 'Database error' });
-  } finally {
-    if (connection) {
-      connection.release();
-    }
-  }
-});
+                res.status(500).json({ error: 'Database error' });
+              } finally {
+                if (connection) {
+                  connection.release();
+                }
+              }
+            });
 
 app.put('/api/notifications/:id/read', async (req, res) => {
-  const { id } = req.params;
+              const { id } = req.params;
 
-  let connection;
-  try {
-    connection = await mysqlPool.getConnection();
-    await connection.ping();
-
-    const query = `
+              let connection;
+              try {
+                connection = await mysqlPool.getConnection();
+                await connection.ping();
+                
+                const query = `
       UPDATE ticket_notifications 
       SET is_read = TRUE, read_at = CURRENT_TIMESTAMP
       WHERE id = ?
@@ -7309,28 +7316,28 @@ app.put('/api/notifications/:id/read', async (req, res) => {
     }
 
     res.json({ message: 'Notification marked as read' });
-  } catch (err) {
+              } catch (err) {
     console.error('Error marking notification as read:', err);
-    res.status(500).json({ error: 'Database error' });
-  } finally {
-    if (connection) {
-      connection.release();
-    }
-  }
-});
+                res.status(500).json({ error: 'Database error' });
+              } finally {
+                if (connection) {
+                  connection.release();
+                }
+              }
+            });
 
 app.put('/api/notifications/mark-all-read', async (req, res) => {
   const { user_id } = req.body;
-
+              
   if (!user_id) {
     return res.status(400).json({ error: 'user_id is required' });
-  }
-
-  let connection;
-  try {
-    connection = await mysqlPool.getConnection();
-    await connection.ping();
-
+              }
+              
+              let connection;
+              try {
+                connection = await mysqlPool.getConnection();
+                await connection.ping();
+                
     const query = `
       UPDATE ticket_notifications 
       SET is_read = TRUE, read_at = CURRENT_TIMESTAMP
@@ -7342,25 +7349,25 @@ app.put('/api/notifications/mark-all-read', async (req, res) => {
     res.json({
       message: 'All notifications marked as read',
       updated_count: result.affectedRows
-    });
-  } catch (err) {
+                });
+              } catch (err) {
     console.error('Error marking all notifications as read:', err);
-    res.status(500).json({ error: 'Database error' });
-  } finally {
-    if (connection) {
-      connection.release();
-    }
-  }
-});
+                res.status(500).json({ error: 'Database error' });
+              } finally {
+                if (connection) {
+                  connection.release();
+                }
+              }
+            });
 
 app.delete('/api/notifications/:id', async (req, res) => {
-  const { id } = req.params;
-
-  let connection;
-  try {
-    connection = await mysqlPool.getConnection();
-    await connection.ping();
-
+              const { id } = req.params;
+              
+              let connection;
+              try {
+                connection = await mysqlPool.getConnection();
+                await connection.ping();
+                
     const [result] = await connection.execute('DELETE FROM ticket_notifications WHERE id = ?', [id]);
 
     if (result.affectedRows === 0) {
@@ -7368,15 +7375,15 @@ app.delete('/api/notifications/:id', async (req, res) => {
     }
 
     res.json({ message: 'Notification deleted successfully' });
-  } catch (err) {
+              } catch (err) {
     console.error('Error deleting notification:', err);
-    res.status(500).json({ error: 'Database error' });
-  } finally {
-    if (connection) {
-      connection.release();
-    }
-  }
-});
+                res.status(500).json({ error: 'Database error' });
+              } finally {
+                if (connection) {
+                  connection.release();
+                }
+              }
+            });
 
 app.put('/api/notifications/mark-ticket-read', async (req, res) => {
   const { user_id, ticket_id } = req.body;
@@ -7384,12 +7391,12 @@ app.put('/api/notifications/mark-ticket-read', async (req, res) => {
   if (!user_id || !ticket_id) {
     return res.status(400).json({ error: 'user_id and ticket_id are required' });
   }
-
-  let connection;
-  try {
-    connection = await mysqlPool.getConnection();
-    await connection.ping();
-
+              
+              let connection;
+              try {
+                connection = await mysqlPool.getConnection();
+                await connection.ping();
+                
     const query = `
       UPDATE ticket_notifications 
       SET is_read = TRUE, read_at = CURRENT_TIMESTAMP
@@ -7402,15 +7409,15 @@ app.put('/api/notifications/mark-ticket-read', async (req, res) => {
       message: 'Ticket notifications marked as read',
       updated_count: result.affectedRows
     });
-  } catch (err) {
+              } catch (err) {
     console.error('Error marking ticket notifications as read:', err);
-    res.status(500).json({ error: 'Database error' });
-  } finally {
-    if (connection) {
-      connection.release();
-    }
-  }
-});
+                res.status(500).json({ error: 'Database error' });
+              } finally {
+                if (connection) {
+                  connection.release();
+                }
+              }
+            });
 
 app.get('/api/clet-notifications', async (req, res) => {
   const userRole = req.headers['x-user-role'];
@@ -7433,13 +7440,13 @@ app.get('/api/clet-notifications', async (req, res) => {
       error: 'Access denied. You do not have permission to view CLET notifications.',
       requiredPermission: 'clet_view'
     });
-  }
-
-  let connection;
-  try {
-    connection = await mysqlPool.getConnection();
-    await connection.ping();
-
+              }
+              
+              let connection;
+              try {
+                connection = await mysqlPool.getConnection();
+                await connection.ping();
+                
     console.log('🔔 CLET Notifications: Fetching tasks missing checklist or estimated time');
 
     const query = `
@@ -7512,15 +7519,15 @@ app.get('/api/clet-notifications', async (req, res) => {
     }));
 
     res.json(formattedNotifications);
-  } catch (err) {
+              } catch (err) {
     console.error('Error fetching CLET notifications:', err);
-    res.status(500).json({ error: 'Database error' });
-  } finally {
-    if (connection) {
-      connection.release();
-    }
-  }
-});
+                res.status(500).json({ error: 'Database error' });
+              } finally {
+                if (connection) {
+                  connection.release();
+                }
+              }
+            });
 
 app.get('/api/notifications/consecutive-absences', async (req, res) => {
   const userRole = req.headers['x-user-role'];
@@ -7646,7 +7653,7 @@ app.get('/api/notifications/missed-tasks', async (req, res) => {
   try {
     connection = await mysqlPool.getConnection();
     await connection.ping();
-
+    
     console.log(`🔔 MTW Notifications: Fetching tasks missed for ${days} days`);
 
     const query = `
@@ -7736,7 +7743,7 @@ app.get('/api/notifications/less-trained-employees', async (req, res) => {
   try {
     connection = await mysqlPool.getConnection();
     await connection.ping();
-
+    
     console.log(`🔔 LTE Notifications: Fetching DWM tasks with less than ${minTrained} trained employees`);
 
     const query = `
@@ -7881,12 +7888,12 @@ app.post('/api/admin/reset-recurring', async (req, res) => {
 
 app.get('/api/warning-letter-types', async (req, res) => {
   const query = 'SELECT id, name, status, created_at FROM warning_letter_types WHERE status = "Active" ORDER BY name ASC';
-
+  
   let connection;
   try {
     connection = await mysqlPool.getConnection();
     await connection.ping();
-
+    
     const [rows] = await connection.execute(query);
     res.json(rows);
   } catch (err) {
@@ -7904,20 +7911,20 @@ app.post('/api/warning-letter-types', async (req, res) => {
   if (!name || !String(name).trim()) {
     return res.status(400).json({ error: 'name is required' });
   }
-
+  
   let connection;
   try {
     connection = await mysqlPool.getConnection();
     await connection.ping();
-
+    
     const insert = 'INSERT INTO warning_letter_types (name) VALUES (?)';
     const [result] = await connection.execute(insert, [String(name).trim()]);
-
+    
     const [rows] = await connection.execute(
       'SELECT id, name, status, created_at FROM warning_letter_types WHERE id = ?',
       [result.insertId]
     );
-
+    
     if (rows.length > 0) {
       res.status(201).json(rows[0]);
     } else {
@@ -7925,9 +7932,9 @@ app.post('/api/warning-letter-types', async (req, res) => {
     }
   } catch (err) {
     if (err.code === 'ER_DUP_ENTRY') {
-      return res.status(400).json({ error: 'This warning letter type already exists' });
-    }
-    console.error('Error creating warning letter type:', err);
+        return res.status(400).json({ error: 'This warning letter type already exists' });
+      }
+      console.error('Error creating warning letter type:', err);
     res.status(500).json({ error: 'Database error' });
   } finally {
     if (connection) {
@@ -7941,13 +7948,13 @@ app.get('/api/warning-letters', async (req, res) => {
   try {
     connection = await mysqlPool.getConnection();
     await connection.ping();
-
+    
     const query = `
       SELECT wl.id, wl.employee_id, wl.employee_name, wl.title, wl.description, wl.warning_date, wl.severity, wl.created_at
       FROM warning_letters wl 
       ORDER BY wl.created_at DESC
     `;
-
+    
     const [warningLetters] = await connection.execute(query);
     res.json(warningLetters);
   } catch (err) {

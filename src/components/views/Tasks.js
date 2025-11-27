@@ -2167,16 +2167,16 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
       setTimeout(() => {
         refreshTasksOnly();
       }, 500);
-      
-      // Reload task details if task detail modal is open
-      if (selectedTask && selectedTask.id === taskId) {
-        loadTaskDetails(taskId);
         
-        // Also refresh history directly
-        fetch(`/api/tasks/${taskId}/history`)
-          .then(response => response.json())
-          .then(data => setTaskHistory(data))
-          .catch(error => console.error('Error refreshing history:', error));
+        // Reload task details if task detail modal is open
+        if (selectedTask && selectedTask.id === taskId) {
+          loadTaskDetails(taskId);
+          
+          // Also refresh history directly
+          fetch(`/api/tasks/${taskId}/history`)
+            .then(response => response.json())
+            .then(data => setTaskHistory(data))
+            .catch(error => console.error('Error refreshing history:', error));
       }
     } catch (error) {
       // Rollback on network error
@@ -2284,7 +2284,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
         updateTimerState(prev => ({ ...prev, tick: Date.now() }));
       }, 50);
 
-      // ===== NOW do API call (doesn't block UI) =====
+      // ===== NOW do API call =====
       const response = await fetch(`/api/tasks/${stopTimerTaskId}/stop-timer`, {
         method: 'POST',
         headers: {
@@ -2299,11 +2299,27 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
       });
 
       if (response.ok) {
-        // Delay refresh to avoid overwriting optimistic state
-        // Wait 500ms to ensure server has processed the request
-        setTimeout(() => {
-          refreshTasksOnly();
-        }, 500);
+        // Get the updated logged_seconds from server response
+        const responseData = await response.json();
+        const serverLoggedSeconds = responseData.logged_seconds || newLoggedSeconds;
+        
+        // Update local task state immediately with server's logged_seconds
+        // This ensures getTimerDisplay shows the correct total time instead of 00:00:00
+        updateDataState(prev => ({
+          ...prev,
+          tasks: prev.tasks.map(task => 
+            task.id === stopTimerTaskId 
+              ? { 
+                  ...task, 
+                  timer_started_at: null, // Clear timer
+                  logged_seconds: serverLoggedSeconds // Use server's logged_seconds
+                } 
+              : task
+          )
+        }));
+        
+        // Refresh in background to get latest data (but don't wait for it)
+        refreshTasksOnly();
         
         // Reload task details if task detail modal is open
         if (selectedTask && selectedTask.id === stopTimerTaskId) {
@@ -3691,7 +3707,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
                           )}
                           {columnKey === 'logged_seconds' && (
                             <div className="flex items-center space-x-2">
-                              <div className="flex items-center space-x-1">
+                              <div className="flex items-center space-x-1" key={`timer-display-${task.id}-${tick}`}>
                                 <Clock className="w-4 h-4 text-gray-500" />
                                 <span className="text-xs font-mono">{getTimerDisplay(task)}</span>
                               </div>
@@ -3737,7 +3753,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
                           )}
                           {columnKey === 'timer' && (
                             <div className="flex items-center space-x-2">
-                              <div className="flex items-center space-x-1">
+                              <div className="flex items-center space-x-1" key={`timer-display-${task.id}-${tick}`}>
                                 <Clock className="w-4 h-4 text-gray-500" />
                                 <span className="text-xs font-mono">{getTimerDisplay(task)}</span>
                               </div>
