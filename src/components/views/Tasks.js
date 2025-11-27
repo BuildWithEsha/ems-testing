@@ -2094,6 +2094,39 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
       return;
     }
 
+    // ===== OPTIMISTIC UPDATE: Do this FIRST, before API call =====
+    const currentTime = Date.now();
+    let interval = null;
+    
+    // Start interval immediately
+    interval = setInterval(() => {
+      updateTimerState(prev => ({ ...prev, tick: Date.now() })); // Update tick to force re-render
+    }, 1000);
+    
+    // Update ALL state synchronously (before await) for instant UI update
+    updateTimerState(prev => ({ 
+      ...prev, 
+      activeTimers: { ...prev.activeTimers, [taskId]: currentTime },
+      intervals: { ...prev.intervals, [taskId]: interval },
+      tick: currentTime // Force immediate re-render
+    }));
+    
+    // Update tasks array optimistically to show timer is active
+    updateDataState(prev => ({
+      ...prev,
+      tasks: prev.tasks.map(task => 
+        task.id === taskId 
+          ? { ...task, timer_started_at: new Date(currentTime).toISOString().replace('T', ' ').replace('.000Z', '') }
+          : task
+      )
+    }));
+    
+    // Force a second tick update to ensure re-render (React batching workaround)
+    setTimeout(() => {
+      updateTimerState(prev => ({ ...prev, tick: Date.now() }));
+    }, 50);
+
+    // ===== NOW do API call (doesn't block UI) =====
     try {
       const response = await measureTimerOperation('Start', fetch(`/api/tasks/${taskId}/start-timer`, {
         method: 'POST',
@@ -2106,60 +2139,60 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
         }),
       }));
 
-      if (response.ok) {
-        // OPTIMISTIC UPDATE: Update UI immediately before async refresh
-        const currentTime = Date.now();
-        const now = Date.now();
-        
-        // Start interval to update timer display immediately
-        const interval = setInterval(() => {
-          updateTimerState(prev => ({ ...prev, tick: Date.now() })); // Update tick to force re-render
-        }, 1000);
-        
-        // Update state immediately in a single batch for instant UI update
-        updateTimerState(prev => ({ 
-          ...prev, 
-          activeTimers: { ...prev.activeTimers, [taskId]: currentTime },
-          intervals: { ...prev.intervals, [taskId]: interval },
-          tick: now // Force immediate re-render
-        }));
-        
-        // Update local tasks array optimistically to show timer is active
+      if (!response.ok) {
+        // Rollback on error
+        if (interval) clearInterval(interval);
+        updateTimerState(prev => {
+          const newTimers = { ...prev.activeTimers };
+          delete newTimers[taskId];
+          const newIntervals = { ...prev.intervals };
+          delete newIntervals[taskId];
+          return { ...prev, activeTimers: newTimers, intervals: newIntervals };
+        });
         updateDataState(prev => ({
           ...prev,
           tasks: prev.tasks.map(task => 
             task.id === taskId 
-              ? { ...task, timer_started_at: new Date(currentTime).toISOString().replace('T', ' ').replace('.000Z', '') }
+              ? { ...task, timer_started_at: null }
               : task
           )
         }));
-        
-        // Use optimized refresh in background (doesn't block UI)
-        refreshTasksOnly();
-        
-        // Reload task details if task detail modal is open
-        if (selectedTask && selectedTask.id === taskId) {
-          loadTaskDetails(taskId);
-          
-          // Also refresh history directly
-          fetch(`/api/tasks/${taskId}/history`)
-            .then(response => response.json())
-            .then(data => setTaskHistory(data))
-            .catch(error => console.error('Error refreshing history:', error));
-        }
-      } else {
         const errorData = await response.json();
-        if (errorData.error === 'You already have an active timer') {
-          alert(`⚠️ ${errorData.message}\n\nPlease stop your current timer before starting a new one.`);
-        } else if (errorData.error === 'Access denied') {
-          alert(`❌ ${errorData.message}\n\nYou can only start timers on tasks assigned to you.`);
-        } else if (errorData.error === 'Timer already running') {
-          alert(`⏱️ ${errorData.message}\n\nThis task already has an active timer.`);
-        } else {
-          alert(`❌ Failed to start timer: ${errorData.message || 'Unknown error'}`);
-        }
+        alert(`Failed to start timer: ${errorData.error || 'Unknown error'}`);
+        return;
+      }
+      
+      // Refresh in background (optional - UI already updated)
+      refreshTasksOnly();
+      
+      // Reload task details if task detail modal is open
+      if (selectedTask && selectedTask.id === taskId) {
+        loadTaskDetails(taskId);
+        
+        // Also refresh history directly
+        fetch(`/api/tasks/${taskId}/history`)
+          .then(response => response.json())
+          .then(data => setTaskHistory(data))
+          .catch(error => console.error('Error refreshing history:', error));
       }
     } catch (error) {
+      // Rollback on network error
+      if (interval) clearInterval(interval);
+      updateTimerState(prev => {
+        const newTimers = { ...prev.activeTimers };
+        delete newTimers[taskId];
+        const newIntervals = { ...prev.intervals };
+        delete newIntervals[taskId];
+        return { ...prev, activeTimers: newTimers, intervals: newIntervals };
+      });
+      updateDataState(prev => ({
+        ...prev,
+        tasks: prev.tasks.map(task => 
+          task.id === taskId 
+            ? { ...task, timer_started_at: null }
+            : task
+        )
+      }));
       console.error('Error starting timer:', error);
       alert('❌ Failed to start timer: Network error');
     }
@@ -2208,6 +2241,47 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
       const currentLoggedSeconds = task?.logged_seconds || 0;
       const newLoggedSeconds = currentLoggedSeconds + loggedSeconds;
 
+      // ===== OPTIMISTIC UPDATE: Do this FIRST, before API call =====
+      // Clear interval and local timer state IMMEDIATELY
+      if (timerIntervals[stopTimerTaskId]) {
+        clearInterval(timerIntervals[stopTimerTaskId]);
+      }
+      
+      // Clear activeTimers and intervals in a single state update for immediate UI update
+      updateTimerState(prev => {
+        const newTimers = { ...prev.activeTimers };
+        delete newTimers[stopTimerTaskId];
+        const newIntervals = { ...prev.intervals };
+        delete newIntervals[stopTimerTaskId];
+        return { 
+          ...prev, 
+          activeTimers: newTimers,
+          intervals: newIntervals,
+          tick: Date.now() // Force re-render to show logged time immediately
+        };
+      });
+      
+      // OPTIMISTIC UPDATE: Update local tasks array immediately with new logged_seconds
+      // This ensures getTimerDisplay shows logged_seconds instead of 00:00:00
+      updateDataState(prev => ({
+        ...prev,
+        tasks: prev.tasks.map(task => 
+          task.id === stopTimerTaskId 
+            ? { 
+                ...task, 
+                timer_started_at: null,
+                logged_seconds: newLoggedSeconds // Update logged_seconds optimistically
+              } 
+            : task
+        )
+      }));
+      
+      // Force a second tick update to ensure re-render
+      setTimeout(() => {
+        updateTimerState(prev => ({ ...prev, tick: Date.now() }));
+      }, 50);
+
+      // ===== NOW do API call (doesn't block UI) =====
       const response = await fetch(`/api/tasks/${stopTimerTaskId}/stop-timer`, {
         method: 'POST',
         headers: {
@@ -2222,40 +2296,6 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
       });
 
       if (response.ok) {
-        // Clear interval and local timer state IMMEDIATELY (before async refresh)
-        if (timerIntervals[stopTimerTaskId]) {
-          clearInterval(timerIntervals[stopTimerTaskId]);
-        }
-        
-        // Clear activeTimers and intervals in a single state update for immediate UI update
-        updateTimerState(prev => {
-          const newTimers = { ...prev.activeTimers };
-          delete newTimers[stopTimerTaskId];
-          const newIntervals = { ...prev.intervals };
-          delete newIntervals[stopTimerTaskId];
-          return { 
-            ...prev, 
-            activeTimers: newTimers,
-            intervals: newIntervals,
-            tick: Date.now() // Force re-render to show logged time immediately
-          };
-        });
-        
-        // OPTIMISTIC UPDATE: Update local tasks array immediately with new logged_seconds
-        // This ensures getTimerDisplay shows logged_seconds instead of 00:00:00
-        updateDataState(prev => ({
-          ...prev,
-          tasks: prev.tasks.map(task => 
-            task.id === stopTimerTaskId 
-              ? { 
-                  ...task, 
-                  timer_started_at: null,
-                  logged_seconds: newLoggedSeconds // Update logged_seconds optimistically
-                } 
-              : task
-          )
-        }));
-        
         // Use optimized refresh instead of full data reload (async - happens after state update)
         refreshTasksOnly();
         
@@ -2280,11 +2320,48 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
           stopTimerTotalTime: ''
         });
       } else {
-        alert('Failed to stop timer');
+        // Rollback on error - restore timer state
+        const errorData = await response.json();
+        const startTime = activeTimers[stopTimerTaskId] || Date.now() - (loggedSeconds * 1000);
+        const interval = setInterval(() => {
+          updateTimerState(prev => ({ ...prev, tick: Date.now() }));
+        }, 1000);
+        updateTimerState(prev => ({
+          ...prev,
+          activeTimers: { ...prev.activeTimers, [stopTimerTaskId]: startTime },
+          intervals: { ...prev.intervals, [stopTimerTaskId]: interval }
+        }));
+        updateDataState(prev => ({
+          ...prev,
+          tasks: prev.tasks.map(task => 
+            task.id === stopTimerTaskId 
+              ? { ...task, timer_started_at: task.timer_started_at, logged_seconds: currentLoggedSeconds }
+              : task
+          )
+        }));
+        alert(`Failed to stop timer: ${errorData.error || 'Unknown error'}`);
       }
     } catch (error) {
+      // Rollback on network error
       console.error('Error stopping timer:', error);
-      alert('Failed to stop timer');
+      const startTime = activeTimers[stopTimerTaskId] || Date.now() - (loggedSeconds * 1000);
+      const interval = setInterval(() => {
+        updateTimerState(prev => ({ ...prev, tick: Date.now() }));
+      }, 1000);
+      updateTimerState(prev => ({
+        ...prev,
+        activeTimers: { ...prev.activeTimers, [stopTimerTaskId]: startTime },
+        intervals: { ...prev.intervals, [stopTimerTaskId]: interval }
+      }));
+      updateDataState(prev => ({
+        ...prev,
+        tasks: prev.tasks.map(task => 
+          task.id === stopTimerTaskId 
+            ? { ...task, timer_started_at: task.timer_started_at, logged_seconds: currentLoggedSeconds }
+            : task
+        )
+      }));
+      alert('Failed to stop timer: Network error');
     }
   };
 
