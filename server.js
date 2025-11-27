@@ -4922,18 +4922,21 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                 // Format timer_started_at to ISO format for JavaScript Date parsing (matching backup format)
                 const formattedTasks = results[0].map(task => {
                   if (task.timer_started_at) {
-                    // Convert DATETIME format (space) to ISO format with Z (like backup)
+                    // Convert DATETIME format to ISO format without Z (parse as local time to match stored Pakistan time)
                     let timerValue;
                     if (task.timer_started_at instanceof Date) {
-                      timerValue = task.timer_started_at.toISOString();
+                      // Convert Date to ISO string and remove Z to parse as local time
+                      const isoStr = task.timer_started_at.toISOString();
+                      timerValue = isoStr.replace(/\.\d{3}Z$/, '');
                     } else {
                       const timerStr = String(task.timer_started_at);
-                      // If already in ISO format (has T), ensure it has Z
+                      // If already in ISO format (has T), remove Z if present to parse as local time
                       if (timerStr.includes('T')) {
-                        timerValue = timerStr.includes('Z') ? timerStr : timerStr + (timerStr.includes('.') ? 'Z' : '.000Z');
+                        // Remove Z and milliseconds to parse as local time (matching stored Pakistan time)
+                        timerValue = timerStr.replace(/\.\d{3}Z?$/, '').replace(/Z$/, '');
                       } else {
-                        // Convert "YYYY-MM-DD HH:mm:ss" to "YYYY-MM-DDTHH:mm:ss.000Z" (matching backup)
-                        timerValue = timerStr.replace(' ', 'T') + '.000Z';
+                        // Convert "YYYY-MM-DD HH:mm:ss" to "YYYY-MM-DDTHH:mm:ss" (no Z - parse as local time to match stored Pakistan time)
+                        timerValue = timerStr.replace(' ', 'T');
                       }
                     }
                     return { ...task, timer_started_at: timerValue };
