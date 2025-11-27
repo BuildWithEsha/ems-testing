@@ -5534,8 +5534,8 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                     return;
                   }
                   
-                  // Get current local Pakistan time in ISO format to avoid timezone issues
-                  const now = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Karachi' }).replace(' ', 'T') + '.000Z';
+                  // Get current local Pakistan time in DATETIME format for MySQL
+                  const now = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Karachi' });
                   
                   // Start the timer with current local timestamp
                   const startTimerQuery = `
