@@ -41,7 +41,7 @@ const ActionMenu = ({ onSelect, onEdit, onDelete, isErrorMenu = false, itemType 
   const getSpecificPermissions = () => {
     return {
       canView: true,
-      canEdit: tr.ue,
+      canEdit: true,
       canDelete: true
     };
   };
