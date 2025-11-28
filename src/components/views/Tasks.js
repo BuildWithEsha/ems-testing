@@ -2238,13 +2238,24 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
     }
 
     try {
-      const startTime = activeTimers[stopTimerTaskId];
+      // ===== CRITICAL: Calculate loggedSeconds BEFORE clearing activeTimers =====
       const task = tasks.find(t => t.id === stopTimerTaskId);
+      let startTime = activeTimers[stopTimerTaskId];
+      
+      // Fallback: If activeTimers doesn't have the start time, calculate from task.timer_started_at
+      if (!startTime && task?.timer_started_at) {
+        const timerStartDate = new Date(task.timer_started_at);
+        startTime = timerStartDate.getTime();
+        console.log('⚠️ Using fallback startTime from task.timer_started_at:', task.timer_started_at, 'converted to:', startTime); // Debug log
+      }
+      
       const loggedSeconds = startTime ? Math.floor((Date.now() - startTime) / 1000) : 0;
       const currentLoggedSeconds = task?.logged_seconds || 0;
       const newLoggedSeconds = currentLoggedSeconds + loggedSeconds;
+      
+      console.log('🛑 Stop timer calculation - startTime:', startTime, 'loggedSeconds:', loggedSeconds, 'currentLoggedSeconds:', currentLoggedSeconds, 'newLoggedSeconds:', newLoggedSeconds, 'task.timer_started_at:', task?.timer_started_at); // Debug log
 
-      // ===== OPTIMISTIC UPDATE: Do this FIRST, before API call =====
+      // ===== OPTIMISTIC UPDATE: Do this AFTER calculating loggedSeconds =====
       // Clear interval and local timer state IMMEDIATELY
       if (timerIntervals[stopTimerTaskId]) {
         clearInterval(timerIntervals[stopTimerTaskId]);
