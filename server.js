@@ -6415,7 +6415,7 @@ app.post('/api/tasks/import', upload.single('file'), async (req, res) => {
       ];
       const baseValues = [
         taskData.title, taskData.department, taskData.taskCategory, taskData.project,
-        taskData.startDate, taskData.dueDate, taskData.withoutDueDate ? 1 : 0,
+        taskData.startDate || null, taskData.dueDate || null, taskData.withoutDueDate ? 1 : 0,
         taskData.assignedTo, taskData.status, taskData.description,
         taskData.responsible, taskData.accountable, taskData.consulted, taskData.informed, taskData.trained,
         taskData.labels, taskData.milestones, taskData.priority, taskData.complexity, taskData.impact,

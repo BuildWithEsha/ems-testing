@@ -1,3 +1,5 @@
 .env
 node_modules
-sync_databases*
+sync_databases.js
+sync_progress.json
+compare_databases.js*
