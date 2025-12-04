@@ -5430,7 +5430,20 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                 res.json({ message: 'Task updated successfully' });
               } catch (err) {
                 console.error('Error updating task:', err);
-                res.status(500).json({ error: 'Database error' });
+                console.error('MySQL Error Code:', err.code);
+                console.error('MySQL Error Message:', err.message);
+                console.error('MySQL SQL State:', err.sqlState);
+                console.error('Query:', query);
+                console.error('Values:', values);
+                console.error('Values Types:', values.map(v => typeof v));
+                console.error('Task ID:', taskId);
+                console.error('Task Data Received:', JSON.stringify(taskData, null, 2));
+                res.status(500).json({ 
+                  error: 'Database error',
+                  message: err.message,
+                  code: err.code,
+                  sqlState: err.sqlState
+                });
               }
             });
 
