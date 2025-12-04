@@ -176,7 +176,7 @@ const logTaskHistory = async (taskId, action, description, userName, userId, old
     try {
       connection = await mysqlPool.getConnection();
       await connection.ping();
-      await connection.execute(query, [taskId, action, description, userName, userId, oldValue, newValue]);
+      await connection.execute(query, [taskId, sanitizeForMySQL(action), sanitizeForMySQL(description), sanitizeForMySQL(userName), userId, sanitizeForMySQL(oldValue), sanitizeForMySQL(newValue)]);
       console.log(`📝 Task History Logged: Task ${taskId} - ${action} by ${userName}`);
     } catch (err) {
       console.error('Error logging task history (non-critical):', err);
@@ -211,6 +211,29 @@ const toAssignedToString = (taskData) => {
       .join(', ');
   }
   return '';
+};
+
+// Helper to sanitize values for MySQL - handles arrays, objects, and empty strings
+const sanitizeForMySQL = (value) => {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (Array.isArray(value)) {
+    // Empty array → null, non-empty array → comma-separated string
+    return value.length > 0 ? value.join(', ') : null;
+  }
+  if (typeof value === 'object') {
+    // Object → JSON string
+    try {
+      return JSON.stringify(value);
+    } catch (e) {
+      return null;
+    }
+  }
+  if (typeof value === 'string') {
+    // Empty string → null
+    return value.trim() === '' ? null : value;
+  }
+  return value;
 };
 
 // MySQL Database Connection Pool (already configured above)
@@ -621,8 +644,8 @@ app.post('/api/notices', async (req, res) => {
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `;
     const [noticeResult] = await connection.execute(
-      noticeQuery,
-      [title, description, priority || 'medium', normalizedStatus, created_by]
+      query,
+      [sanitizeForMySQL(title), sanitizeForMySQL(description), sanitizeForMySQL(priority) || 'medium', status || 'draft', sanitizeForMySQL(created_by)]
     );
 
     const noticeId = noticeResult.insertId;
@@ -634,7 +657,7 @@ app.post('/api/notices', async (req, res) => {
       `;
       await connection.execute(
         recipientQuery,
-        [noticeId, recipient.type, recipient.value, recipient.label]
+        [noticeId, sanitizeForMySQL(recipient.type), sanitizeForMySQL(recipient.value), sanitizeForMySQL(recipient.label)]
       );
     }
 
@@ -646,7 +669,7 @@ app.post('/api/notices', async (req, res) => {
         `;
         await connection.execute(
           attachmentQuery,
-          [noticeId, attachment.name, attachment.path, attachment.size, attachment.type, created_by]
+          [noticeId, sanitizeForMySQL(attachment.name), sanitizeForMySQL(attachment.path), attachment.size, sanitizeForMySQL(attachment.type), sanitizeForMySQL(created_by)]
         );
       }
     }
@@ -690,7 +713,7 @@ app.put('/api/notices/:id', async (req, res) => {
     `;
     await connection.execute(
       noticeQuery,
-      [title, description, priority, normalizedStatus, id]
+      [sanitizeForMySQL(title), sanitizeForMySQL(description), sanitizeForMySQL(priority), normalizedStatus, id]
     );
 
     await connection.execute('DELETE FROM notice_recipients WHERE notice_id = ?', [id]);
@@ -704,7 +727,7 @@ app.put('/api/notices/:id', async (req, res) => {
         `;
         await connection.execute(
           recipientQuery,
-          [id, recipient.type, recipient.value, recipient.label]
+          [id, sanitizeForMySQL(recipient.type), sanitizeForMySQL(recipient.value), sanitizeForMySQL(recipient.label)]
         );
       }
     }
@@ -717,7 +740,7 @@ app.put('/api/notices/:id', async (req, res) => {
         `;
         await connection.execute(
           attachmentQuery,
-          [id, attachment.name, attachment.path, attachment.size, attachment.type, attachment.uploaded_by]
+          [id, sanitizeForMySQL(attachment.name), sanitizeForMySQL(attachment.path), attachment.size, sanitizeForMySQL(attachment.type), sanitizeForMySQL(attachment.uploaded_by)]
         );
       }
     }
@@ -2244,7 +2267,7 @@ app.post('/api/errors', async (req, res) => {
     
     // Insert error record
     const insert = `INSERT INTO errors (employee_id, employee_name, task_id, severity, description, error_date) VALUES (?, ?, ?, ?, ?, ?)`;
-    const [result] = await connection.execute(insert, [employee_id, employee_name, task_id, severity, description || '', error_date || null]);
+    const [result] = await connection.execute(insert, [employee_id, employee_name, task_id, severity, sanitizeForMySQL(description) || '', sanitizeForMySQL(error_date) || null]);
     
     // Get the created error record
       const select = `
@@ -2381,7 +2404,7 @@ app.post('/api/appreciations', async (req, res) => {
     
     // Insert appreciation record
     const insert = `INSERT INTO appreciations (employee_id, employee_name, title, description, appreciation_date) VALUES (?, ?, ?, ?, ?)`;
-    const [result] = await connection.execute(insert, [employee_id, employee_name, title, description || '', appreciation_date || null]);
+    const [result] = await connection.execute(insert, [employee_id, employee_name, sanitizeForMySQL(title), sanitizeForMySQL(description) || '', sanitizeForMySQL(appreciation_date) || null]);
     
     // Get the created appreciation record
       const select = `
@@ -2503,7 +2526,7 @@ app.post('/api/appreciation-types', async (req, res) => {
     await connection.ping();
     
   const insert = 'INSERT INTO appreciation_types (name) VALUES (?)';
-    const [result] = await connection.execute(insert, [String(name).trim()]);
+    const [result] = await connection.execute(insert, [sanitizeForMySQL(String(name).trim())]);
     
     // Get the created appreciation type
     const [rows] = await connection.execute('SELECT id, name, status, created_at FROM appreciation_types WHERE id = ?', [result.insertId]);
@@ -3557,41 +3580,41 @@ app.post('/api/employees', async (req, res) => {
   `;
   
   const values = [
-    employeeData.employee_id,
-    employeeData.salutation,
-    employeeData.name,
-    employeeData.email,
-    employeeData.password,
-    employeeData.designation,
-    employeeData.department,
-    employeeData.work_from,
-    employeeData.country,
-    employeeData.mobile,
-    employeeData.gender,
-    employeeData.joining_date,
-    employeeData.date_of_birth,
-    employeeData.reporting_to,
-    employeeData.language,
-    employeeData.user_role,
-    employeeData.address,
-    employeeData.about,
-    employeeData.photo,
+    sanitizeForMySQL(employeeData.employee_id),
+    sanitizeForMySQL(employeeData.salutation),
+    sanitizeForMySQL(employeeData.name),
+    sanitizeForMySQL(employeeData.email),
+    sanitizeForMySQL(employeeData.password),
+    sanitizeForMySQL(employeeData.designation),
+    sanitizeForMySQL(employeeData.department),
+    sanitizeForMySQL(employeeData.work_from),
+    sanitizeForMySQL(employeeData.country),
+    sanitizeForMySQL(employeeData.mobile),
+    sanitizeForMySQL(employeeData.gender),
+    sanitizeForMySQL(employeeData.joining_date),
+    sanitizeForMySQL(employeeData.date_of_birth),
+    sanitizeForMySQL(employeeData.reporting_to),
+    sanitizeForMySQL(employeeData.language),
+    sanitizeForMySQL(employeeData.user_role),
+    sanitizeForMySQL(employeeData.address),
+    sanitizeForMySQL(employeeData.about),
+    sanitizeForMySQL(employeeData.photo),
     employeeData.login_allowed ? 1 : 0,
     employeeData.email_notifications ? 1 : 0,
-    employeeData.hourly_rate,
-    employeeData.slack_member_id,
-    employeeData.skills,
-    employeeData.probation_end_date,
-    employeeData.notice_period_start_date,
-    employeeData.notice_period_end_date,
-    employeeData.employment_type,
-    employeeData.marital_status,
-    employeeData.business_address,
-    employeeData.status || 'Active',
+    sanitizeForMySQL(employeeData.hourly_rate),
+    sanitizeForMySQL(employeeData.slack_member_id),
+    sanitizeForMySQL(employeeData.skills),
+    sanitizeForMySQL(employeeData.probation_end_date),
+    sanitizeForMySQL(employeeData.notice_period_start_date),
+    sanitizeForMySQL(employeeData.notice_period_end_date),
+    sanitizeForMySQL(employeeData.employment_type),
+    sanitizeForMySQL(employeeData.marital_status),
+    sanitizeForMySQL(employeeData.business_address),
+    sanitizeForMySQL(employeeData.status) || 'Active',
     employeeData.working_hours || 8,
-    employeeData.job_title,
-    employeeData.emergency_contact_number,
-    employeeData.emergency_contact_relation
+    sanitizeForMySQL(employeeData.job_title),
+    sanitizeForMySQL(employeeData.emergency_contact_number),
+    sanitizeForMySQL(employeeData.emergency_contact_relation)
   ];
   
   let connection;
@@ -3660,41 +3683,41 @@ app.put('/api/employees/:id', async (req, res) => {
   `;
   
   const values = [
-    employeeData.employee_id,
-    employeeData.salutation,
-    employeeData.name,
-    employeeData.email,
-    employeeData.password,
-    employeeData.designation,
-    employeeData.department,
-    employeeData.work_from,
-    employeeData.country,
-    employeeData.mobile,
-    employeeData.gender,
-    employeeData.joining_date,
-    employeeData.date_of_birth,
-    employeeData.reporting_to,
-    employeeData.language,
-    employeeData.user_role,
-    employeeData.address,
-    employeeData.about,
-    employeeData.photo,
+    sanitizeForMySQL(employeeData.employee_id),
+    sanitizeForMySQL(employeeData.salutation),
+    sanitizeForMySQL(employeeData.name),
+    sanitizeForMySQL(employeeData.email),
+    sanitizeForMySQL(employeeData.password),
+    sanitizeForMySQL(employeeData.designation),
+    sanitizeForMySQL(employeeData.department),
+    sanitizeForMySQL(employeeData.work_from),
+    sanitizeForMySQL(employeeData.country),
+    sanitizeForMySQL(employeeData.mobile),
+    sanitizeForMySQL(employeeData.gender),
+    sanitizeForMySQL(employeeData.joining_date),
+    sanitizeForMySQL(employeeData.date_of_birth),
+    sanitizeForMySQL(employeeData.reporting_to),
+    sanitizeForMySQL(employeeData.language),
+    sanitizeForMySQL(employeeData.user_role),
+    sanitizeForMySQL(employeeData.address),
+    sanitizeForMySQL(employeeData.about),
+    sanitizeForMySQL(employeeData.photo),
     employeeData.login_allowed ? 1 : 0,
     employeeData.email_notifications ? 1 : 0,
-    employeeData.hourly_rate,
-    employeeData.slack_member_id,
-    employeeData.skills,
-    employeeData.probation_end_date,
-    employeeData.notice_period_start_date,
-    employeeData.notice_period_end_date,
-    employeeData.employment_type,
-    employeeData.marital_status,
-    employeeData.business_address,
-    employeeData.status || 'Active',
+    sanitizeForMySQL(employeeData.hourly_rate),
+    sanitizeForMySQL(employeeData.slack_member_id),
+    sanitizeForMySQL(employeeData.skills),
+    sanitizeForMySQL(employeeData.probation_end_date),
+    sanitizeForMySQL(employeeData.notice_period_start_date),
+    sanitizeForMySQL(employeeData.notice_period_end_date),
+    sanitizeForMySQL(employeeData.employment_type),
+    sanitizeForMySQL(employeeData.marital_status),
+    sanitizeForMySQL(employeeData.business_address),
+    sanitizeForMySQL(employeeData.status) || 'Active',
     employeeData.working_hours || 8,
-    employeeData.job_title,
-    employeeData.emergency_contact_number,
-    employeeData.emergency_contact_relation,
+    sanitizeForMySQL(employeeData.job_title),
+    sanitizeForMySQL(employeeData.emergency_contact_number),
+    sanitizeForMySQL(employeeData.emergency_contact_relation),
     req.params.id
   ];
   let connection;
@@ -3984,11 +4007,11 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
               `;
 
               const values = [
-                departmentData.name,
-                departmentData.description,
-                departmentData.manager,
-                departmentData.location,
-                departmentData.status || 'Active'
+                sanitizeForMySQL(departmentData.name),
+                sanitizeForMySQL(departmentData.description),
+                sanitizeForMySQL(departmentData.manager),
+                sanitizeForMySQL(departmentData.location),
+                sanitizeForMySQL(departmentData.status) || 'Active'
               ];
 
               try {
@@ -4015,11 +4038,11 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
               `;
 
               const values = [
-                departmentData.name,
-                departmentData.description,
-                departmentData.manager,
-                departmentData.location,
-                departmentData.status,
+                sanitizeForMySQL(departmentData.name),
+                sanitizeForMySQL(departmentData.description),
+                sanitizeForMySQL(departmentData.manager),
+                sanitizeForMySQL(departmentData.location),
+                sanitizeForMySQL(departmentData.status),
                 req.params.id
               ];
 
@@ -4204,11 +4227,11 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
               `;
 
               const values = [
-                designationData.name,
-                designationData.description,
-                designationData.department,
-                designationData.level,
-                designationData.status || 'Active'
+                sanitizeForMySQL(designationData.name),
+                sanitizeForMySQL(designationData.description),
+                sanitizeForMySQL(designationData.department),
+                sanitizeForMySQL(designationData.level),
+                sanitizeForMySQL(designationData.status) || 'Active'
               ];
 
               try {
@@ -4235,11 +4258,11 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
               `;
 
               const values = [
-                designationData.name,
-                designationData.description,
-                designationData.department,
-                designationData.level,
-                designationData.status,
+                sanitizeForMySQL(designationData.name),
+                sanitizeForMySQL(designationData.description),
+                sanitizeForMySQL(designationData.department),
+                sanitizeForMySQL(designationData.level),
+                sanitizeForMySQL(designationData.status),
                 req.params.id
               ];
 
@@ -4403,11 +4426,11 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
               `;
 
               const values = [
-                labelData.name,
-                labelData.description,
-                labelData.color || '#3B82F6',
-                labelData.category,
-                labelData.status || 'Active'
+                sanitizeForMySQL(labelData.name),
+                sanitizeForMySQL(labelData.description),
+                sanitizeForMySQL(labelData.color) || '#3B82F6',
+                sanitizeForMySQL(labelData.category),
+                sanitizeForMySQL(labelData.status) || 'Active'
               ];
 
               let connection;
@@ -4446,11 +4469,11 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
               `;
 
               const values = [
-                labelData.name,
-                labelData.description,
-                labelData.color,
-                labelData.category,
-                labelData.status,
+                sanitizeForMySQL(labelData.name),
+                sanitizeForMySQL(labelData.description),
+                sanitizeForMySQL(labelData.color),
+                sanitizeForMySQL(labelData.category),
+                sanitizeForMySQL(labelData.status),
                 req.params.id
               ];
 
@@ -5163,39 +5186,39 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
               `;
               const values = [
-                taskData.title || null, 
-                taskData.department || null, 
-                taskData.taskCategory || null, 
-                taskData.project || null,
-                taskData.startDate || null, 
-                taskData.dueDate || null, 
+                sanitizeForMySQL(taskData.title), 
+                sanitizeForMySQL(taskData.department), 
+                sanitizeForMySQL(taskData.taskCategory), 
+                sanitizeForMySQL(taskData.project),
+                sanitizeForMySQL(taskData.startDate), 
+                sanitizeForMySQL(taskData.dueDate), 
                 taskData.withoutDueDate ? 1 : 0,
                 toAssignedToString(taskData) || null, 
-                taskData.status || 'Pending', 
-                taskData.description || null,
-                taskData.responsible || null, 
-                taskData.accountable || null, 
-                taskData.consulted || null, 
-                taskData.informed || null, 
-                taskData.trained || null,
-                taskData.labels || null, 
-                taskData.milestones || null, 
-                taskData.priority || 'Medium',
-                taskData.complexity || null, 
-                taskData.impact || null, 
-                taskData.unit || null, 
-                taskData.target || null, 
-                taskData.effort_estimate_label || null,
+                sanitizeForMySQL(taskData.status) || 'Pending', 
+                sanitizeForMySQL(taskData.description),
+                sanitizeForMySQL(taskData.responsible), 
+                sanitizeForMySQL(taskData.accountable), 
+                sanitizeForMySQL(taskData.consulted), 
+                sanitizeForMySQL(taskData.informed), 
+                sanitizeForMySQL(taskData.trained),
+                sanitizeForMySQL(taskData.labels), 
+                sanitizeForMySQL(taskData.milestones), 
+                sanitizeForMySQL(taskData.priority) || 'Medium',
+                sanitizeForMySQL(taskData.complexity), 
+                sanitizeForMySQL(taskData.impact), 
+                sanitizeForMySQL(taskData.unit), 
+                sanitizeForMySQL(taskData.target), 
+                sanitizeForMySQL(taskData.effort_estimate_label),
                 taskData.time_estimate_hours || 0,
                 taskData.time_estimate_minutes || 0,
                 taskData.makePrivate ? 1 : 0, 
                 taskData.share ? 1 : 0, 
                 taskData.repeat ? 1 : 0, 
                 taskData.isDependent ? 1 : 0,
-                taskData.validationBy || null, 
-                taskData.effortLabel || null, 
-                taskData.checklist || null, 
-                taskData.workflowGuide || null
+                sanitizeForMySQL(taskData.validationBy), 
+                sanitizeForMySQL(taskData.effortLabel), 
+                sanitizeForMySQL(taskData.checklist), 
+                sanitizeForMySQL(taskData.workflowGuide)
               ];
               
               try {
@@ -5244,27 +5267,27 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
               // Check each field and only include it in the update if it's provided
               if (taskData.title !== undefined) {
                 updateFields.push('title = ?');
-                values.push(taskData.title || null);
+                values.push(sanitizeForMySQL(taskData.title));
               }
               if (taskData.department !== undefined) {
                 updateFields.push('department = ?');
-                values.push(taskData.department || null);
+                values.push(sanitizeForMySQL(taskData.department));
               }
               if (taskData.taskCategory !== undefined) {
                 updateFields.push('task_category = ?');
-                values.push(taskData.taskCategory || null);
+                values.push(sanitizeForMySQL(taskData.taskCategory));
               }
               if (taskData.project !== undefined) {
                 updateFields.push('project = ?');
-                values.push(taskData.project || null);
+                values.push(sanitizeForMySQL(taskData.project));
               }
               if (taskData.startDate !== undefined) {
                 updateFields.push('start_date = ?');
-                values.push(taskData.startDate || null);
+                values.push(sanitizeForMySQL(taskData.startDate));
               }
               if (taskData.dueDate !== undefined) {
                 updateFields.push('due_date = ?');
-                values.push(taskData.dueDate || null);
+                values.push(sanitizeForMySQL(taskData.dueDate));
               }
               if (taskData.withoutDueDate !== undefined) {
                 updateFields.push('without_due_date = ?');
@@ -5276,63 +5299,63 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
               }
               if (taskData.status !== undefined) {
                 updateFields.push('status = ?');
-                values.push(taskData.status || null);
+                values.push(sanitizeForMySQL(taskData.status));
               }
               if (taskData.description !== undefined) {
                 updateFields.push('description = ?');
-                values.push(taskData.description || null);
+                values.push(sanitizeForMySQL(taskData.description));
               }
               if (taskData.responsible !== undefined) {
                 updateFields.push('responsible = ?');
-                values.push(taskData.responsible || null);
+                values.push(sanitizeForMySQL(taskData.responsible));
               }
               if (taskData.accountable !== undefined) {
                 updateFields.push('accountable = ?');
-                values.push(taskData.accountable || null);
+                values.push(sanitizeForMySQL(taskData.accountable));
               }
               if (taskData.consulted !== undefined) {
                 updateFields.push('consulted = ?');
-                values.push(taskData.consulted || null);
+                values.push(sanitizeForMySQL(taskData.consulted));
               }
               if (taskData.informed !== undefined) {
                 updateFields.push('informed = ?');
-                values.push(taskData.informed || null);
+                values.push(sanitizeForMySQL(taskData.informed));
               }
               if (taskData.trained !== undefined) {
                 updateFields.push('trained = ?');
-                values.push(taskData.trained || null);
+                values.push(sanitizeForMySQL(taskData.trained));
               }
               if (taskData.labels !== undefined) {
                 updateFields.push('labels = ?');
-                values.push(taskData.labels || null);
+                values.push(sanitizeForMySQL(taskData.labels));
               }
               if (taskData.milestones !== undefined) {
                 updateFields.push('milestones = ?');
-                values.push(taskData.milestones || null);
+                values.push(sanitizeForMySQL(taskData.milestones));
               }
               if (taskData.priority !== undefined) {
                 updateFields.push('priority = ?');
-                values.push(taskData.priority || null);
+                values.push(sanitizeForMySQL(taskData.priority));
               }
               if (taskData.complexity !== undefined) {
                 updateFields.push('complexity = ?');
-                values.push(taskData.complexity || null);
+                values.push(sanitizeForMySQL(taskData.complexity));
               }
               if (taskData.impact !== undefined) {
                 updateFields.push('impact = ?');
-                values.push(taskData.impact || null);
+                values.push(sanitizeForMySQL(taskData.impact));
               }
               if (taskData.unit !== undefined) {
                 updateFields.push('unit = ?');
-                values.push(taskData.unit || null);
+                values.push(sanitizeForMySQL(taskData.unit));
               }
               if (taskData.target !== undefined) {
                 updateFields.push('target = ?');
-                values.push(taskData.target || null);
+                values.push(sanitizeForMySQL(taskData.target));
               }
               if (taskData.effort_estimate_label !== undefined) {
                 updateFields.push('effort_estimate_label = ?');
-                values.push(taskData.effort_estimate_label || null);
+                values.push(sanitizeForMySQL(taskData.effort_estimate_label));
               }
               if (taskData.time_estimate_hours !== undefined) {
                 updateFields.push('time_estimate_hours = ?');
@@ -5360,19 +5383,19 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
               }
               if (taskData.validationBy !== undefined) {
                 updateFields.push('validation_by = ?');
-                values.push(taskData.validationBy || null);
+                values.push(sanitizeForMySQL(taskData.validationBy));
               }
               if (taskData.effortLabel !== undefined) {
                 updateFields.push('effort_label = ?');
-                values.push(taskData.effortLabel || null);
+                values.push(sanitizeForMySQL(taskData.effortLabel));
               }
               if (taskData.checklist !== undefined) {
                 updateFields.push('checklist = ?');
-                values.push(taskData.checklist || null);
+                values.push(sanitizeForMySQL(taskData.checklist));
               }
               if (taskData.workflowGuide !== undefined) {
                 updateFields.push('workflow_guide = ?');
-                values.push(taskData.workflowGuide || null);
+                values.push(sanitizeForMySQL(taskData.workflowGuide));
               }
 
               // Always update the updated_at timestamp
@@ -6414,15 +6437,15 @@ app.post('/api/tasks/import', upload.single('file'), async (req, res) => {
         'validation_by', 'effort_label', 'checklist', 'workflow_guide'
       ];
       const baseValues = [
-        taskData.title, taskData.department, taskData.taskCategory, taskData.project,
-        taskData.startDate || null, taskData.dueDate || null, taskData.withoutDueDate ? 1 : 0,
-        taskData.assignedTo, taskData.status, taskData.description,
-        taskData.responsible, taskData.accountable, taskData.consulted, taskData.informed, taskData.trained,
-        taskData.labels, taskData.milestones, taskData.priority, taskData.complexity, taskData.impact,
-        taskData.unit || '', taskData.target || '', taskData.effort_estimate_label,
+        sanitizeForMySQL(taskData.title), sanitizeForMySQL(taskData.department), sanitizeForMySQL(taskData.taskCategory), sanitizeForMySQL(taskData.project),
+        sanitizeForMySQL(taskData.startDate), sanitizeForMySQL(taskData.dueDate), taskData.withoutDueDate ? 1 : 0,
+        toAssignedToString({ assignedTo: taskData.assignedTo }) || null, sanitizeForMySQL(taskData.status), sanitizeForMySQL(taskData.description),
+        sanitizeForMySQL(taskData.responsible), sanitizeForMySQL(taskData.accountable), sanitizeForMySQL(taskData.consulted), sanitizeForMySQL(taskData.informed), sanitizeForMySQL(taskData.trained),
+        sanitizeForMySQL(taskData.labels), sanitizeForMySQL(taskData.milestones), sanitizeForMySQL(taskData.priority), sanitizeForMySQL(taskData.complexity), sanitizeForMySQL(taskData.impact),
+        sanitizeForMySQL(taskData.unit) || '', sanitizeForMySQL(taskData.target) || '', sanitizeForMySQL(taskData.effort_estimate_label),
         taskData.time_estimate_hours || 0, taskData.time_estimate_minutes || 0,
         taskData.makePrivate ? 1 : 0, taskData.share ? 1 : 0, taskData.repeat ? 1 : 0, taskData.isDependent ? 1 : 0,
-        taskData.validationBy, taskData.effortLabel, taskData.checklist, taskData.workflowGuide
+        sanitizeForMySQL(taskData.validationBy), sanitizeForMySQL(taskData.effortLabel), sanitizeForMySQL(taskData.checklist), sanitizeForMySQL(taskData.workflowGuide)
       ];
 
       const columns = [...baseColumns];
@@ -6764,8 +6787,8 @@ app.post('/api/roles', async (req, res) => {
     
     const insertQuery = 'INSERT INTO roles (name, description, permissions) VALUES (?, ?, ?)';
     const [result] = await connection.execute(insertQuery, [
-      name, 
-      description || '', 
+      sanitizeForMySQL(name), 
+      sanitizeForMySQL(description) || '', 
       JSON.stringify(permissions || [])
     ]);
     
@@ -6809,8 +6832,8 @@ app.put('/api/roles/:id', async (req, res) => {
     
     const updateQuery = 'UPDATE roles SET name = ?, description = ?, permissions = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?';
     await connection.execute(updateQuery, [
-      name, 
-      description || '', 
+      sanitizeForMySQL(name), 
+      sanitizeForMySQL(description) || '', 
       JSON.stringify(permissions || []), 
       id
     ]);
@@ -8057,7 +8080,7 @@ app.post('/api/warning-letters', async (req, res) => {
     
     // Insert warning letter record
     const insert = `INSERT INTO warning_letters (employee_id, employee_name, title, description, warning_date, severity) VALUES (?, ?, ?, ?, ?, ?)`;
-    const [result] = await connection.execute(insert, [employee_id, employee_name, title, description || '', warning_date || null, severity || 'Low']);
+    const [result] = await connection.execute(insert, [employee_id, employee_name, sanitizeForMySQL(title), sanitizeForMySQL(description) || '', sanitizeForMySQL(warning_date) || null, sanitizeForMySQL(severity) || 'Low']);
     
     // Get the created warning letter record
     const select = `
