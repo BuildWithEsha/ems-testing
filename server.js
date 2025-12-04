@@ -213,7 +213,7 @@ const toAssignedToString = (taskData) => {
   return '';
 };
 
-// Helper to sanitize values for MySQL - handles arrays, objects, and empty strings
+// Helper to sanitize values for MySQL - handles arrays, objects, empty strings, and ISO dates
 const sanitizeForMySQL = (value) => {
   if (value === undefined) return undefined;
   if (value === null) return null;
@@ -231,7 +231,31 @@ const sanitizeForMySQL = (value) => {
   }
   if (typeof value === 'string') {
     // Empty string → null
-    return value.trim() === '' ? null : value;
+    if (value.trim() === '') return null;
+    
+    // Check if it's an ISO date string (contains 'T' and possibly 'Z' or timezone offset)
+    // Pattern: YYYY-MM-DDTHH:MM:SS.sssZ or YYYY-MM-DDTHH:MM:SS+HH:MM
+    if (value.includes('T') && (value.includes('Z') || value.match(/[+-]\d{2}:\d{2}$/))) {
+      try {
+        const date = new Date(value);
+        if (!isNaN(date.getTime())) {
+          // Convert to MySQL DATETIME format: YYYY-MM-DD HH:MM:SS
+          const year = date.getFullYear();
+          const month = String(date.getMonth() + 1).padStart(2, '0');
+          const day = String(date.getDate()).padStart(2, '0');
+          const hours = String(date.getHours()).padStart(2, '0');
+          const minutes = String(date.getMinutes()).padStart(2, '0');
+          const seconds = String(date.getSeconds()).padStart(2, '0');
+          return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+        }
+      } catch (e) {
+        // If date parsing fails, return the original string
+        console.error('Error parsing date:', value, e);
+        return value;
+      }
+    }
+    
+    return value;
   }
   return value;
 };
