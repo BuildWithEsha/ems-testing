@@ -3917,12 +3917,12 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
             employeeData.employee_id, employeeData.salutation, employeeData.name,
             employeeData.email, employeeData.password, employeeData.designation,
             employeeData.department, employeeData.work_from, employeeData.country,
-            employeeData.mobile, employeeData.gender, employeeData.joining_date,
-            employeeData.date_of_birth, employeeData.reporting_to, employeeData.language,
+            employeeData.mobile, employeeData.gender, sanitizeForMySQL(employeeData.joining_date),
+            sanitizeForMySQL(employeeData.date_of_birth), employeeData.reporting_to, employeeData.language,
             employeeData.user_role, employeeData.address, employeeData.about,
             employeeData.login_allowed, employeeData.email_notifications, employeeData.hourly_rate,
-            employeeData.slack_member_id, employeeData.skills, employeeData.probation_end_date,
-            employeeData.notice_period_start_date, employeeData.notice_period_end_date,
+            employeeData.slack_member_id, employeeData.skills, sanitizeForMySQL(employeeData.probation_end_date),
+            sanitizeForMySQL(employeeData.notice_period_start_date), sanitizeForMySQL(employeeData.notice_period_end_date),
             employeeData.employment_type, employeeData.marital_status, employeeData.business_address,
             employeeData.working_hours, employeeData.job_title, employeeData.emergency_contact_number,
             employeeData.emergency_contact_relation, employeeData.status
@@ -5779,6 +5779,8 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
             // Delete multiple tasks (bulk delete) - MUST be before /api/tasks/:id route
             app.delete('/api/tasks/bulk', async (req, res) => {
               console.log('🔥 BULK DELETE ENDPOINT CALLED!');
+              let connection;
+              
               try {
                 const { ids } = req.body;
                 
@@ -5794,9 +5796,27 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                 console.log('User name:', userName);
                 console.log('IDs to delete:', ids);
                 
+                // Validate input
                 if (!ids || !Array.isArray(ids) || ids.length === 0) {
                   console.log('Validation failed: IDs array is required');
                   return res.status(400).json({ error: 'IDs array is required' });
+                }
+
+                // Validate all IDs are valid numbers
+                const validIds = ids.filter(id => {
+                  const numId = parseInt(id, 10);
+                  return !isNaN(numId) && numId > 0;
+                });
+
+                if (validIds.length === 0) {
+                  return res.status(400).json({ error: 'No valid task IDs provided' });
+                }
+
+                if (validIds.length !== ids.length) {
+                  console.warn('Some invalid IDs were filtered out:', ids.filter(id => {
+                    const numId = parseInt(id, 10);
+                    return isNaN(numId) || numId <= 0;
+                  }));
                 }
                 
                 // Check permissions
@@ -5808,16 +5828,22 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                   return res.status(403).json({ error: 'Access denied: You do not have permission to delete tasks' });
                 }
                 
-                // Check if tasks exist
-                const placeholders = ids.map(() => '?').join(',');
-                const checkQuery = `SELECT id, title, assigned_to FROM tasks WHERE id IN (${placeholders})`;
-                console.log('Check query:', checkQuery);
-                console.log('Check query params:', ids);
+                // ========== FIX #5: Use transaction with row-level locking ==========
+                connection = await mysqlPool.getConnection();
+                await connection.beginTransaction();
+
+                // Check if tasks exist with row-level locking to prevent race conditions
+                const placeholders = validIds.map(() => '?').join(',');
+                const lockQuery = `SELECT id, title, assigned_to FROM tasks WHERE id IN (${placeholders}) FOR UPDATE`;
+                console.log('Check query (with lock):', lockQuery);
+                console.log('Check query params:', validIds);
                 
-                const [existingTasks] = await mysqlPool.execute(checkQuery, ids);
-                console.log('Existing tasks found:', existingTasks.length);
+                const [existingTasks] = await connection.execute(lockQuery, validIds);
+                console.log('Existing tasks found (locked):', existingTasks.length);
                 
                 if (existingTasks.length === 0) {
+                  await connection.rollback();
+                  connection.release();
                   console.log('No tasks found with the provided IDs');
                   return res.status(404).json({ error: 'No tasks found with the provided IDs' });
                 }
@@ -5830,28 +5856,88 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                   );
                   
                   if (tasksToDelete.length === 0) {
+                    await connection.rollback();
+                    connection.release();
                     return res.status(403).json({ error: 'Access denied: You can only delete tasks assigned to you' });
                   }
                 }
                 
-                // Get all attachment file paths before deleting tasks
-                const taskIdsToDelete = tasksToDelete.map(task => task.id);
+                // ========== FIX #3 & #4: Get task IDs with validation ==========
+                const taskIdsToDelete = tasksToDelete.map(task => task.id).filter(id => id != null && id !== undefined);
+
+                // CRITICAL SAFETY CHECK #1: Validate taskIdsToDelete is not empty
+                if (!taskIdsToDelete || taskIdsToDelete.length === 0) {
+                  await connection.rollback();
+                  connection.release();
+                  console.error('🚨 CRITICAL SAFETY CHECK: taskIdsToDelete is empty! Aborting delete to prevent accidental deletion of all tasks.');
+                  console.error('   - Original IDs requested:', ids);
+                  console.error('   - Valid IDs after validation:', validIds);
+                  console.error('   - Existing tasks found:', existingTasks.length);
+                  console.error('   - Tasks after permission filtering:', tasksToDelete.length);
+                  return res.status(400).json({ 
+                    error: 'No valid task IDs to delete. Operation aborted to prevent accidental deletion of all tasks.',
+                    details: 'This error prevents a potential bug that could delete all tasks in the database.',
+                    debug: {
+                      requestedIds: ids,
+                      validIds: validIds,
+                      existingTasksCount: existingTasks.length,
+                      filteredTasksCount: tasksToDelete.length,
+                      taskIdsToDeleteCount: taskIdsToDelete.length
+                    }
+                  });
+                }
+
+                // CRITICAL SAFETY CHECK #2: Validate attachment query placeholders
                 const attachmentPlaceholders = taskIdsToDelete.map(() => '?').join(',');
-                const [attachments] = await mysqlPool.execute(
+                if (!attachmentPlaceholders || attachmentPlaceholders.trim() === '') {
+                  await connection.rollback();
+                  connection.release();
+                  console.error('🚨 CRITICAL SAFETY CHECK: attachmentPlaceholders is empty! Aborting delete.');
+                  return res.status(500).json({ 
+                    error: 'Invalid attachment query construction. Operation aborted to prevent accidental deletion of all tasks.' 
+                  });
+                }
+
+                // Get all attachment file paths before deleting tasks
+                const [attachments] = await connection.execute(
                   `SELECT file_path FROM task_attachments WHERE task_id IN (${attachmentPlaceholders})`,
                   taskIdsToDelete
                 );
                 
-                // Delete tasks (this will cascade delete attachments due to foreign key)
+                // CRITICAL SAFETY CHECK #3: Validate DELETE query placeholders
                 const deletePlaceholders = taskIdsToDelete.map(() => '?').join(',');
+                if (!deletePlaceholders || deletePlaceholders.trim() === '') {
+                  await connection.rollback();
+                  connection.release();
+                  console.error('🚨 CRITICAL SAFETY CHECK: deletePlaceholders is empty! Aborting delete.');
+                  return res.status(500).json({ 
+                    error: 'Invalid delete query construction. Operation aborted to prevent accidental deletion of all tasks.' 
+                  });
+                }
+
                 const deleteQuery = `DELETE FROM tasks WHERE id IN (${deletePlaceholders})`;
-                
+
+                // CRITICAL SAFETY CHECK #4: Final validation before execution
+                if (taskIdsToDelete.length === 0) {
+                  await connection.rollback();
+                  connection.release();
+                  console.error('🚨 FINAL SAFETY CHECK: taskIdsToDelete is empty right before DELETE execution!');
+                  return res.status(500).json({ 
+                    error: 'Safety check failed: No task IDs to delete. Operation aborted.' 
+                  });
+                }
+
+                console.log('✅ Safety checks passed. Deleting', taskIdsToDelete.length, 'task(s)');
                 console.log('Delete query:', deleteQuery);
                 console.log('Delete query params:', taskIdsToDelete);
                 
-                const [deleteResult] = await mysqlPool.execute(deleteQuery, taskIdsToDelete);
+                const [deleteResult] = await connection.execute(deleteQuery, taskIdsToDelete);
+
+                // Commit transaction
+                await connection.commit();
+                connection.release();
                 
-                // Delete physical files from disk
+                // Delete physical files from disk (after commit)
                 for (const attachment of attachments) {
                   const filePath = path.join(__dirname, attachment.file_path);
                   if (fs.existsSync(filePath)) {
@@ -5870,6 +5956,10 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                   deletedCount: deleteResult.affectedRows 
                 });
               } catch (err) {
+                if (connection) {
+                  await connection.rollback();
+                  connection.release();
+                }
                 console.error('Error in bulk delete:', err);
                 res.status(500).json({ error: 'Database error: ' + err.message });
               }
@@ -5878,22 +5968,48 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
             // Delete task
             app.delete('/api/tasks/:id', async (req, res) => {
               const taskId = req.params.id;
+              
+              // ========== FIX #1: Validate taskId ==========
+              if (!taskId || taskId === 'undefined' || taskId === 'null' || taskId.trim() === '') {
+                console.error('Invalid taskId provided:', taskId);
+                return res.status(400).json({ error: 'Invalid task ID provided' });
+              }
+
+              // Validate taskId is a number (if IDs are numeric)
+              const taskIdNum = parseInt(taskId, 10);
+              if (isNaN(taskIdNum) || taskIdNum <= 0) {
+                console.error('Invalid taskId format:', taskId);
+                return res.status(400).json({ error: 'Task ID must be a valid positive number' });
+              }
+
               let connection;
               
               try {
                 connection = await mysqlPool.getConnection();
                 await connection.ping();
                 
-                // First, get all attachment file paths before deleting
+                // First, verify task exists before deleting
+                const [taskCheck] = await connection.execute(
+                  'SELECT id, title FROM tasks WHERE id = ?',
+                  [taskIdNum]
+                );
+
+                if (taskCheck.length === 0) {
+                  connection.release();
+                  return res.status(404).json({ error: 'Task not found' });
+                }
+                
+                // Get all attachment file paths before deleting
                 const [attachments] = await connection.execute(
                   'SELECT file_path FROM task_attachments WHERE task_id = ?',
-                  [taskId]
+                  [taskIdNum]
                 );
                 
                 // Delete the task (this will cascade delete attachments due to foreign key)
-                const [result] = await connection.execute('DELETE FROM tasks WHERE id = ?', [taskId]);
+                const [result] = await connection.execute('DELETE FROM tasks WHERE id = ?', [taskIdNum]);
                 
                 if (result.affectedRows === 0) {
+                  connection.release();
                   res.status(404).json({ error: 'Task not found' });
                   return;
                 }
@@ -5999,8 +6115,8 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                     taskId,
                     user_name || 'Admin',
                     user_id || 1,
-                    localStartTime.toISOString(),
-                    localEndTime.toISOString(),
+                    sanitizeForMySQL(localStartTime.toISOString()),
+                    sanitizeForMySQL(localEndTime.toISOString()),
                     memo || '',
                     finalLoggedSeconds,
                     finalLoggedSeconds
