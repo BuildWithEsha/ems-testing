@@ -7929,9 +7929,16 @@ app.get('/api/notifications/missed-tasks', async (req, res) => {
 });
 
 app.get('/api/notifications/less-trained-employees', async (req, res) => {
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/8935d4b0-ae4d-43cf-854a-300784cb786c',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:7931',message:'LTE endpoint entry',data:{minTrained:req.query.minTrained,userRole:req.headers['x-user-role']},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+  // #endregion
   const userRole = req.headers['x-user-role'];
   const userPermissions = req.headers['x-user-permissions'];
   const { minTrained = 3 } = req.query;
+
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/8935d4b0-ae4d-43cf-854a-300784cb786c',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:7936',message:'minTrained parsed',data:{minTrained,parsed:parseInt(minTrained),isNaN:isNaN(parseInt(minTrained))},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+  // #endregion
 
   if (!userRole || !userPermissions) {
     return res.status(401).json({ error: 'User role and permissions required' });
@@ -7981,7 +7988,8 @@ app.get('/api/notifications/less-trained-employees', async (req, res) => {
         END as task_type,
         CASE 
           WHEN t.trained IS NULL OR t.trained = '' OR t.trained = 'null' THEN 0
-          ELSE JSON_LENGTH(t.trained)
+          WHEN JSON_VALID(t.trained) THEN JSON_LENGTH(t.trained)
+          ELSE GREATEST(1, (LENGTH(TRIM(t.trained)) - LENGTH(REPLACE(TRIM(t.trained), ',', '')) + 1))
         END as trained_count
       FROM tasks t
       WHERE 
@@ -7997,7 +8005,12 @@ app.get('/api/notifications/less-trained-employees', async (req, res) => {
           t.trained IS NULL 
           OR t.trained = '' 
           OR t.trained = 'null'
-          OR JSON_LENGTH(t.trained) < ?
+          OR (
+            CASE 
+              WHEN JSON_VALID(t.trained) THEN JSON_LENGTH(t.trained)
+              ELSE GREATEST(1, (LENGTH(TRIM(t.trained)) - LENGTH(REPLACE(TRIM(t.trained), ',', '')) + 1))
+            END
+          ) < ?
         )
       ORDER BY t.department, t.priority DESC, t.created_at ASC
     `;
@@ -8027,7 +8040,15 @@ app.get('/api/notifications/less-trained-employees', async (req, res) => {
     res.json(formattedNotifications);
   } catch (err) {
     console.error('Error fetching LTE notifications:', err);
-    res.status(500).json({ error: 'Database error' });
+    console.error('MySQL Error Code:', err.code);
+    console.error('MySQL Error Message:', err.message);
+    console.error('MySQL SQL State:', err.sqlState);
+    res.status(500).json({ 
+      error: 'Database error',
+      message: err.message,
+      code: err.code,
+      sqlState: err.sqlState
+    });
   } finally {
     if (connection) {
       connection.release();
