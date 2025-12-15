@@ -215,7 +215,7 @@ const toAssignedToString = (taskData) => {
 
 // Helper to sanitize values for MySQL - handles arrays, objects, empty strings, and ISO dates
 const sanitizeForMySQL = (value) => {
-  if (value === undefined) return undefined;
+  if (value === undefined) return null;  // ✅ Fixed: undefined → null (MySQL compatible)
   if (value === null) return null;
   if (Array.isArray(value)) {
     // Empty array → null, non-empty array → comma-separated string
@@ -5201,6 +5201,17 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
               }
               
               const taskData = req.body;
+              
+              // Validate required fields
+              if (!taskData.title || !taskData.title.trim()) {
+                return res.status(400).json({ error: 'Task title is required' });
+              }
+
+              const assignedToString = toAssignedToString(taskData);
+              if (!assignedToString || assignedToString.trim() === '') {
+                return res.status(400).json({ error: 'Task must be assigned to at least one person' });
+              }
+              
               const query = `
                 INSERT INTO tasks (
                   title, department, task_category, project, start_date, due_date, without_due_date,
@@ -5217,7 +5228,7 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                 sanitizeForMySQL(taskData.startDate), 
                 sanitizeForMySQL(taskData.dueDate), 
                 taskData.withoutDueDate ? 1 : 0,
-                toAssignedToString(taskData) || null, 
+                assignedToString || null, 
                 sanitizeForMySQL(taskData.status) || 'Pending', 
                 sanitizeForMySQL(taskData.description),
                 sanitizeForMySQL(taskData.responsible), 
@@ -5265,8 +5276,33 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                 
                 res.status(201).json({ message: 'Task created successfully', id: newTaskId });
               } catch (err) {
-                console.error('Error creating task:', err);
-                res.status(500).json({ error: 'Database error' });
+                // ========================================
+                // ⚠️⚠️⚠️ TASK CREATION ERROR ⚠️⚠️⚠️
+                // ========================================
+                console.error('\n');
+                console.error('═══════════════════════════════════════════════════════════════');
+                console.error('🚨🚨🚨 TASK CREATION FAILED 🚨🚨🚨');
+                console.error('═══════════════════════════════════════════════════════════════');
+                console.error('MySQL Error Code:', err.code);
+                console.error('MySQL Error Message:', err.message);
+                console.error('MySQL SQL State:', err.sqlState);
+                console.error('───────────────────────────────────────────────────────────────');
+                console.error('Query:', query);
+                console.error('───────────────────────────────────────────────────────────────');
+                console.error('Values Count:', values.length, '(Expected: 33)');
+                console.error('Values:', JSON.stringify(values, null, 2));
+                console.error('───────────────────────────────────────────────────────────────');
+                console.error('Task Data Received:', JSON.stringify(taskData, null, 2));
+                console.error('Assigned To String:', toAssignedToString(taskData));
+                console.error('═══════════════════════════════════════════════════════════════');
+                console.error('\n');
+                
+                res.status(500).json({ 
+                  error: 'Database error',
+                  message: err.message,
+                  code: err.code,
+                  sqlState: err.sqlState
+                });
               }
             });
 

@@ -2023,7 +2023,11 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
 
   // Helper function to convert array of employee objects to string
   const employeeArrayToString = (arr) => {
-    return arr.map(item => item.label.split(' (')[0]).join(', ');
+    if (!arr || !Array.isArray(arr) || arr.length === 0) return '';
+    return arr
+      .filter(item => item && item.label) // Filter out invalid items
+      .map(item => item.label.split(' (')[0])
+      .join(', ');
   };
 
   // Helper function to check if user has active timer
