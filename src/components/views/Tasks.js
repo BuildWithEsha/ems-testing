@@ -139,6 +139,9 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
     checklistCompletion: {}
   });
 
+  // Checklist completion state
+  const [checklistCompletion, setChecklistCompletion] = useState({});
+
   // Column customization state (kept separate for localStorage functionality)
   const [visibleColumns, setVisibleColumns] = useState(() => {
     try {
@@ -1405,27 +1408,14 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
   // Handle task detail view
   const handleTaskClick = (task) => {
     try {
-      updateUiState({ 
+      updateUiState({
         selectedTask: task,
-        showDetailModal: true 
+        showDetailModal: true
       });
-      
-      // Load existing checklist completion state
-      if (task.checklist_completed) {
-        try {
-          const completedItems = JSON.parse(task.checklist_completed);
-          setChecklistCompletion(prev => ({
-            ...prev,
-            [task.id]: completedItems
-          }));
-        } catch (e) {
-          console.error('Error parsing checklist completion:', e);
-        }
-      }
-      
+
       // Load task details and history
       loadTaskDetails(task.id);
-      
+
       // Load history directly
       fetch(`/api/tasks/${task.id}/history`)
         .then(response => response.json())
@@ -1709,7 +1699,8 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
         target: formData.target,
         effort_estimate_label: formData.effortEstimateLabel,
         time_estimate_hours: formData.timeEstimateHours,
-        time_estimate_minutes: formData.timeEstimateMinutes
+        time_estimate_minutes: formData.timeEstimateMinutes,
+        checklist: formData.checklist
       };
 
       // Remove undefined values to prevent API issues
@@ -2433,26 +2424,29 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
     if (!task.checklist || task.checklist.trim() === '') {
       return true; // No checklist means no validation needed
     }
-    
+
     const checklistItems = task.checklist.split('\n').filter(item => item.trim() !== '');
     if (checklistItems.length === 0) {
       return true; // No items means complete
     }
-    
+
     // Check local state first (for current session)
     const localCompleted = checklistCompletion[task.id] || [];
-    if (localCompleted.length === checklistItems.length) {
-      return true;
-    }
-    
+
     // Check if the task has checklist completion tracking in database
+    let completedItems = [];
     if (task.checklist_completed) {
-      const completedItems = JSON.parse(task.checklist_completed);
-      return completedItems.length === checklistItems.length;
+      try {
+        completedItems = JSON.parse(task.checklist_completed);
+      } catch (e) {
+        console.error('Error parsing checklist completion:', e);
+      }
     }
-    
-    // If no completion tracking exists, consider incomplete
-    return false;
+
+    // Combine local state and database state
+    const allCompleted = [...new Set([...localCompleted, ...completedItems])];
+
+    return allCompleted.length === checklistItems.length;
   };
 
   // Check if unit is set and valid
@@ -2473,25 +2467,65 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
   };
 
   // Handle checklist item toggle
-  const handleChecklistItemToggle = (taskId, itemIndex) => {
+  const handleChecklistItemToggle = async (taskId, itemIndex) => {
     setChecklistCompletion(prev => {
       const current = prev[taskId] || [];
       const newCompletion = [...current];
-      
+
+      let updatedCompletion;
       if (newCompletion.includes(itemIndex)) {
         // Remove item from completed list
-        return {
-          ...prev,
-          [taskId]: newCompletion.filter(i => i !== itemIndex)
-        };
+        updatedCompletion = newCompletion.filter(i => i !== itemIndex);
       } else {
         // Add item to completed list
-        return {
-          ...prev,
-          [taskId]: [...newCompletion, itemIndex].sort((a, b) => a - b)
-        };
+        updatedCompletion = [...newCompletion, itemIndex].sort((a, b) => a - b);
       }
+
+      // Update the backend with the new completion status
+      updateChecklistCompletionOnServer(taskId, updatedCompletion);
+
+      return {
+        ...prev,
+        [taskId]: updatedCompletion
+      };
     });
+  };
+
+  // Update checklist completion status on the server
+  const updateChecklistCompletionOnServer = async (taskId, completedItems) => {
+    try {
+      const response = await fetch(`/api/tasks/${taskId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          checklist_completed: JSON.stringify(completedItems),
+          user_name: user?.name || 'Admin',
+          user_id: user?.id || 1
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error('Failed to update checklist completion:', errorData);
+        // Optionally show an error message to the user
+      } else {
+        console.log('Checklist completion updated successfully');
+
+        // Update the selected task in the UI if it's the current task
+        if (selectedTask && selectedTask.id === taskId) {
+          updateUiState({
+            selectedTask: {
+              ...selectedTask,
+              checklist_completed: JSON.stringify(completedItems)
+            }
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Error updating checklist completion:', error);
+    }
   };
 
   // Check if a specific checklist item is completed
@@ -2499,6 +2533,21 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
     const completed = checklistCompletion[taskId] || [];
     return completed.includes(itemIndex);
   };
+
+  // Load checklist completion state when a task is selected
+  useEffect(() => {
+    if (selectedTask && selectedTask.checklist_completed) {
+      try {
+        const completedItems = JSON.parse(selectedTask.checklist_completed);
+        setChecklistCompletion(prev => ({
+          ...prev,
+          [selectedTask.id]: completedItems
+        }));
+      } catch (e) {
+        console.error('Error parsing checklist completion:', e);
+      }
+    }
+  }, [selectedTask]);
 
 
   const formatTime = (seconds) => {
@@ -4349,6 +4398,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
                   placeholder="Add checklist items, one per line."
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
+                <p className="mt-1 text-xs text-gray-500">Enter each checklist item on a new line</p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Workflow Guide</label>
@@ -5136,6 +5186,26 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
                       </div>
                     </div>
                   )}
+
+                  {/* Subtasks Section - Placed after checklist */}
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 mb-2 block">Subtasks</label>
+                    <div className="space-y-2">
+                      {Array.isArray(taskSubtasks) ? taskSubtasks.map((subtask) => (
+                        <div key={subtask.id} className="flex items-center space-x-3 p-2 bg-gray-50 rounded-lg">
+                          <input
+                            type="checkbox"
+                            checked={subtask.completed}
+                            onChange={() => handleSubtaskToggle(subtask.id)}
+                            className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                          />
+                          <span className={`flex-1 ${subtask.completed ? 'line-through text-gray-500' : 'text-gray-900'}`}>
+                            {subtask.title}
+                          </span>
+                        </div>
+                      )) : null}
+                    </div>
+                  </div>
 
                                     {/* Unit Validation Section */}
                   <div>
