@@ -139,8 +139,8 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
     checklistCompletion: {}
   });
 
-  // Checklist completion state
-  const [checklistCompletion, setChecklistCompletion] = useState({});
+  // Checklist completion state (renamed to avoid conflict)
+  const [taskChecklistCompletion, setTaskChecklistCompletion] = useState({});
 
   // Column customization state (kept separate for localStorage functionality)
   const [visibleColumns, setVisibleColumns] = useState(() => {
@@ -849,7 +849,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
   const { editingTask, importLoading, selectedFile, importResult, bulkStatus, newValues, newScores, editingItem, editingScore } = formState;
   const { status: filterStatus, priority: filterPriority, complexity: filterComplexity, impact: filterImpact, effortEstimateLabel: filterEffortEstimateLabel, unit: filterUnit, target: filterTarget, department: filterDepartment, assignedTo: filterAssignedTo, labels: filterLabels, responsible: filterResponsible, accountable: filterAccountable, consulted: filterConsulted, informed: filterInformed, trained: filterTrained } = filterState;
   const { activeTimers, intervals: timerIntervals, tick, stopTimerTaskId, stopTimerMemo, stopTimerStartTime, stopTimerEndTime, stopTimerTotalTime } = timerState;
-  const { historyToDelete, checklistWarningTask, checklistCompletion } = modalState;
+  const { historyToDelete, checklistWarningTask } = modalState;
 
   // All timer and modal states are now consolidated above
 
@@ -2431,7 +2431,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
     }
 
     // Check local state first (for current session)
-    const localCompleted = checklistCompletion[task.id] || [];
+    const localCompleted = taskChecklistCompletion[task.id] || [];
 
     // Check if the task has checklist completion tracking in database
     let completedItems = [];
@@ -2468,7 +2468,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
 
   // Handle checklist item toggle
   const handleChecklistItemToggle = async (taskId, itemIndex) => {
-    setChecklistCompletion(prev => {
+    setTaskChecklistCompletion(prev => {
       const current = prev[taskId] || [];
       const newCompletion = [...current];
 
@@ -2530,7 +2530,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
 
   // Check if a specific checklist item is completed
   const isChecklistItemCompleted = (taskId, itemIndex) => {
-    const completed = checklistCompletion[taskId] || [];
+    const completed = taskChecklistCompletion[taskId] || [];
     return completed.includes(itemIndex);
   };
 
@@ -2539,7 +2539,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
     if (selectedTask && selectedTask.checklist_completed) {
       try {
         const completedItems = JSON.parse(selectedTask.checklist_completed);
-        setChecklistCompletion(prev => ({
+        setTaskChecklistCompletion(prev => ({
           ...prev,
           [selectedTask.id]: completedItems
         }));
