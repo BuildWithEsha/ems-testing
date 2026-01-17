@@ -5623,65 +5623,20 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
                     </div>
 
                     <div className="mt-6">
-                      <h3 className="text-lg font-medium text-gray-900 mb-2">Update Checklist</h3>
-                      <p className="text-sm text-gray-600 mb-4">Edit the checklist items below (one per line)</p>
-
-                      <textarea
-                        value={selectedTask.checklist || ''}
-                        onChange={(e) => {
-                          // Update the selectedTask with the new checklist value
-                          updateUiState(prev => ({
-                            ...prev,
-                            selectedTask: {
-                              ...prev.selectedTask,
-                              checklist: e.target.value
-                            }
-                          }));
-                        }}
-                        placeholder="Enter checklist items, one per line..."
-                        rows="6"
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
-
-                      <button
-                        onClick={async () => {
-                          try {
-                            const response = await fetch(`/api/tasks/${selectedTask.id}`, {
-                              method: 'PUT',
-                              headers: {
-                                'Content-Type': 'application/json',
-                              },
-                              body: JSON.stringify({
-                                checklist: selectedTask.checklist,
-                                user_name: user?.name || 'Admin',
-                                user_id: user?.id || 1
-                              }),
-                            });
-
-                            if (response.ok) {
-                              // Update the local state immediately with the new checklist value
-                              updateDataState(prev => ({
-                                ...prev,
-                                tasks: prev.tasks.map(task =>
-                                  task.id === selectedTask.id
-                                    ? { ...task, checklist: selectedTask.checklist }
-                                    : task
-                                )
-                              }));
-
-                              alert('Checklist updated successfully!');
-                            } else {
-                              alert('Failed to update checklist');
-                            }
-                          } catch (error) {
-                            console.error('Error updating checklist:', error);
-                            alert('Failed to update checklist');
-                          }
-                        }}
-                        className="mt-3 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
-                      >
-                        Save Checklist
-                      </button>
+                      <h3 className="text-lg font-medium text-gray-900 mb-2">Checklist Status</h3>
+                      <div className="text-sm text-gray-600 mb-4">
+                        {areAllChecklistItemsCompleted(selectedTask) ? (
+                          <span className="inline-flex items-center px-2 py-1 text-xs font-medium bg-green-100 text-green-800 rounded-full">
+                            <CheckCircle className="w-3 h-3 mr-1" />
+                            All items completed
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center px-2 py-1 text-xs font-medium bg-yellow-100 text-yellow-800 rounded-full">
+                            <AlertTriangle className="w-3 h-3 mr-1" />
+                            Incomplete
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
                 )}
