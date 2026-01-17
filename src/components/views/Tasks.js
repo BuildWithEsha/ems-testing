@@ -5448,7 +5448,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
             {/* Bottom Tabs */}
             <div className="border-t border-gray-200">
               <div className="flex border-b border-gray-200 bg-white sticky top-0 z-10">
-                {['Files', 'Sub Task', 'Checklist', 'Comment', 'Timesheet', 'Notes', 'History'].map((tab) => (
+                {['Files', 'Sub Task', 'Comment', 'Timesheet', 'Notes', 'History'].map((tab) => (
                   <button
                     key={tab}
                     onClick={() => updateUiState({ taskDetailTab: tab.toLowerCase().replace(' ', '') })}
@@ -5593,53 +5593,6 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
                   </div>
                 )}
 
-                {taskDetailTab === 'checklist' && (
-                  <div>
-                    <div className="mb-4 p-4 rounded-lg border border-gray-200">
-                      <h3 className="text-lg font-medium text-gray-900 mb-2">Checklist Items</h3>
-                      <div className="text-sm text-gray-600 mb-4">
-                        {selectedTask.checklist ? 'Current checklist items:' : 'No checklist items added yet.'}
-                      </div>
-
-                      {selectedTask.checklist ? (
-                        <div className="space-y-2">
-                          {selectedTask.checklist.split('\n').filter(item => item.trim() !== '').map((item, index) => (
-                            <div key={index} className="flex items-center space-x-3 p-2 bg-gray-50 rounded-lg">
-                              <input
-                                type="checkbox"
-                                checked={isChecklistItemCompleted(selectedTask.id, index)}
-                                onChange={() => handleChecklistItemToggle(selectedTask.id, index)}
-                                className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
-                              />
-                              <span className={`flex-1 ${isChecklistItemCompleted(selectedTask.id, index) ? 'line-through text-gray-500' : 'text-gray-900'}`}>
-                                {item.trim()}
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="text-gray-500 italic">No checklist items to display</div>
-                      )}
-                    </div>
-
-                    <div className="mt-6">
-                      <h3 className="text-lg font-medium text-gray-900 mb-2">Checklist Status</h3>
-                      <div className="text-sm text-gray-600 mb-4">
-                        {areAllChecklistItemsCompleted(selectedTask) ? (
-                          <span className="inline-flex items-center px-2 py-1 text-xs font-medium bg-green-100 text-green-800 rounded-full">
-                            <CheckCircle className="w-3 h-3 mr-1" />
-                            All items completed
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center px-2 py-1 text-xs font-medium bg-yellow-100 text-yellow-800 rounded-full">
-                            <AlertTriangle className="w-3 h-3 mr-1" />
-                            Incomplete
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                )}
 
                 {taskDetailTab === 'comment' && (
                   <div>
