@@ -642,7 +642,7 @@ const TimeLogReport = () => {
     const params = new URLSearchParams({ start: filters.startDate, end: filters.endDate });
     if (filters.employee) params.append('employee', filters.employee);
     if (filters.department) params.append('department', filters.department);
-    const res = await fetch(`/api/reports/timelog?${params.toString()}`);
+    const res = await fetch(`/api/reports/timelog/consolidated?${params.toString()}`);
     const data = res.ok ? await res.json() : { items: [], totalSeconds: 0 };
     setRows(data.items || []);
     setTotalSeconds(data.totalSeconds || 0);
@@ -761,29 +761,10 @@ const ConsolidatedTimeLogReport = () => {
     const params = new URLSearchParams({ start: filters.startDate, end: filters.endDate });
     if (filters.employee) params.append('employee', filters.employee);
     if (filters.department) params.append('department', filters.department);
-    // Fetch the existing timelog report and consolidate client-side to ensure data shows
-    const res = await fetch(`/api/reports/timelog?${params.toString()}`);
+    const res = await fetch(`/api/reports/timelog/consolidated?${params.toString()}`);
     const data = res.ok ? await res.json() : { items: [], totalSeconds: 0 };
-    const list = Array.isArray(data.items) ? data.items : [];
-    const grouped = new Map();
-    for (const rec of list) {
-      const key = `${rec.employee_name}||${rec.task_title}||${rec.labels || ''}||${rec.priority || ''}`;
-      const seconds = parseInt(rec.seconds || 0, 10) || 0;
-      if (!grouped.has(key)) {
-        grouped.set(key, {
-          employee_name: rec.employee_name,
-          task_title: rec.task_title,
-          labels: rec.labels,
-          priority: rec.priority,
-          seconds: 0
-        });
-      }
-      grouped.get(key).seconds += seconds;
-    }
-    const consolidated = Array.from(grouped.values()).sort((a,b) => (b.seconds||0) - (a.seconds||0));
-    const total = consolidated.reduce((s, r) => s + (parseInt(r.seconds || 0, 10) || 0), 0);
-    setRows(consolidated);
-    setTotalSeconds(total);
+    setRows(data.items || []);
+    setTotalSeconds(data.totalSeconds || 0);
   };
 
   useEffect(() => { fetchReport(); }, [filters.startDate, filters.endDate, filters.employee, filters.department]);

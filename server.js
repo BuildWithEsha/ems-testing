@@ -2108,13 +2108,13 @@ app.get('/api/reports/timelog', async (req, res) => {
     params.push(employee);
   }
   if (department) {
-    where += ` AND t.department = ?`;
+    where += ` AND LOWER(t.department) = LOWER(?)`;
     params.push(department);
   }
 
   const query = `
     SELECT tt.employee_name, t.title AS task_title, t.labels, t.priority,
-           DATE(substr(replace(replace(tt.start_time, 'T', ' '), 'Z', ''), 1, 19)) as date,
+           DATE(tt.start_time) as date,
            SUM(
              CASE 
                WHEN tt.hours_logged_seconds > 0 THEN tt.hours_logged_seconds
@@ -2164,7 +2164,7 @@ app.get('/api/reports/timelog/consolidated', async (req, res) => {
     params.push(employee);
   }
   if (department) {
-    where += ` AND t.department = ?`;
+    where += ` AND LOWER(t.department) = LOWER(?)`;
     params.push(department);
   }
 
@@ -5689,10 +5689,9 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                   }
                   
                   // Store DATETIME format for MySQL (required by MySQL 8.4)
-                  const nowISO = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Karachi' }).replace(' ', 'T') + '.000Z';
-                  const now = nowISO.replace('T', ' ').replace('.000Z', ''); // Convert to DATETIME format for MySQL storage
+                  const now = new Date();
                   
-                  // Start the timer with current local timestamp
+                  // Start the timer with current UTC timestamp
                   const startTimerQuery = `
                     UPDATE tasks SET 
                       timer_started_at = ?,
@@ -6097,21 +6096,7 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                 }
                 
                 const task = tasks[0];
-                // Format timer_started_at from DATETIME to ISO format (same as /api/tasks endpoint)
-                let timerValue;
-                if (task.timer_started_at instanceof Date) {
-                  timerValue = task.timer_started_at.toISOString();
-                } else {
-                  const timerStr = String(task.timer_started_at);
-                  // If already in ISO format (has T), ensure it has Z
-                  if (timerStr.includes('T')) {
-                    timerValue = timerStr.includes('Z') ? timerStr : timerStr + (timerStr.includes('.') ? 'Z' : '.000Z');
-                  } else {
-                    // Convert "YYYY-MM-DD HH:mm:ss" to "YYYY-MM-DDTHH:mm:ss.000Z" (matching backup)
-                    timerValue = timerStr.replace(' ', 'T') + '.000Z';
-                  }
-                }
-                const startTime = new Date(timerValue);
+                const startTime = task.timer_started_at; // This is a Date object from mysql2
                 const endTime = new Date();
                 
                 // Calculate actual duration in seconds
@@ -6147,16 +6132,12 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                   `;
                   
                 try {
-                  // Use local Pakistan time for timesheet entries
-                  const localStartTime = new Date(startTime.toLocaleString('sv-SE', { timeZone: 'Asia/Karachi' }).replace(' ', 'T') + '.000Z');
-                  const localEndTime = new Date(endTime.toLocaleString('sv-SE', { timeZone: 'Asia/Karachi' }).replace(' ', 'T') + '.000Z');
-                  
                   await connection.execute(timesheetQuery, [
                     taskId,
                     user_name || 'Admin',
                     user_id || 1,
-                    sanitizeForMySQL(localStartTime.toISOString()),
-                    sanitizeForMySQL(localEndTime.toISOString()),
+                    startTime,
+                    endTime,
                     memo || '',
                     finalLoggedSeconds,
                     finalLoggedSeconds
