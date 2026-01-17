@@ -5187,26 +5187,6 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
                     </div>
                   )}
 
-                  {/* Subtasks Section - Placed after checklist */}
-                  <div>
-                    <label className="text-sm font-medium text-gray-700 mb-2 block">Subtasks</label>
-                    <div className="space-y-2">
-                      {Array.isArray(taskSubtasks) ? taskSubtasks.map((subtask) => (
-                        <div key={subtask.id} className="flex items-center space-x-3 p-2 bg-gray-50 rounded-lg">
-                          <input
-                            type="checkbox"
-                            checked={subtask.completed}
-                            onChange={() => handleSubtaskToggle(subtask.id)}
-                            className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
-                          />
-                          <span className={`flex-1 ${subtask.completed ? 'line-through text-gray-500' : 'text-gray-900'}`}>
-                            {subtask.title}
-                          </span>
-                        </div>
-                      )) : null}
-                    </div>
-                  </div>
-
                                     {/* Unit Validation Section */}
                   <div>
                     <div className="flex items-center justify-between mb-2">
