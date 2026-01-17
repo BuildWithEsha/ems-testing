@@ -1147,6 +1147,22 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
   // Optimized load task details function with parallel API calls
   const loadTaskDetails = async (taskId) => {
     try {
+      // Load the main task data to ensure we have the latest checklist and other details
+      try {
+        const taskResponse = await fetch(`/api/tasks/${taskId}`);
+        if (taskResponse.ok) {
+          const taskData = await taskResponse.json();
+
+          // Update the selectedTask with the fresh data from the API
+          updateUiState(prev => ({
+            ...prev,
+            selectedTask: taskData
+          }));
+        }
+      } catch (error) {
+        console.error('Error loading main task data:', error);
+      }
+
       // Load task attachments from server
       try {
         const attachmentsResponse = await fetch(`/api/tasks/${taskId}/attachments`);
@@ -1173,7 +1189,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
           ];
         }
       });
-      
+
       // Only set default subtasks if no subtasks exist yet
       setTaskSubtasks(prev => {
         if (Array.isArray(prev) && prev.length > 0) {
@@ -1189,18 +1205,18 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
         }
       });
       setTaskNotes('Important notes about this task implementation...');
-      
+
       // Load timesheet and history data in parallel for better performance
       const [timesheetResponse, historyResponse] = await Promise.allSettled([
         measureTaskDetails(taskId, fetch(`/api/tasks/${taskId}/timesheet`)),
         measureTaskDetails(taskId, fetch(`/api/tasks/${taskId}/history`))
       ]);
-      
+
       // Handle timesheet data
       if (timesheetResponse.status === 'fulfilled' && timesheetResponse.value.ok) {
         const timesheetData = await timesheetResponse.value.json();
         setTaskTimesheet(timesheetData);
-        
+
         // Calculate total time (seconds)
         const totalSeconds = timesheetData.reduce((total, entry) => total + (entry.hours_logged_seconds ?? entry.hours_logged ?? 0), 0);
         setTaskTimesheetTotal(totalSeconds);
@@ -1209,7 +1225,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
         setTaskTimesheet([]);
         setTaskTimesheetTotal(0);
       }
-      
+
       // Handle history data
       if (historyResponse.status === 'fulfilled' && historyResponse.value.ok) {
         const historyData = await historyResponse.value.json();
@@ -5432,7 +5448,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
             {/* Bottom Tabs */}
             <div className="border-t border-gray-200">
               <div className="flex border-b border-gray-200 bg-white sticky top-0 z-10">
-                {['Files', 'Sub Task', 'Comment', 'Timesheet', 'Notes', 'History'].map((tab) => (
+                {['Files', 'Sub Task', 'Checklist', 'Comment', 'Timesheet', 'Notes', 'History'].map((tab) => (
                   <button
                     key={tab}
                     onClick={() => updateUiState({ taskDetailTab: tab.toLowerCase().replace(' ', '') })}
@@ -5573,6 +5589,99 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
                           )}
                         </div>
                       )) : null}
+                    </div>
+                  </div>
+                )}
+
+                {taskDetailTab === 'checklist' && (
+                  <div>
+                    <div className="mb-4 p-4 rounded-lg border border-gray-200">
+                      <h3 className="text-lg font-medium text-gray-900 mb-2">Checklist Items</h3>
+                      <div className="text-sm text-gray-600 mb-4">
+                        {selectedTask.checklist ? 'Current checklist items:' : 'No checklist items added yet.'}
+                      </div>
+
+                      {selectedTask.checklist ? (
+                        <div className="space-y-2">
+                          {selectedTask.checklist.split('\n').filter(item => item.trim() !== '').map((item, index) => (
+                            <div key={index} className="flex items-center space-x-3 p-2 bg-gray-50 rounded-lg">
+                              <input
+                                type="checkbox"
+                                checked={isChecklistItemCompleted(selectedTask.id, index)}
+                                onChange={() => handleChecklistItemToggle(selectedTask.id, index)}
+                                className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                              />
+                              <span className={`flex-1 ${isChecklistItemCompleted(selectedTask.id, index) ? 'line-through text-gray-500' : 'text-gray-900'}`}>
+                                {item.trim()}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="text-gray-500 italic">No checklist items to display</div>
+                      )}
+                    </div>
+
+                    <div className="mt-6">
+                      <h3 className="text-lg font-medium text-gray-900 mb-2">Update Checklist</h3>
+                      <p className="text-sm text-gray-600 mb-4">Edit the checklist items below (one per line)</p>
+
+                      <textarea
+                        value={selectedTask.checklist || ''}
+                        onChange={(e) => {
+                          // Update the selectedTask with the new checklist value
+                          updateUiState(prev => ({
+                            ...prev,
+                            selectedTask: {
+                              ...prev.selectedTask,
+                              checklist: e.target.value
+                            }
+                          }));
+                        }}
+                        placeholder="Enter checklist items, one per line..."
+                        rows="6"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+
+                      <button
+                        onClick={async () => {
+                          try {
+                            const response = await fetch(`/api/tasks/${selectedTask.id}`, {
+                              method: 'PUT',
+                              headers: {
+                                'Content-Type': 'application/json',
+                              },
+                              body: JSON.stringify({
+                                checklist: selectedTask.checklist,
+                                user_name: user?.name || 'Admin',
+                                user_id: user?.id || 1
+                              }),
+                            });
+
+                            if (response.ok) {
+                              // Update the local state immediately with the new checklist value
+                              updateDataState(prev => ({
+                                ...prev,
+                                tasks: prev.tasks.map(task =>
+                                  task.id === selectedTask.id
+                                    ? { ...task, checklist: selectedTask.checklist }
+                                    : task
+                                )
+                              }));
+
+                              alert('Checklist updated successfully!');
+                            } else {
+                              alert('Failed to update checklist');
+                            }
+                          } catch (error) {
+                            console.error('Error updating checklist:', error);
+                            alert('Failed to update checklist');
+                          }
+                        }}
+                        className="mt-3 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+                      >
+                        Save Checklist
+                      </button>
                     </div>
                   </div>
                 )}
