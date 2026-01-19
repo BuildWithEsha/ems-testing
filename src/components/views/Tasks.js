@@ -767,7 +767,11 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
   }, []);
 
   const updateTimerState = useCallback((updates) => {
-    setTimerState(prev => ({ ...prev, ...updates }));
+    setTimerState(prev =>
+      typeof updates === 'function'
+        ? updates(prev)          // ✅ functional updater (for intervals and complex updates)
+        : { ...prev, ...updates } // ✅ object updater (for simple updates)
+    );
   }, []);
 
   const updateModalState = useCallback((updates) => {
