@@ -2121,32 +2121,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
     // ===== OPTIMISTIC UPDATE: Do this FIRST, before API call =====
     const now = Date.now();
     
-    // 1. Start interval FIRST - calculates elapsed every second
-    const interval = setInterval(() => {
-      updateTimerState(prev => {
-        const timer = prev.running[taskId];
-        if (!timer) {
-          clearInterval(interval);
-          return prev; // Timer was stopped
-        }
-        
-        const newElapsed = Math.floor((Date.now() - timer.startTime) / 1000);
-        
-        // Create completely new object to ensure React detects the change
-        return {
-          ...prev,
-          running: {
-            ...prev.running,
-            [taskId]: {
-              startTime: timer.startTime,
-              elapsed: newElapsed
-            }
-          }
-        };
-      });
-    }, 1000);
-    
-    // 2. IMMEDIATE local update - single source of truth (includes interval)
+    // 1. IMMEDIATE local update - single source of truth
     updateTimerState(prev => ({
       ...prev,
       running: {
@@ -2155,14 +2130,10 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
           startTime: now,
           elapsed: 0
         }
-      },
-      intervals: {
-        ...prev.intervals,
-        [taskId]: interval
       }
     }));
     
-    // 3. Update tasks array optimistically to show timer is active
+    // 2. Update tasks array optimistically to show timer is active
     const timerStartedAtISO = new Date(now).toISOString().replace('T', ' ').replace('.000Z', '');
     updateDataState(prev => ({
       ...prev,
@@ -2171,6 +2142,31 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
           ? { ...task, timer_started_at: timerStartedAtISO }
           : task
       )
+    }));
+    
+    // 3. Start interval - calculates elapsed every second
+    const interval = setInterval(() => {
+      updateTimerState(prev => {
+        const timer = prev.running[taskId];
+        if (!timer) return prev; // Timer was stopped
+        
+        return {
+          ...prev,
+          running: {
+            ...prev.running,
+            [taskId]: {
+              ...timer,
+              elapsed: Math.floor((Date.now() - timer.startTime) / 1000)
+            }
+          }
+        };
+      });
+    }, 1000);
+    
+    // Store interval for cleanup
+    updateTimerState(prev => ({
+      ...prev,
+      intervals: { ...prev.intervals, [taskId]: interval }
     }));
 
     // ===== NOW do API call (doesn't block UI) =====
@@ -2611,13 +2607,11 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
   };
 
   const getTimerDisplay = (task) => {
-    // Single source of truth - access timerState directly to get latest value
-    // Use timerState.running instead of destructured timerRunning to avoid stale closures
-    const currentTimerState = timerState;
-    const timer = currentTimerState.running[task.id];
+    // Single source of truth - only check local state
+    const timer = timerRunning[task.id];
     
-    if (timer && typeof timer.elapsed === 'number') {
-      // Timer is running - show current elapsed time (starts from 00:00:00)
+    if (timer) {
+      // Timer is running - show current elapsed time
       return formatTime(timer.elapsed);
     }
     
