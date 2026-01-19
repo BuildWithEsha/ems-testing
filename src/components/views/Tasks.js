@@ -1050,6 +1050,10 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
                   // Use the local timer_started_at (the NEW start time) instead of database value
                   return { ...fetchedTask, timer_started_at: localTask.timer_started_at };
                 }
+                // If no local task found but timer is active, create a compatible format from activeTimers
+                const currentTime = activeTimers[fetchedTask.id];
+                const timerStartedAtISO = new Date(currentTime).toISOString().replace('T', ' ').replace('.000Z', '');
+                return { ...fetchedTask, timer_started_at: timerStartedAtISO };
               }
               return fetchedTask;
             });
@@ -2140,19 +2144,28 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
     }));
     
     // Update tasks array optimistically to show timer is active
+    // Use ISO format that matches what the server returns for consistency
+    const timerStartedAtISO = new Date(currentTime).toISOString().replace('T', ' ').replace('.000Z', '');
     updateDataState(prev => ({
       ...prev,
       tasks: prev.tasks.map(task => 
         task.id === taskId 
-          ? { ...task, timer_started_at: new Date(currentTime).toISOString().replace('T', ' ').replace('.000Z', '') }
+          ? { ...task, timer_started_at: timerStartedAtISO }
           : task
       )
     }));
     
-    // Force a second tick update to ensure re-render (React batching workaround)
+    // Force multiple tick updates to ensure re-render (React batching workaround)
+    // Multiple updates at different intervals ensure React processes the state change
+    setTimeout(() => {
+      updateTimerState(prev => ({ ...prev, tick: Date.now() }));
+    }, 10);
     setTimeout(() => {
       updateTimerState(prev => ({ ...prev, tick: Date.now() }));
     }, 50);
+    setTimeout(() => {
+      updateTimerState(prev => ({ ...prev, tick: Date.now() }));
+    }, 100);
 
     // ===== NOW do API call (doesn't block UI) =====
     try {
@@ -2190,11 +2203,11 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
         return;
       }
       
-      // Delay refresh to avoid overwriting optimistic state
-      // Wait 500ms to ensure server has processed the request
+      // Only refresh if needed - don't overwrite optimistic state immediately
+      // Wait longer to ensure server has processed, but don't block UI
       setTimeout(() => {
         refreshTasksOnly();
-      }, 500);
+      }, 1000); // Increased delay to ensure server processing
         
         // Reload task details if task detail modal is open
         if (selectedTask && selectedTask.id === taskId) {
