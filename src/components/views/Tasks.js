@@ -1038,7 +1038,8 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
         const tasksData = await tasksResponse.json();
         const fetchedTasks = Array.isArray(tasksData.data) ? tasksData.data : (Array.isArray(tasksData) ? tasksData : []);
         
-        startTransition(() => {
+        // Use flushSync for timer-related updates to ensure instant UI refresh
+        flushSync(() => {
           updateDataState(prev => {
             // Preserve timer_started_at from local state if timer is actively running
             // This prevents overwriting with stale database values that cause incorrect display
@@ -1139,7 +1140,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
           // Check if interval already exists to avoid duplicates
           if (!timerIntervals[task.id]) {
             const interval = setInterval(() => {
-              updateTimerState(prev => ({ ...prev, tick: Date.now() })); // Update tick to force re-render
+              updateTimerState(prev => ({ ...prev })); // Creates NEW object reference - forces re-render
             }, 1000);
             
             restoredIntervals[task.id] = interval;
@@ -2131,9 +2132,9 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
     const currentTime = Date.now();
     let interval = null;
     
-    // Start interval immediately
+    // Start interval immediately - creates NEW object reference to force re-render through memo()
     interval = setInterval(() => {
-      updateTimerState(prev => ({ ...prev, tick: Date.now() })); // Update tick to force re-render
+      updateTimerState(prev => ({ ...prev })); // Creates NEW object reference - forces re-render
     }, 1000);
     
     // Use flushSync to force immediate synchronous update - breaks through React batching and memoization
@@ -2158,17 +2159,6 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
         )
       }));
     });
-    
-    // Additional tick updates to ensure continuous updates
-    setTimeout(() => {
-      updateTimerState(prev => ({ ...prev, tick: Date.now() }));
-    }, 10);
-    setTimeout(() => {
-      updateTimerState(prev => ({ ...prev, tick: Date.now() }));
-    }, 50);
-    setTimeout(() => {
-      updateTimerState(prev => ({ ...prev, tick: Date.now() }));
-    }, 100);
 
     // ===== NOW do API call (doesn't block UI) =====
     try {
@@ -2206,11 +2196,8 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
         return;
       }
       
-      // Only refresh if needed - don't overwrite optimistic state immediately
-      // Wait longer to ensure server has processed, but don't block UI
-      setTimeout(() => {
-        refreshTasksOnly();
-      }, 1000); // Increased delay to ensure server processing
+      // Refresh immediately after API response to sync with server
+      refreshTasksOnly();
         
         // Reload task details if task detail modal is open
         if (selectedTask && selectedTask.id === taskId) {
@@ -2305,39 +2292,36 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
         clearInterval(timerIntervals[stopTimerTaskId]);
       }
       
-      // Clear activeTimers and intervals in a single state update for immediate UI update
-      updateTimerState(prev => {
-        const newTimers = { ...prev.activeTimers };
-        delete newTimers[stopTimerTaskId];
-        const newIntervals = { ...prev.intervals };
-        delete newIntervals[stopTimerTaskId];
-        return { 
-          ...prev, 
-          activeTimers: newTimers,
-          intervals: newIntervals,
-          tick: Date.now() // Force re-render to show logged time immediately
-        };
+      // Use flushSync to force immediate synchronous update - breaks through React batching and memoization
+      flushSync(() => {
+        // Clear activeTimers and intervals immediately
+        updateTimerState(prev => {
+          const newTimers = { ...prev.activeTimers };
+          delete newTimers[stopTimerTaskId];
+          const newIntervals = { ...prev.intervals };
+          delete newIntervals[stopTimerTaskId];
+          return { 
+            ...prev, 
+            activeTimers: newTimers,
+            intervals: newIntervals
+          };
+        });
+        
+        // Update local tasks array immediately with new logged_seconds
+        // This ensures getTimerDisplay shows logged_seconds instead of 00:00:00
+        updateDataState(prev => ({
+          ...prev,
+          tasks: prev.tasks.map(task => 
+            task.id === stopTimerTaskId 
+              ? { 
+                  ...task, 
+                  timer_started_at: null,
+                  logged_seconds: newLoggedSeconds // Update logged_seconds optimistically
+                } 
+              : task
+          )
+        }));
       });
-      
-      // OPTIMISTIC UPDATE: Update local tasks array immediately with new logged_seconds
-      // This ensures getTimerDisplay shows logged_seconds instead of 00:00:00
-      updateDataState(prev => ({
-        ...prev,
-        tasks: prev.tasks.map(task => 
-          task.id === stopTimerTaskId 
-            ? { 
-                ...task, 
-                timer_started_at: null,
-                logged_seconds: newLoggedSeconds // Update logged_seconds optimistically
-              } 
-            : task
-        )
-      }));
-      
-      // Force a second tick update to ensure re-render
-      setTimeout(() => {
-        updateTimerState(prev => ({ ...prev, tick: Date.now() }));
-      }, 50);
 
       // ===== NOW do API call =====
       const response = await fetch(`/api/tasks/${stopTimerTaskId}/stop-timer`, {
