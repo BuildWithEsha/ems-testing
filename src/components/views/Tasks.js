@@ -2210,13 +2210,17 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
       clearInterval(timerIntervals[taskId]);
     }
     
-    // 🔒 Freeze timer state - prevent further updates
+    // ✅ PRESERVE start time before clearing - needed for handleStopTimerSubmit
+    const preservedStartTime = activeTimers[taskId] || new Date(task.timer_started_at).getTime();
+    
+    // 🔒 Freeze timer state - clear interval but KEEP activeTimers for calculation
     updateTimerState(prev => {
       const newIntervals = { ...prev.intervals };
       delete newIntervals[taskId];
       return {
         ...prev,
         intervals: newIntervals
+        // ✅ DON'T delete activeTimers - we need it for handleStopTimerSubmit
       };
     });
     
@@ -2305,10 +2309,8 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
         )
       }));
       
-      // Force a second tick update to ensure re-render
-      setTimeout(() => {
-        updateTimerState(prev => ({ ...prev, tick: Date.now() }));
-      }, 50);
+      // ✅ Force immediate re-render to show updated logged_seconds
+      updateTimerState(prev => ({ ...prev, tick: Date.now() }));
 
       // ===== NOW do API call =====
       const response = await fetch(`/api/tasks/${stopTimerTaskId}/stop-timer`, {
@@ -2369,7 +2371,8 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
           stopTimerMemo: '',
           stopTimerStartTime: '',
           stopTimerEndTime: '',
-          stopTimerTotalTime: ''
+          stopTimerTotalTime: '',
+          tick: Date.now() // ✅ Force re-render to show updated state
         });
       } else {
         // Rollback on error - restore timer state
@@ -2516,22 +2519,21 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
   };
 
   const getTimerDisplay = (task) => {
-    // Use tick in calculation to force re-render when tick changes
-    // Even though we use Date.now(), reading tick ensures React knows to re-render
-    const _ = tick || 0; // Read tick to create dependency
-    
     const isActive = activeTimers[task.id];
     const isActiveFromDB = task.timer_started_at;
     
     let activeTime = 0;
     if (isActive) {
       // Timer is active in local state - use current time for real-time updates
-      // Use tick to ensure this recalculates on every tick update
-      activeTime = Math.floor((Date.now() - isActive) / 1000);
+      // ✅ Use tick in calculation to ensure React re-renders when tick changes
+      const currentTime = tick || Date.now();
+      activeTime = Math.floor((currentTime - isActive) / 1000);
     } else if (isActiveFromDB) {
       // Timer is active in database but not in local state (e.g., after page refresh)
-      const startTime = new Date(isActiveFromDB);
-      activeTime = Math.floor((Date.now() - startTime) / 1000);
+      // ✅ Use tick to ensure re-renders
+      const currentTime = tick || Date.now();
+      const startTime = new Date(isActiveFromDB).getTime();
+      activeTime = Math.floor((currentTime - startTime) / 1000);
     }
     
     // Clamp to 0 to prevent negative values (timezone mismatch protection)
