@@ -2609,8 +2609,31 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
       activeTime = Math.floor((Date.now() - isActive) / 1000);
     } else if (isActiveFromDB) {
       // Timer is active in database but not in local state (e.g., after page refresh)
-      const startTime = new Date(isActiveFromDB);
-      activeTime = Math.floor((Date.now() - startTime) / 1000);
+      // Parse the timer_started_at string correctly - handle both ISO and DATETIME formats
+      let startTime;
+      try {
+        const timerStr = String(task.timer_started_at);
+        // If it's in ISO format (has T), parse it
+        if (timerStr.includes('T')) {
+          startTime = new Date(timerStr);
+        } else if (timerStr.includes(' ')) {
+          // If it's DATETIME format (has space), convert to ISO for parsing
+          startTime = new Date(timerStr.replace(' ', 'T'));
+        } else {
+          startTime = new Date(timerStr);
+        }
+        
+        // Validate the parsed date
+        if (isNaN(startTime.getTime())) {
+          console.error('Invalid timer_started_at:', task.timer_started_at);
+          return formatTime(0);
+        }
+        
+        activeTime = Math.floor((Date.now() - startTime.getTime()) / 1000);
+      } catch (error) {
+        console.error('Error parsing timer_started_at:', error, 'value:', task.timer_started_at);
+        return formatTime(0);
+      }
     }
     
     // Clamp to 0 to prevent negative values (timezone mismatch protection)
