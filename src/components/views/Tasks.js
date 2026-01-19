@@ -2249,22 +2249,25 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
     const task = tasks.find(t => t.id === taskId);
     if (!task || !task.timer_started_at) return;
     
-    // Calculate start time based on current time minus elapsed time from timer display
+    // Access timerState directly to get latest value (not destructured timerRunning)
+    const timer = timerState.running[taskId];
     const endTime = new Date();
     let startTime;
+    let totalSeconds = 0;
     
-    const timer = timerRunning[taskId];
-    if (timer) {
-      // Use local timer state if available
+    if (timer && typeof timer.elapsed === 'number') {
+      // Use local timer state - use elapsed directly from timer (most accurate)
       startTime = new Date(timer.startTime);
+      totalSeconds = timer.elapsed; // Use elapsed directly instead of calculating
     } else {
-      // Calculate start time from current time minus the elapsed time shown in timer display
+      // Fallback: Calculate from database value
       const elapsedSeconds = Math.floor((Date.now() - new Date(task.timer_started_at).getTime()) / 1000);
       startTime = new Date(endTime.getTime() - (elapsedSeconds * 1000));
+      totalSeconds = elapsedSeconds;
     }
     
-    // Calculate total seconds, ensuring non-negative
-    const totalSeconds = Math.max(0, Math.floor((endTime.getTime() - startTime.getTime()) / 1000));
+    // Ensure non-negative
+    totalSeconds = Math.max(0, totalSeconds);
     
     updateTimerState({
       stopTimerTaskId: taskId,
@@ -2612,11 +2615,11 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
 
   const getTimerDisplay = (task) => {
     // Single source of truth - access timerState directly to get latest value
-    // Use timerState.running instead of destructured timerRunning to avoid stale closures
+    // This ensures we always get the freshest state, even with memo()
     const currentTimerState = timerState;
     const timer = currentTimerState.running[task.id];
     
-    if (timer && typeof timer.elapsed === 'number') {
+    if (timer && typeof timer.elapsed === 'number' && timer.elapsed >= 0) {
       // Timer is running - show current elapsed time (starts from 00:00:00)
       return formatTime(timer.elapsed);
     }
@@ -3816,7 +3819,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
                           )}
                           {columnKey === 'logged_seconds' && (
                             <div className="flex items-center space-x-2">
-                              <div className="flex items-center space-x-1" key={`timer-display-${task.id}`}>
+                              <div className="flex items-center space-x-1" key={`timer-display-${task.id}-${timerState.running[task.id]?.elapsed || 0}`}>
                                 <Clock className="w-4 h-4 text-gray-500" />
                                 <span className="text-xs font-mono">{getTimerDisplay(task)}</span>
                               </div>
@@ -3862,7 +3865,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
                           )}
                           {columnKey === 'timer' && (
                             <div className="flex items-center space-x-2">
-                              <div className="flex items-center space-x-1" key={`timer-display-${task.id}`}>
+                              <div className="flex items-center space-x-1" key={`timer-display-${task.id}-${timerState.running[task.id]?.elapsed || 0}`}>
                                 <Clock className="w-4 h-4 text-gray-500" />
                                 <span className="text-xs font-mono">{getTimerDisplay(task)}</span>
                               </div>
