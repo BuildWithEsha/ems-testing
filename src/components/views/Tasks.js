@@ -1035,9 +1035,36 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
       const tasksResponse = await measureTaskLoading(fetch(tasksUrl, { headers: tasksHeaders }));
       if (tasksResponse.ok) {
         const tasksData = await tasksResponse.json();
-        startTransition(() => {
-          updateDataState({ 
-            tasks: Array.isArray(tasksData.data) ? tasksData.data : (Array.isArray(tasksData) ? tasksData : [])
+        const fetchedTasks = Array.isArray(tasksData.data) ? tasksData.data : (Array.isArray(tasksData) ? tasksData : []);
+        
+        // Use flushSync for immediate update and preserve optimistic state
+        flushSync(() => {
+          updateDataState(prev => {
+            // Preserve optimistic state for recently stopped timers
+            const updatedTasks = fetchedTasks.map(fetchedTask => {
+              const localTask = prev.tasks.find(t => t.id === fetchedTask.id);
+              
+              // If local task has timer_started_at: null (just stopped), preserve it
+              if (localTask && localTask.timer_started_at === null && fetchedTask.timer_started_at) {
+                // Timer was just stopped - preserve local state (timer_started_at: null and local logged_seconds)
+                return { 
+                  ...fetchedTask, 
+                  timer_started_at: null, 
+                  logged_seconds: localTask.logged_seconds || fetchedTask.logged_seconds 
+                };
+              }
+              
+              // If timer is running locally, preserve local state
+              if (timerState.running[fetchedTask.id]) {
+                if (localTask && localTask.timer_started_at) {
+                  return { ...fetchedTask, timer_started_at: localTask.timer_started_at };
+                }
+              }
+              
+              return fetchedTask;
+            });
+            
+            return { ...prev, tasks: updatedTasks };
           });
         });
       }
@@ -2328,18 +2355,21 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
       });
       
       // OPTIMISTIC UPDATE: Update local tasks array immediately with new logged_seconds
-      updateDataState(prev => ({
-        ...prev,
-        tasks: prev.tasks.map(task => 
-          task.id === stopTimerTaskId 
-            ? { 
-                ...task, 
-                timer_started_at: null,
-                logged_seconds: newLoggedSeconds
-              } 
-            : task
-        )
-      }));
+      // Use flushSync for immediate synchronous UI update
+      flushSync(() => {
+        updateDataState(prev => ({
+          ...prev,
+          tasks: prev.tasks.map(task => 
+            task.id === stopTimerTaskId 
+              ? { 
+                  ...task, 
+                  timer_started_at: null,
+                  logged_seconds: newLoggedSeconds
+                } 
+              : task
+          )
+        }));
+      });
 
       // ===== NOW do API call =====
       const response = await fetch(`/api/tasks/${stopTimerTaskId}/stop-timer`, {
@@ -2379,8 +2409,11 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
           return { ...prev, tasks: updatedTasks };
         });
         
-        // Refresh immediately after API response to sync with server
-        refreshTasksOnly();
+        // Delay refresh to ensure server has processed the stop
+        // We already updated state optimistically, so delay refresh slightly
+        setTimeout(() => {
+          refreshTasksOnly();
+        }, 1000); // 1 second delay to ensure server processing
         
         // Reload task details if task detail modal is open
         if (selectedTask && selectedTask.id === stopTimerTaskId) {
