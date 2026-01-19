@@ -6102,12 +6102,19 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                 // Use local Pakistan time for end time
                 const endTime = new Date();
                 
-                // Calculate actual duration in seconds
-                // Both times should be in the same timezone for accurate calculation
+                // Calculate actual duration in seconds (for validation only)
                 const actualDurationSeconds = Math.floor((endTime - startTime) / 1000);
                 
-                // Use the calculated duration instead of relying on frontend parameter
-                const finalLoggedSeconds = actualDurationSeconds > 0 ? actualDurationSeconds : (loggedSeconds || 0);
+                // ✅ PRIORITIZE frontend's loggedSeconds (from timer.elapsed - most accurate)
+                // Validate: frontend value should be within reasonable bounds (±30 seconds of backend calculation)
+                // This prevents manipulation while trusting the accurate frontend timer
+                const isValidFrontendValue = loggedSeconds && 
+                  loggedSeconds > 0 && 
+                  Math.abs(loggedSeconds - actualDurationSeconds) <= 30; // Allow 30 sec tolerance
+                
+                const finalLoggedSeconds = isValidFrontendValue 
+                  ? loggedSeconds  // ✅ Use frontend value (accurate, no network delay)
+                  : (actualDurationSeconds > 0 ? actualDurationSeconds : (loggedSeconds || 0)); // Fallback
                 
                 const updateQuery = `
                   UPDATE tasks SET 

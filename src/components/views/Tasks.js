@@ -1035,10 +1035,33 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
       const tasksResponse = await measureTaskLoading(fetch(tasksUrl, { headers: tasksHeaders }));
       if (tasksResponse.ok) {
         const tasksData = await tasksResponse.json();
-        startTransition(() => {
-          updateDataState({ 
-            tasks: Array.isArray(tasksData.data) ? tasksData.data : (Array.isArray(tasksData) ? tasksData : [])
+        const serverTasks = Array.isArray(tasksData.data) ? tasksData.data : (Array.isArray(tasksData) ? tasksData : []);
+        
+        // ✅ PRESERVE OPTIMISTIC STATE: Don't overwrite tasks that were just stopped
+        updateDataState(prev => {
+          const updatedTasks = serverTasks.map(serverTask => {
+            const localTask = prev.tasks.find(t => t.id === serverTask.id);
+            
+            // ✅ If local task was just stopped (timer_started_at is null locally but server still has it),
+            // preserve the local state (optimistic update)
+            if (localTask && localTask.timer_started_at === null && serverTask.timer_started_at) {
+              // Keep local optimistic state - timer was just stopped
+              return localTask;
+            }
+            
+            // ✅ If timer is running locally, preserve local timer_started_at
+            if (localTask && timerState.running[serverTask.id] && localTask.timer_started_at) {
+              return {
+                ...serverTask,
+                timer_started_at: localTask.timer_started_at // Keep local optimistic value
+              };
+            }
+            
+            // Otherwise, use server data
+            return serverTask;
           });
+          
+          return { ...prev, tasks: updatedTasks };
         });
       }
     } catch (error) {
@@ -2379,8 +2402,10 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
           return { ...prev, tasks: updatedTasks };
         });
         
-        // Refresh immediately after API response to sync with server
-        refreshTasksOnly();
+        // ✅ Delay refresh to ensure server has processed the stop
+        setTimeout(() => {
+          refreshTasksOnly();
+        }, 1000); // 1 second delay
         
         // Reload task details if task detail modal is open
         if (selectedTask && selectedTask.id === stopTimerTaskId) {
@@ -3832,7 +3857,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
                                 <Clock className="w-4 h-4 text-gray-500" />
                                 <span className="text-xs font-mono">{getTimerDisplay(task)}</span>
                               </div>
-                              {canStopTimer(task) && (timerState.running[task.id] || task.timer_started_at) && (
+                              {canStopTimer(task) && Boolean(timerState.running[task.id]) && (
                                 <div className="flex space-x-1">
                                   <button
                                     onClick={() => stopTimer(task.id)}
@@ -3878,7 +3903,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
                                 <Clock className="w-4 h-4 text-gray-500" />
                                 <span className="text-xs font-mono">{getTimerDisplay(task)}</span>
                               </div>
-                              {canStopTimer(task) && (timerState.running[task.id] || task.timer_started_at) && (
+                              {canStopTimer(task) && Boolean(timerState.running[task.id]) && (
                                 <div className="flex space-x-1">
                                   <button
                                     onClick={() => stopTimer(task.id)}
