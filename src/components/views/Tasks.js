@@ -2155,8 +2155,12 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
       )
     }));
     
-    // Force multiple tick updates to ensure re-render (React batching workaround)
-    // Multiple updates at different intervals ensure React processes the state change
+    // Force immediate re-render by updating both timer state and data state multiple times
+    // This breaks through React's memoization and batching
+    setTimeout(() => {
+      updateTimerState(prev => ({ ...prev, tick: Date.now() }));
+      updateDataState(prev => ({ ...prev })); // Force re-render by creating new object reference
+    }, 0);
     setTimeout(() => {
       updateTimerState(prev => ({ ...prev, tick: Date.now() }));
     }, 10);
@@ -2617,9 +2621,10 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
     
     let activeTime = 0;
     if (isActive) {
-      // Timer is active in local state - calculate from NEW start time (starts at 00:00:00)
-      // This ensures we show ONLY current session time, not previous logged time
-      activeTime = Math.floor((Date.now() - isActive) / 1000);
+      // Timer is active in local state - use tick for immediate updates
+      // Use tick instead of Date.now() to ensure calculation updates when tick changes
+      const currentTime = tick || Date.now();
+      activeTime = Math.floor((currentTime - isActive) / 1000);
     } else if (isActiveFromDB) {
       // Timer is active in database but not in local state (e.g., after page refresh)
       // Parse the timer_started_at string correctly - handle both ISO and DATETIME formats
@@ -2642,7 +2647,9 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
           return formatTime(0);
         }
         
-        activeTime = Math.floor((Date.now() - startTime.getTime()) / 1000);
+        // Use tick for immediate updates when available, otherwise Date.now()
+        const currentTime = tick || Date.now();
+        activeTime = Math.floor((currentTime - startTime.getTime()) / 1000);
       } catch (error) {
         console.error('Error parsing timer_started_at:', error, 'value:', task.timer_started_at);
         return formatTime(0);
