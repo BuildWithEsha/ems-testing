@@ -121,11 +121,10 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
     trained: []
   });
 
-  // Consolidated timer state
+  // Consolidated timer state - single source of truth for running timers
   const [timerState, setTimerState] = useState({
-    activeTimers: {},
+    running: {}, // { [taskId]: { startTime: number, elapsed: number } }
     intervals: {},
-    tick: 0, // Add tick counter to force re-renders
     stopTimerTaskId: null,
     stopTimerMemo: '',
     stopTimerStartTime: '',
@@ -849,7 +848,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
   const setEditingCommentText = useCallback((editingCommentText) => updateTaskDetailState({ editingCommentText }), [updateTaskDetailState]);
   const { editingTask, importLoading, selectedFile, importResult, bulkStatus, newValues, newScores, editingItem, editingScore } = formState;
   const { status: filterStatus, priority: filterPriority, complexity: filterComplexity, impact: filterImpact, effortEstimateLabel: filterEffortEstimateLabel, unit: filterUnit, target: filterTarget, department: filterDepartment, assignedTo: filterAssignedTo, labels: filterLabels, responsible: filterResponsible, accountable: filterAccountable, consulted: filterConsulted, informed: filterInformed, trained: filterTrained } = filterState;
-  const { activeTimers, intervals: timerIntervals, tick, stopTimerTaskId, stopTimerMemo, stopTimerStartTime, stopTimerEndTime, stopTimerTotalTime } = timerState;
+  const { running: runningTimers, intervals: timerIntervals, stopTimerTaskId, stopTimerMemo, stopTimerStartTime, stopTimerEndTime, stopTimerTotalTime } = timerState;
   const { historyToDelete, checklistWarningTask } = modalState;
 
   // All timer and modal states are now consolidated above
@@ -1045,16 +1044,15 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
             // This prevents overwriting with stale database values that cause incorrect display
             const updatedTasks = fetchedTasks.map(fetchedTask => {
               // If this task has an active timer in local state, preserve the local timer_started_at
-              // This ensures getTimerDisplay() uses the correct NEW start time, not old database value
-              if (activeTimers[fetchedTask.id]) {
+              const timer = runningTimers[fetchedTask.id];
+              if (timer) {
                 const localTask = prev.tasks.find(t => t.id === fetchedTask.id);
                 if (localTask && localTask.timer_started_at) {
                   // Use the local timer_started_at (the NEW start time) instead of database value
                   return { ...fetchedTask, timer_started_at: localTask.timer_started_at };
                 }
-                // If no local task found but timer is active, create a compatible format from activeTimers
-                const currentTime = activeTimers[fetchedTask.id];
-                const timerStartedAtISO = new Date(currentTime).toISOString().replace('T', ' ').replace('.000Z', '');
+                // If no local task found but timer is active, create a compatible format from running timer
+                const timerStartedAtISO = new Date(timer.startTime).toISOString().replace('T', ' ').replace('.000Z', '');
                 return { ...fetchedTask, timer_started_at: timerStartedAtISO };
               }
               return fetchedTask;
@@ -1134,13 +1132,42 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
       const restoredTimers = {};
       const restoredIntervals = {};
       
-      // Only create intervals for tasks with active timers
+      // Restore intervals for tasks with active timers from database (e.g., after page refresh)
       (tasks || []).forEach(task => {
-        if (task.timer_started_at) {
+        if (task.timer_started_at && !runningTimers[task.id]) {
           // Check if interval already exists to avoid duplicates
           if (!timerIntervals[task.id]) {
+            const startTime = new Date(task.timer_started_at).getTime();
+            
+            // Restore timer in running state
+            updateTimerState(prev => ({
+              ...prev,
+              running: {
+                ...prev.running,
+                [task.id]: {
+                  startTime: startTime,
+                  elapsed: Math.floor((Date.now() - startTime) / 1000)
+                }
+              }
+            }));
+            
+            // Start interval to update elapsed time
             const interval = setInterval(() => {
-              updateTimerState(prev => ({ ...prev })); // Creates NEW object reference - forces re-render
+              updateTimerState(prev => {
+                const timer = prev.running[task.id];
+                if (!timer) return prev;
+                
+                return {
+                  ...prev,
+                  running: {
+                    ...prev.running,
+                    [task.id]: {
+                      ...timer,
+                      elapsed: Math.floor((Date.now() - timer.startTime) / 1000)
+                    }
+                  }
+                };
+              });
             }, 1000);
             
             restoredIntervals[task.id] = interval;
@@ -2128,39 +2155,58 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
       return;
     }
 
-    // ===== OPTIMISTIC UPDATE: Do this FIRST, before API call =====
-    const currentTime = Date.now();
-    let interval = null;
+    // ===== IMMEDIATE LOCAL UPDATE: Single source of truth =====
+    const now = Date.now();
+    const timerStartedAtISO = new Date(now).toISOString().replace('T', ' ').replace('.000Z', '');
     
-    // Start interval immediately - creates NEW object reference to force re-render through memo()
-    interval = setInterval(() => {
-      updateTimerState(prev => ({ ...prev })); // Creates NEW object reference - forces re-render
+    // 1. Update timer state immediately - single source of truth
+    updateTimerState(prev => ({
+      ...prev,
+      running: {
+        ...prev.running,
+        [taskId]: {
+          startTime: now,
+          elapsed: 0
+        }
+      }
+    }));
+    
+    // 2. Update tasks array optimistically to show timer is active
+    updateDataState(prev => ({
+      ...prev,
+      tasks: prev.tasks.map(task => 
+        task.id === taskId 
+          ? { ...task, timer_started_at: timerStartedAtISO }
+          : task
+      )
+    }));
+    
+    // 3. Start interval - calculates elapsed time every second
+    const interval = setInterval(() => {
+      updateTimerState(prev => {
+        const timer = prev.running[taskId];
+        if (!timer) return prev; // Timer was stopped
+        
+        return {
+          ...prev,
+          running: {
+            ...prev.running,
+            [taskId]: {
+              ...timer,
+              elapsed: Math.floor((Date.now() - timer.startTime) / 1000)
+            }
+          }
+        };
+      });
     }, 1000);
     
-    // Use flushSync to force immediate synchronous update - breaks through React batching and memoization
-    const timerStartedAtISO = new Date(currentTime).toISOString().replace('T', ' ').replace('.000Z', '');
-    
-    flushSync(() => {
-      // Update timer state immediately
-      updateTimerState(prev => ({ 
-        ...prev, 
-        activeTimers: { ...prev.activeTimers, [taskId]: currentTime },
-        intervals: { ...prev.intervals, [taskId]: interval },
-        tick: currentTime // Force immediate re-render
-      }));
-      
-      // Update tasks array optimistically to show timer is active
-      updateDataState(prev => ({
-        ...prev,
-        tasks: prev.tasks.map(task => 
-          task.id === taskId 
-            ? { ...task, timer_started_at: timerStartedAtISO }
-            : task
-        )
-      }));
-    });
+    // Store interval for cleanup
+    updateTimerState(prev => ({
+      ...prev,
+      intervals: { ...prev.intervals, [taskId]: interval }
+    }));
 
-    // ===== NOW do API call (doesn't block UI) =====
+    // ===== API SYNC: Non-blocking, doesn't affect UI =====
     try {
       const response = await measureTimerOperation('Start', fetch(`/api/tasks/${taskId}/start-timer`, {
         method: 'POST',
@@ -2175,13 +2221,13 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
 
       if (!response.ok) {
         // Rollback on error
-        if (interval) clearInterval(interval);
+        clearInterval(interval);
         updateTimerState(prev => {
-          const newTimers = { ...prev.activeTimers };
-          delete newTimers[taskId];
+          const newRunning = { ...prev.running };
+          delete newRunning[taskId];
           const newIntervals = { ...prev.intervals };
           delete newIntervals[taskId];
-          return { ...prev, activeTimers: newTimers, intervals: newIntervals };
+          return { ...prev, running: newRunning, intervals: newIntervals };
         });
         updateDataState(prev => ({
           ...prev,
@@ -2196,28 +2242,28 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
         return;
       }
       
-      // Refresh immediately after API response to sync with server
+      // Optional: Refresh tasks after successful API call to sync with server
       refreshTasksOnly();
         
-        // Reload task details if task detail modal is open
-        if (selectedTask && selectedTask.id === taskId) {
-          loadTaskDetails(taskId);
-          
-          // Also refresh history directly
-          fetch(`/api/tasks/${taskId}/history`)
-            .then(response => response.json())
-            .then(data => setTaskHistory(data))
-            .catch(error => console.error('Error refreshing history:', error));
+      // Reload task details if task detail modal is open
+      if (selectedTask && selectedTask.id === taskId) {
+        loadTaskDetails(taskId);
+        
+        // Also refresh history directly
+        fetch(`/api/tasks/${taskId}/history`)
+          .then(response => response.json())
+          .then(data => setTaskHistory(data))
+          .catch(error => console.error('Error refreshing history:', error));
       }
     } catch (error) {
       // Rollback on network error
-      if (interval) clearInterval(interval);
+      clearInterval(interval);
       updateTimerState(prev => {
-        const newTimers = { ...prev.activeTimers };
-        delete newTimers[taskId];
+        const newRunning = { ...prev.running };
+        delete newRunning[taskId];
         const newIntervals = { ...prev.intervals };
         delete newIntervals[taskId];
-        return { ...prev, activeTimers: newTimers, intervals: newIntervals };
+        return { ...prev, running: newRunning, intervals: newIntervals };
       });
       updateDataState(prev => ({
         ...prev,
@@ -2236,21 +2282,22 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
     const task = tasks.find(t => t.id === taskId);
     if (!task || !task.timer_started_at) return;
     
-    // Calculate start time based on current time minus elapsed time from timer display
+    // Use running timer state if available, otherwise calculate from DB
+    const timer = runningTimers[taskId];
     const endTime = new Date();
     let startTime;
+    let totalSeconds = 0;
     
-    if (activeTimers[taskId]) {
-      // Use local timer state if available
-      startTime = new Date(activeTimers[taskId]);
+    if (timer) {
+      // Use local timer state - single source of truth
+      startTime = new Date(timer.startTime);
+      totalSeconds = timer.elapsed;
     } else {
-      // Calculate start time from current time minus the elapsed time shown in timer display
+      // Fallback: Calculate from database value (e.g., after page refresh)
       const elapsedSeconds = Math.floor((Date.now() - new Date(task.timer_started_at).getTime()) / 1000);
       startTime = new Date(endTime.getTime() - (elapsedSeconds * 1000));
+      totalSeconds = Math.max(0, elapsedSeconds);
     }
-    
-    // Calculate total seconds, ensuring non-negative
-    const totalSeconds = Math.max(0, Math.floor((endTime.getTime() - startTime.getTime()) / 1000));
     
     updateTimerState({
       stopTimerTaskId: taskId,
@@ -2268,60 +2315,56 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
       return;
     }
 
-    try {
-      // ===== CRITICAL: Calculate loggedSeconds BEFORE clearing activeTimers =====
-      const task = tasks.find(t => t.id === stopTimerTaskId);
-      let startTime = activeTimers[stopTimerTaskId];
-      
-      // Fallback: If activeTimers doesn't have the start time, calculate from task.timer_started_at
-      if (!startTime && task?.timer_started_at) {
-        const timerStartDate = new Date(task.timer_started_at);
-        startTime = timerStartDate.getTime();
-        console.log('⚠️ Using fallback startTime from task.timer_started_at:', task.timer_started_at, 'converted to:', startTime); // Debug log
-      }
-      
-      const loggedSeconds = startTime ? Math.floor((Date.now() - startTime) / 1000) : 0;
-      const currentLoggedSeconds = task?.logged_seconds || 0;
-      const newLoggedSeconds = currentLoggedSeconds + loggedSeconds;
-      
-      console.log('🛑 Stop timer calculation - startTime:', startTime, 'loggedSeconds:', loggedSeconds, 'currentLoggedSeconds:', currentLoggedSeconds, 'newLoggedSeconds:', newLoggedSeconds, 'task.timer_started_at:', task?.timer_started_at); // Debug log
+    // Get timer from single source of truth
+    const timer = runningTimers[stopTimerTaskId];
+    if (!timer) {
+      alert('Timer not found');
+      return;
+    }
 
-      // ===== OPTIMISTIC UPDATE: Do this AFTER calculating loggedSeconds =====
-      // Clear interval and local timer state IMMEDIATELY
-      if (timerIntervals[stopTimerTaskId]) {
-        clearInterval(timerIntervals[stopTimerTaskId]);
-      }
-      
-      // Use flushSync to force immediate synchronous update - breaks through React batching and memoization
-      flushSync(() => {
-        // Clear activeTimers and intervals immediately
-        updateTimerState(prev => {
-          const newTimers = { ...prev.activeTimers };
-          delete newTimers[stopTimerTaskId];
-          const newIntervals = { ...prev.intervals };
-          delete newIntervals[stopTimerTaskId];
-          return { 
-            ...prev, 
-            activeTimers: newTimers,
-            intervals: newIntervals
-          };
-        });
-        
-        // Update local tasks array immediately with new logged_seconds
-        // This ensures getTimerDisplay shows logged_seconds instead of 00:00:00
-        updateDataState(prev => ({
-          ...prev,
-          tasks: prev.tasks.map(task => 
-            task.id === stopTimerTaskId 
-              ? { 
-                  ...task, 
-                  timer_started_at: null,
-                  logged_seconds: newLoggedSeconds // Update logged_seconds optimistically
-                } 
-              : task
-          )
-        }));
-      });
+    const task = tasks.find(t => t.id === stopTimerTaskId);
+    const loggedSeconds = timer.elapsed;
+    const currentLoggedSeconds = task?.logged_seconds || 0;
+    const newLoggedSeconds = currentLoggedSeconds + loggedSeconds;
+    
+    // Store timer data for potential rollback
+    const timerBackup = { ...timer };
+
+    // ===== IMMEDIATE UI UPDATE: Stop timer instantly =====
+    // 1. Clear interval
+    if (timerIntervals[stopTimerTaskId]) {
+      clearInterval(timerIntervals[stopTimerTaskId]);
+    }
+    
+    // 2. Remove from running state
+    updateTimerState(prev => {
+      const newRunning = { ...prev.running };
+      delete newRunning[stopTimerTaskId];
+      const newIntervals = { ...prev.intervals };
+      delete newIntervals[stopTimerTaskId];
+      return { 
+        ...prev, 
+        running: newRunning,
+        intervals: newIntervals
+      };
+    });
+    
+    // 3. Update tasks array immediately with new logged_seconds
+    updateDataState(prev => ({
+      ...prev,
+      tasks: prev.tasks.map(task => 
+        task.id === stopTimerTaskId 
+          ? { 
+              ...task, 
+              timer_started_at: null,
+              logged_seconds: newLoggedSeconds
+            } 
+          : task
+      )
+    }));
+
+    // ===== API SYNC: Non-blocking =====
+    try {
 
       // ===== NOW do API call =====
       const response = await fetch(`/api/tasks/${stopTimerTaskId}/stop-timer`, {
@@ -2361,12 +2404,8 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
           return { ...prev, tasks: updatedTasks };
         });
         
-        // Delay refresh significantly to avoid overwriting our correct state update
-        // Wait 3 seconds to ensure server has fully processed the update and our state update is visible
-        setTimeout(() => {
-          console.log('🔄 Refreshing tasks after 3 second delay...'); // Debug log
-          refreshTasksOnly();
-        }, 3000);
+        // Optional: Refresh tasks to sync with server
+        refreshTasksOnly();
         
         // Reload task details if task detail modal is open
         if (selectedTask && selectedTask.id === stopTimerTaskId) {
@@ -2391,42 +2430,103 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
       } else {
         // Rollback on error - restore timer state
         const errorData = await response.json();
-        const startTime = activeTimers[stopTimerTaskId] || Date.now() - (loggedSeconds * 1000);
-        const interval = setInterval(() => {
-          updateTimerState(prev => ({ ...prev, tick: Date.now() }));
-        }, 1000);
+        const task = tasks.find(t => t.id === stopTimerTaskId);
+        const startTime = timerBackup.startTime; // Use the timer we had before clearing
+        
+        // Restore timer in running state
         updateTimerState(prev => ({
           ...prev,
-          activeTimers: { ...prev.activeTimers, [stopTimerTaskId]: startTime },
+          running: {
+            ...prev.running,
+            [stopTimerTaskId]: {
+              startTime: startTime,
+              elapsed: timerBackup.elapsed
+            }
+          }
+        }));
+        
+        // Restore interval
+        const interval = setInterval(() => {
+          updateTimerState(prev => {
+            const timer = prev.running[stopTimerTaskId];
+            if (!timer) return prev;
+            
+            return {
+              ...prev,
+              running: {
+                ...prev.running,
+                [stopTimerTaskId]: {
+                  ...timer,
+                  elapsed: Math.floor((Date.now() - timer.startTime) / 1000)
+                }
+              }
+            };
+          });
+        }, 1000);
+        
+        updateTimerState(prev => ({
+          ...prev,
           intervals: { ...prev.intervals, [stopTimerTaskId]: interval }
         }));
+        
+        // Restore task state
         updateDataState(prev => ({
           ...prev,
           tasks: prev.tasks.map(task => 
             task.id === stopTimerTaskId 
-              ? { ...task, timer_started_at: task.timer_started_at, logged_seconds: currentLoggedSeconds }
+              ? { ...task, timer_started_at: task.timer_started_at || new Date(startTime).toISOString().replace('T', ' ').replace('.000Z', ''), logged_seconds: currentLoggedSeconds }
               : task
           )
         }));
         alert(`Failed to stop timer: ${errorData.error || 'Unknown error'}`);
       }
     } catch (error) {
-      // Rollback on network error
+      // Rollback on network error - restore timer state
       console.error('Error stopping timer:', error);
-      const startTime = activeTimers[stopTimerTaskId] || Date.now() - (loggedSeconds * 1000);
-      const interval = setInterval(() => {
-        updateTimerState(prev => ({ ...prev, tick: Date.now() }));
-      }, 1000);
+      const startTime = timer.startTime; // Use the timer we had before clearing
+      
+      // Restore timer in running state
       updateTimerState(prev => ({
         ...prev,
-        activeTimers: { ...prev.activeTimers, [stopTimerTaskId]: startTime },
+        running: {
+          ...prev.running,
+          [stopTimerTaskId]: {
+            startTime: startTime,
+            elapsed: timerBackup.elapsed
+          }
+        }
+      }));
+      
+      // Restore interval
+      const interval = setInterval(() => {
+        updateTimerState(prev => {
+          const timer = prev.running[stopTimerTaskId];
+          if (!timer) return prev;
+          
+          return {
+            ...prev,
+            running: {
+              ...prev.running,
+              [stopTimerTaskId]: {
+                ...timer,
+                elapsed: Math.floor((Date.now() - timer.startTime) / 1000)
+              }
+            }
+          };
+        });
+      }, 1000);
+      
+      updateTimerState(prev => ({
+        ...prev,
         intervals: { ...prev.intervals, [stopTimerTaskId]: interval }
       }));
+      
+      // Restore task state
       updateDataState(prev => ({
         ...prev,
         tasks: prev.tasks.map(task => 
           task.id === stopTimerTaskId 
-            ? { ...task, timer_started_at: task.timer_started_at, logged_seconds: currentLoggedSeconds }
+            ? { ...task, timer_started_at: task.timer_started_at || new Date(startTime).toISOString().replace('T', ' ').replace('.000Z', ''), logged_seconds: currentLoggedSeconds }
             : task
         )
       }));
@@ -2591,72 +2691,16 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
   };
 
   const getTimerDisplay = (task) => {
-    // CRITICAL: Access state directly instead of destructured values to ensure latest state
-    // This prevents stale closures and ensures we get the most up-to-date timer state
-    const currentTimerState = timerState;
-    const currentActiveTimers = currentTimerState.activeTimers;
-    const currentTick = currentTimerState.tick;
+    // Single source of truth - only check local running state
+    const timer = runningTimers[task.id];
     
-    // CRITICAL FIX: Check local state first - if timer is active locally, use ONLY local start time
-    const isActive = currentActiveTimers[task.id];
-    
-    // Only use database value if timer is NOT in local state (e.g., after page refresh)
-    // This prevents showing old/stale timer_started_at when timer is actively running
-    const isActiveFromDB = task.timer_started_at && !isActive;
-    
-    let activeTime = 0;
-    if (isActive) {
-      // Timer is active in local state - use tick for immediate updates
-      // Use tick instead of Date.now() to ensure calculation updates when tick changes
-      const currentTime = currentTick || Date.now();
-      activeTime = Math.floor((currentTime - isActive) / 1000);
-    } else if (isActiveFromDB) {
-      // Timer is active in database but not in local state (e.g., after page refresh)
-      // Parse the timer_started_at string correctly - handle both ISO and DATETIME formats
-      let startTime;
-      try {
-        const timerStr = String(task.timer_started_at);
-        // If it's in ISO format (has T), parse it
-        if (timerStr.includes('T')) {
-          startTime = new Date(timerStr);
-        } else if (timerStr.includes(' ')) {
-          // If it's DATETIME format (has space), convert to ISO for parsing
-          startTime = new Date(timerStr.replace(' ', 'T'));
-        } else {
-          startTime = new Date(timerStr);
-        }
-        
-        // Validate the parsed date
-        if (isNaN(startTime.getTime())) {
-          console.error('Invalid timer_started_at:', task.timer_started_at);
-          return formatTime(0);
-        }
-        
-        // Use tick for immediate updates when available, otherwise Date.now()
-        const currentTime = currentTick || Date.now();
-        activeTime = Math.floor((currentTime - startTime.getTime()) / 1000);
-      } catch (error) {
-        console.error('Error parsing timer_started_at:', error, 'value:', task.timer_started_at);
-        return formatTime(0);
-      }
+    if (timer) {
+      // Timer is running - show current elapsed time
+      return formatTime(timer.elapsed);
     }
     
-    // Clamp to 0 to prevent negative values (timezone mismatch protection)
-    activeTime = Math.max(0, activeTime);
-    
-    // If timer is currently active, show ONLY the current session time (starting from 00:00:00)
-    // If timer is stopped, show the cumulative logged time (e.g., 0:5:50)
-    if (isActive || isActiveFromDB) {
-      return formatTime(activeTime);
-    } else {
-      // Timer is stopped - show cumulative logged_seconds (yesterday's 0:4:50 + today's 1:00 = 0:5:50)
-      const displayTime = formatTime(task.logged_seconds || 0);
-      // Debug log when logged_seconds is 0 but we expect it to have a value
-      if ((task.logged_seconds || 0) === 0 && task.id && !isActive && !isActiveFromDB) {
-        console.log('⚠️ getTimerDisplay - Task ID:', task.id, 'logged_seconds:', task.logged_seconds, 'timer_started_at:', task.timer_started_at, 'isActive:', isActive, 'isActiveFromDB:', isActiveFromDB, 'displayTime:', displayTime);
-      }
-      return displayTime;
-    }
+    // Timer is stopped - show cumulative logged time
+    return formatTime(task.logged_seconds || 0);
   };
 
   // Helper function to check if user can edit a specific task
@@ -3854,7 +3898,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
                                 <Clock className="w-4 h-4 text-gray-500" />
                                 <span className="text-xs font-mono">{getTimerDisplay(task)}</span>
                               </div>
-                              {canStopTimer(task) && (activeTimers[task.id] || task.timer_started_at) && (
+                              {canStopTimer(task) && (runningTimers[task.id] || task.timer_started_at) && (
                                 <div className="flex space-x-1">
                                   <button
                                     onClick={() => stopTimer(task.id)}
@@ -3865,7 +3909,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
                                   </button>
                                 </div>
                               )}
-                              {canStartTimer(task) && !activeTimers[task.id] && !task.timer_started_at && (
+                              {canStartTimer(task) && !runningTimers[task.id] && !task.timer_started_at && (
                                 <div className="flex space-x-1">
                                   {(() => {
                                     const userActiveTimer = getUserActiveTimer();
@@ -3900,7 +3944,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
                                 <Clock className="w-4 h-4 text-gray-500" />
                                 <span className="text-xs font-mono">{getTimerDisplay(task)}</span>
                               </div>
-                              {canStopTimer(task) && (activeTimers[task.id] || task.timer_started_at) && (
+                              {canStopTimer(task) && (runningTimers[task.id] || task.timer_started_at) && (
                                 <div className="flex space-x-1">
                                   <button
                                     onClick={() => stopTimer(task.id)}
@@ -3911,7 +3955,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
                                   </button>
                                 </div>
                               )}
-                              {canStartTimer(task) && !activeTimers[task.id] && !task.timer_started_at && (
+                              {canStartTimer(task) && !runningTimers[task.id] && !task.timer_started_at && (
                                 <div className="flex space-x-1">
                                   {(() => {
                                     const userActiveTimer = getUserActiveTimer();
@@ -5058,7 +5102,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
                   <span>Mark As Complete</span>
                 </button>
                 {(() => {
-                  const isTimerActive = activeTimers[selectedTask.id] || selectedTask.timer_started_at;
+                  const isTimerActive = runningTimers[selectedTask.id] || selectedTask.timer_started_at;
                   const userActiveTimer = getUserActiveTimer();
                   const canStartTimerNow = canStartTimer(selectedTask) && !userActiveTimer;
                   const canStopTimerNow = canStopTimer(selectedTask) && isTimerActive;
