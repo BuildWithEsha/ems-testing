@@ -3811,7 +3811,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
                           )}
                           {columnKey === 'logged_seconds' && (
                             <div className="flex items-center space-x-2">
-                              <div className="flex items-center space-x-1" key={`timer-display-${task.id}`}>
+                              <div className="flex items-center space-x-1" key={`timer-display-${task.id}-${timerState.running[task.id]?.elapsed || 0}`}>
                                 <Clock className="w-4 h-4 text-gray-500" />
                                 <span className="text-xs font-mono">{getTimerDisplay(task)}</span>
                               </div>
@@ -3857,7 +3857,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
                           )}
                           {columnKey === 'timer' && (
                             <div className="flex items-center space-x-2">
-                              <div className="flex items-center space-x-1" key={`timer-display-${task.id}`}>
+                              <div className="flex items-center space-x-1" key={`timer-display-${task.id}-${timerState.running[task.id]?.elapsed || 0}`}>
                                 <Clock className="w-4 h-4 text-gray-500" />
                                 <span className="text-xs font-mono">{getTimerDisplay(task)}</span>
                               </div>
