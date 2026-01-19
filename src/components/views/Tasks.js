@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useMemo, useCallback, memo, startTransition, useRef } from 'react';
-import { flushSync } from 'react-dom';
 import { Plus, Edit, Trash2, Upload, Download, Search, Filter, Clock, CheckCircle, AlertTriangle, Briefcase, X, Play, Square, ChevronDown, Settings } from 'lucide-react';
 import Modal from '../ui/Modal';
 import Button from '../ui/Button';
@@ -2127,50 +2126,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
       return;
     }
 
-    // ===== OPTIMISTIC UPDATE: Do this FIRST, before API call =====
-    const currentTime = Date.now();
-    let interval = null;
-    
-    // Start interval immediately
-    interval = setInterval(() => {
-      updateTimerState(prev => ({ ...prev, tick: Date.now() })); // Update tick to force re-render
-    }, 1000);
-    
-    // Use flushSync to force immediate synchronous update - breaks through React batching and memoization
-    const timerStartedAtISO = new Date(currentTime).toISOString().replace('T', ' ').replace('.000Z', '');
-    
-    flushSync(() => {
-      // Update timer state immediately
-      updateTimerState(prev => ({ 
-        ...prev, 
-        activeTimers: { ...prev.activeTimers, [taskId]: currentTime },
-        intervals: { ...prev.intervals, [taskId]: interval },
-        tick: currentTime // Force immediate re-render
-      }));
-      
-      // Update tasks array optimistically to show timer is active
-      updateDataState(prev => ({
-        ...prev,
-        tasks: prev.tasks.map(task => 
-          task.id === taskId 
-            ? { ...task, timer_started_at: timerStartedAtISO }
-            : task
-        )
-      }));
-    });
-    
-    // Additional tick updates to ensure continuous updates
-    setTimeout(() => {
-      updateTimerState(prev => ({ ...prev, tick: Date.now() }));
-    }, 10);
-    setTimeout(() => {
-      updateTimerState(prev => ({ ...prev, tick: Date.now() }));
-    }, 50);
-    setTimeout(() => {
-      updateTimerState(prev => ({ ...prev, tick: Date.now() }));
-    }, 100);
-
-    // ===== NOW do API call (doesn't block UI) =====
+    // ===== API call FIRST (like backup version) =====
     try {
       const response = await measureTimerOperation('Start', fetch(`/api/tasks/${taskId}/start-timer`, {
         method: 'POST',
@@ -2184,33 +2140,30 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
       }));
 
       if (!response.ok) {
-        // Rollback on error
-        if (interval) clearInterval(interval);
-        updateTimerState(prev => {
-          const newTimers = { ...prev.activeTimers };
-          delete newTimers[taskId];
-          const newIntervals = { ...prev.intervals };
-          delete newIntervals[taskId];
-          return { ...prev, activeTimers: newTimers, intervals: newIntervals };
-        });
-        updateDataState(prev => ({
-          ...prev,
-          tasks: prev.tasks.map(task => 
-            task.id === taskId 
-              ? { ...task, timer_started_at: null }
-              : task
-          )
-        }));
         const errorData = await response.json();
         alert(`Failed to start timer: ${errorData.error || 'Unknown error'}`);
         return;
       }
       
-      // Only refresh if needed - don't overwrite optimistic state immediately
-      // Wait longer to ensure server has processed, but don't block UI
-      setTimeout(() => {
-        refreshTasksOnly();
-      }, 1000); // Increased delay to ensure server processing
+      // ===== Update state AFTER API response (like backup version) =====
+      const currentTime = Date.now();
+      
+      // Start interval to update timer display - creates NEW object reference every second
+      // This forces React to recognize state change and re-render, even with memo()
+      const interval = setInterval(() => {
+        updateTimerState(prev => ({ ...prev })); // NEW object reference forces re-render
+      }, 1000);
+      
+      // Set up timer state
+      updateTimerState(prev => ({ 
+        ...prev, 
+        activeTimers: { ...prev.activeTimers, [taskId]: currentTime },
+        intervals: { ...prev.intervals, [taskId]: interval }
+      }));
+      
+      // Use optimized refresh instead of full data reload - THIS IS KEY!
+      // This immediately updates the tasks array with server data, forcing UI re-render
+      refreshTasksOnly();
         
         // Reload task details if task detail modal is open
         if (selectedTask && selectedTask.id === taskId) {
@@ -2607,71 +2560,27 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
   };
 
   const getTimerDisplay = (task) => {
-    // CRITICAL: Access state directly instead of destructured values to ensure latest state
-    // This prevents stale closures and ensures we get the most up-to-date timer state
-    const currentTimerState = timerState;
-    const currentActiveTimers = currentTimerState.activeTimers;
-    const currentTick = currentTimerState.tick;
-    
-    // CRITICAL FIX: Check local state first - if timer is active locally, use ONLY local start time
-    const isActive = currentActiveTimers[task.id];
-    
-    // Only use database value if timer is NOT in local state (e.g., after page refresh)
-    // This prevents showing old/stale timer_started_at when timer is actively running
+    const isActive = activeTimers[task.id];
     const isActiveFromDB = task.timer_started_at && !isActive;
     
     let activeTime = 0;
     if (isActive) {
-      // Timer is active in local state - use tick for immediate updates
-      // Use tick instead of Date.now() to ensure calculation updates when tick changes
-      const currentTime = currentTick || Date.now();
-      activeTime = Math.floor((currentTime - isActive) / 1000);
+      // Timer is active in local state - use Date.now() directly (like backup version)
+      activeTime = Math.floor((Date.now() - isActive) / 1000);
     } else if (isActiveFromDB) {
       // Timer is active in database but not in local state (e.g., after page refresh)
-      // Parse the timer_started_at string correctly - handle both ISO and DATETIME formats
-      let startTime;
-      try {
-        const timerStr = String(task.timer_started_at);
-        // If it's in ISO format (has T), parse it
-        if (timerStr.includes('T')) {
-          startTime = new Date(timerStr);
-        } else if (timerStr.includes(' ')) {
-          // If it's DATETIME format (has space), convert to ISO for parsing
-          startTime = new Date(timerStr.replace(' ', 'T'));
-        } else {
-          startTime = new Date(timerStr);
-        }
-        
-        // Validate the parsed date
-        if (isNaN(startTime.getTime())) {
-          console.error('Invalid timer_started_at:', task.timer_started_at);
-          return formatTime(0);
-        }
-        
-        // Use tick for immediate updates when available, otherwise Date.now()
-        const currentTime = currentTick || Date.now();
-        activeTime = Math.floor((currentTime - startTime.getTime()) / 1000);
-      } catch (error) {
-        console.error('Error parsing timer_started_at:', error, 'value:', task.timer_started_at);
-        return formatTime(0);
-      }
+      const startTime = new Date(isActiveFromDB);
+      activeTime = Math.floor((Date.now() - startTime.getTime()) / 1000);
     }
     
-    // Clamp to 0 to prevent negative values (timezone mismatch protection)
     activeTime = Math.max(0, activeTime);
     
-    // If timer is currently active, show ONLY the current session time (starting from 00:00:00)
-    // If timer is stopped, show the cumulative logged time (e.g., 0:5:50)
+    // If timer is currently active, show only the current session time (starting from 00:00:00)
+    // If timer is stopped, show the cumulative logged time
     if (isActive || isActiveFromDB) {
       return formatTime(activeTime);
     } else {
-      // Timer is stopped - show cumulative logged_seconds (yesterday's 0:4:50 + today's 1:00 = 0:5:50)
-      const displayTime = formatTime(task.logged_seconds || 0);
-      // Debug log when logged_seconds is 0 but we expect it to have a value
-      if ((task.logged_seconds || 0) === 0 && task.id && !isActive && !isActiveFromDB) {
-        console.log('⚠️ getTimerDisplay - Task ID:', task.id, 'logged_seconds:', task.logged_seconds, 'timer_started_at:', task.timer_started_at, 'isActive:', isActive, 'isActiveFromDB:', isActiveFromDB, 'displayTime:', displayTime);
-      }
-      return displayTime;
+      return formatTime(task.logged_seconds || 0);
     }
   };
 
