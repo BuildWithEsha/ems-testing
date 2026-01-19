@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, memo, startTransition, useRef } from 'react';
+import { flushSync } from 'react-dom';
 import { Plus, Edit, Trash2, Upload, Download, Search, Filter, Clock, CheckCircle, AlertTriangle, Briefcase, X, Play, Square, ChevronDown, Settings } from 'lucide-react';
 import Modal from '../ui/Modal';
 import Button from '../ui/Button';
