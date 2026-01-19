@@ -215,7 +215,7 @@ const toAssignedToString = (taskData) => {
 
 // Helper to sanitize values for MySQL - handles arrays, objects, empty strings, and ISO dates
 const sanitizeForMySQL = (value) => {
-  if (value === undefined) return null;  // ✅ Fixed: undefined → null (MySQL compatible)
+  if (value === undefined) return undefined;
   if (value === null) return null;
   if (Array.isArray(value)) {
     // Empty array → null, non-empty array → comma-separated string
@@ -2108,13 +2108,13 @@ app.get('/api/reports/timelog', async (req, res) => {
     params.push(employee);
   }
   if (department) {
-    where += ` AND LOWER(t.department) = LOWER(?)`;
+    where += ` AND t.department = ?`;
     params.push(department);
   }
 
   const query = `
     SELECT tt.employee_name, t.title AS task_title, t.labels, t.priority,
-           DATE(tt.start_time) as date,
+           DATE(substr(replace(replace(tt.start_time, 'T', ' '), 'Z', ''), 1, 19)) as date,
            SUM(
              CASE 
                WHEN tt.hours_logged_seconds > 0 THEN tt.hours_logged_seconds
@@ -2164,7 +2164,7 @@ app.get('/api/reports/timelog/consolidated', async (req, res) => {
     params.push(employee);
   }
   if (department) {
-    where += ` AND LOWER(t.department) = LOWER(?)`;
+    where += ` AND t.department = ?`;
     params.push(department);
   }
 
@@ -4800,7 +4800,7 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
   });
               
   // Optimized query with better indexing strategy - include all necessary fields
-  let query = 'SELECT id, title, status, priority, department, assigned_to, created_at, updated_at, due_date, timer_started_at, logged_seconds, labels, complexity, impact, effort_estimate_label, unit, target, time_estimate_hours, time_estimate_minutes, checklist, workflow_guide, checklist_completed FROM tasks WHERE 1=1';
+  let query = 'SELECT id, title, status, priority, department, assigned_to, created_at, updated_at, due_date, timer_started_at, logged_seconds, labels, complexity, impact, effort_estimate_label, unit, target, time_estimate_hours, time_estimate_minutes FROM tasks WHERE 1=1';
   let countQuery = 'SELECT COUNT(*) as total FROM tasks WHERE 1=1';
   const params = [];
   const countParams = [];
@@ -5201,17 +5201,6 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
               }
               
               const taskData = req.body;
-              
-              // Validate required fields
-              if (!taskData.title || !taskData.title.trim()) {
-                return res.status(400).json({ error: 'Task title is required' });
-              }
-
-              const assignedToString = toAssignedToString(taskData);
-              if (!assignedToString || assignedToString.trim() === '') {
-                return res.status(400).json({ error: 'Task must be assigned to at least one person' });
-              }
-              
               const query = `
                 INSERT INTO tasks (
                   title, department, task_category, project, start_date, due_date, without_due_date,
@@ -5228,7 +5217,7 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                 sanitizeForMySQL(taskData.startDate), 
                 sanitizeForMySQL(taskData.dueDate), 
                 taskData.withoutDueDate ? 1 : 0,
-                assignedToString || null, 
+                toAssignedToString(taskData) || null, 
                 sanitizeForMySQL(taskData.status) || 'Pending', 
                 sanitizeForMySQL(taskData.description),
                 sanitizeForMySQL(taskData.responsible), 
@@ -5276,33 +5265,8 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                 
                 res.status(201).json({ message: 'Task created successfully', id: newTaskId });
               } catch (err) {
-                // ========================================
-                // ⚠️⚠️⚠️ TASK CREATION ERROR ⚠️⚠️⚠️
-                // ========================================
-                console.error('\n');
-                console.error('═══════════════════════════════════════════════════════════════');
-                console.error('🚨🚨🚨 TASK CREATION FAILED 🚨🚨🚨');
-                console.error('═══════════════════════════════════════════════════════════════');
-                console.error('MySQL Error Code:', err.code);
-                console.error('MySQL Error Message:', err.message);
-                console.error('MySQL SQL State:', err.sqlState);
-                console.error('───────────────────────────────────────────────────────────────');
-                console.error('Query:', query);
-                console.error('───────────────────────────────────────────────────────────────');
-                console.error('Values Count:', values.length, '(Expected: 33)');
-                console.error('Values:', JSON.stringify(values, null, 2));
-                console.error('───────────────────────────────────────────────────────────────');
-                console.error('Task Data Received:', JSON.stringify(taskData, null, 2));
-                console.error('Assigned To String:', toAssignedToString(taskData));
-                console.error('═══════════════════════════════════════════════════════════════');
-                console.error('\n');
-                
-                res.status(500).json({ 
-                  error: 'Database error',
-                  message: err.message,
-                  code: err.code,
-                  sqlState: err.sqlState
-                });
+                console.error('Error creating task:', err);
+                res.status(500).json({ error: 'Database error' });
               }
             });
 
@@ -5456,10 +5420,6 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
               if (taskData.workflowGuide !== undefined) {
                 updateFields.push('workflow_guide = ?');
                 values.push(sanitizeForMySQL(taskData.workflowGuide));
-              }
-              if (taskData.checklist_completed !== undefined) {
-                updateFields.push('checklist_completed = ?');
-                values.push(sanitizeForMySQL(taskData.checklist_completed));
               }
 
               // Always update the updated_at timestamp
@@ -5688,12 +5648,11 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                     return;
                   }
                   
-                  // Get current local Pakistan time in ISO format to avoid timezone issues
-                  const nowISO = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Karachi' }).replace(' ', 'T');
-                  // Convert to MySQL DATETIME format (YYYY-MM-DD HH:MM:SS)
-                  const now = nowISO.replace('T', ' ');
+                  // Store DATETIME format for MySQL (required by MySQL 8.4)
+                  const nowISO = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Karachi' }).replace(' ', 'T') + '.000Z';
+                  const now = nowISO.replace('T', ' ').replace('.000Z', ''); // Convert to DATETIME format for MySQL storage
                   
-                  // Start the timer with current local timestamp (Pakistan timezone)
+                  // Start the timer with current local timestamp
                   const startTimerQuery = `
                     UPDATE tasks SET 
                       timer_started_at = ?,
@@ -5800,7 +5759,7 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                     new_value,
                     created_at,
                     -- Subtract 1 hour to fix the timezone offset issue
-                    DATE_FORMAT(CONVERT_TZ(created_at, '+00:00', '+05:00'), '%Y-%m-%d %H:%i:%s') as formatted_date
+                    DATE_FORMAT(DATE_SUB(created_at, INTERVAL 1 HOUR), '%Y-%m-%d %H:%i:%s') as formatted_date
                   FROM task_history 
                   WHERE task_id = ? 
                   ORDER BY created_at DESC
@@ -5957,7 +5916,7 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                 }
 
                 const deleteQuery = `DELETE FROM tasks WHERE id IN (${deletePlaceholders})`;
-
+                
                 // CRITICAL SAFETY CHECK #4: Final validation before execution
                 if (taskIdsToDelete.length === 0) {
                   await connection.rollback();
@@ -6098,23 +6057,31 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                 }
                 
                 const task = tasks[0];
-                const startTime = task.timer_started_at; // This is a Date object from mysql2
-                // Use local Pakistan time for end time
+                // Format timer_started_at from DATETIME to ISO format (same as /api/tasks endpoint)
+                let timerValue;
+                if (task.timer_started_at instanceof Date) {
+                  timerValue = task.timer_started_at.toISOString();
+                } else {
+                  const timerStr = String(task.timer_started_at);
+                  // If already in ISO format (has T), ensure it has Z
+                  if (timerStr.includes('T')) {
+                    timerValue = timerStr.includes('Z') ? timerStr : timerStr + (timerStr.includes('.') ? 'Z' : '.000Z');
+                  } else {
+                    // Convert "YYYY-MM-DD HH:mm:ss" to "YYYY-MM-DDTHH:mm:ss.000Z" (matching backup)
+                    timerValue = timerStr.replace(' ', 'T') + '.000Z';
+                  }
+                }
+                const startTime = new Date(timerValue);
                 const endTime = new Date();
                 
-                // Calculate actual duration in seconds (for validation only)
+                // Calculate actual duration in seconds (for fallback only)
                 const actualDurationSeconds = Math.floor((endTime - startTime) / 1000);
                 
-                // ✅ PRIORITIZE frontend's loggedSeconds (from timer.elapsed - most accurate)
-                // Validate: frontend value should be within reasonable bounds (±30 seconds of backend calculation)
-                // This prevents manipulation while trusting the accurate frontend timer
-                const isValidFrontendValue = loggedSeconds && 
-                  loggedSeconds > 0 && 
-                  Math.abs(loggedSeconds - actualDurationSeconds) <= 30; // Allow 30 sec tolerance
-                
-                const finalLoggedSeconds = isValidFrontendValue 
-                  ? loggedSeconds  // ✅ Use frontend value (accurate, no network delay)
-                  : (actualDurationSeconds > 0 ? actualDurationSeconds : (loggedSeconds || 0)); // Fallback
+                // ✅ ALWAYS trust frontend's loggedSeconds if it exists
+                // Backend calculation is ONLY fallback when frontend value is missing
+                const finalLoggedSeconds = (loggedSeconds && loggedSeconds > 0) 
+                  ? loggedSeconds  // Frontend wins - most accurate
+                  : actualDurationSeconds; // Fallback only if frontend missing
                 
                 const updateQuery = `
                   UPDATE tasks SET 
@@ -6151,8 +6118,8 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                     taskId,
                     user_name || 'Admin',
                     user_id || 1,
-                    localStartTime.toISOString(),
-                    localEndTime.toISOString(),
+                    sanitizeForMySQL(localStartTime.toISOString()),
+                    sanitizeForMySQL(localEndTime.toISOString()),
                     memo || '',
                     finalLoggedSeconds,
                     finalLoggedSeconds
@@ -7929,16 +7896,9 @@ app.get('/api/notifications/missed-tasks', async (req, res) => {
 });
 
 app.get('/api/notifications/less-trained-employees', async (req, res) => {
-  // #region agent log
-  fetch('http://127.0.0.1:7242/ingest/8935d4b0-ae4d-43cf-854a-300784cb786c',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:7931',message:'LTE endpoint entry',data:{minTrained:req.query.minTrained,userRole:req.headers['x-user-role']},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-  // #endregion
   const userRole = req.headers['x-user-role'];
   const userPermissions = req.headers['x-user-permissions'];
   const { minTrained = 3 } = req.query;
-
-  // #region agent log
-  fetch('http://127.0.0.1:7242/ingest/8935d4b0-ae4d-43cf-854a-300784cb786c',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:7936',message:'minTrained parsed',data:{minTrained,parsed:parseInt(minTrained),isNaN:isNaN(parseInt(minTrained))},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-  // #endregion
 
   if (!userRole || !userPermissions) {
     return res.status(401).json({ error: 'User role and permissions required' });
@@ -7988,8 +7948,7 @@ app.get('/api/notifications/less-trained-employees', async (req, res) => {
         END as task_type,
         CASE 
           WHEN t.trained IS NULL OR t.trained = '' OR t.trained = 'null' THEN 0
-          WHEN JSON_VALID(t.trained) THEN JSON_LENGTH(t.trained)
-          ELSE GREATEST(1, (LENGTH(TRIM(t.trained)) - LENGTH(REPLACE(TRIM(t.trained), ',', '')) + 1))
+          ELSE JSON_LENGTH(t.trained)
         END as trained_count
       FROM tasks t
       WHERE 
@@ -8005,12 +7964,7 @@ app.get('/api/notifications/less-trained-employees', async (req, res) => {
           t.trained IS NULL 
           OR t.trained = '' 
           OR t.trained = 'null'
-          OR (
-            CASE 
-              WHEN JSON_VALID(t.trained) THEN JSON_LENGTH(t.trained)
-              ELSE GREATEST(1, (LENGTH(TRIM(t.trained)) - LENGTH(REPLACE(TRIM(t.trained), ',', '')) + 1))
-            END
-          ) < ?
+          OR JSON_LENGTH(t.trained) < ?
         )
       ORDER BY t.department, t.priority DESC, t.created_at ASC
     `;
@@ -8040,15 +7994,7 @@ app.get('/api/notifications/less-trained-employees', async (req, res) => {
     res.json(formattedNotifications);
   } catch (err) {
     console.error('Error fetching LTE notifications:', err);
-    console.error('MySQL Error Code:', err.code);
-    console.error('MySQL Error Message:', err.message);
-    console.error('MySQL SQL State:', err.sqlState);
-    res.status(500).json({ 
-      error: 'Database error',
-      message: err.message,
-      code: err.code,
-      sqlState: err.sqlState
-    });
+    res.status(500).json({ error: 'Database error' });
   } finally {
     if (connection) {
       connection.release();

@@ -156,14 +156,8 @@ const Header = ({ onSearch, onLogout, tasks, employees, onStartTimer, onStopTime
           employee_id: user.id
         }
       });
-      
-      // Force multiple immediate re-renders to ensure timer starts instantly
-      // Multiple updates at different intervals ensure React processes the state change
-      const currentTime = Date.now();
-      setNow(currentTime);
-      setTimeout(() => setNow(Date.now()), 10);
-      setTimeout(() => setNow(Date.now()), 50);
-      setTimeout(() => setNow(Date.now()), 100);
+      // Force immediate re-render by updating now
+      setNow(Date.now());
       
       const res = await fetch('/api/attendance/clock-in', {
         method: 'POST',
