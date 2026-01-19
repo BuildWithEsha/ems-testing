@@ -1035,9 +1035,26 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
       const tasksResponse = await measureTaskLoading(fetch(tasksUrl, { headers: tasksHeaders }));
       if (tasksResponse.ok) {
         const tasksData = await tasksResponse.json();
+        const fetchedTasks = Array.isArray(tasksData.data) ? tasksData.data : (Array.isArray(tasksData) ? tasksData : []);
+        
         startTransition(() => {
-          updateDataState({ 
-            tasks: Array.isArray(tasksData.data) ? tasksData.data : (Array.isArray(tasksData) ? tasksData : [])
+          updateDataState(prev => {
+            // Preserve timer_started_at from local state if timer is actively running
+            // This prevents overwriting with stale database values that cause incorrect display
+            const updatedTasks = fetchedTasks.map(fetchedTask => {
+              // If this task has an active timer in local state, preserve the local timer_started_at
+              // This ensures getTimerDisplay() uses the correct NEW start time, not old database value
+              if (activeTimers[fetchedTask.id]) {
+                const localTask = prev.tasks.find(t => t.id === fetchedTask.id);
+                if (localTask && localTask.timer_started_at) {
+                  // Use the local timer_started_at (the NEW start time) instead of database value
+                  return { ...fetchedTask, timer_started_at: localTask.timer_started_at };
+                }
+              }
+              return fetchedTask;
+            });
+            
+            return { ...prev, tasks: updatedTasks };
           });
         });
       }
@@ -2578,13 +2595,17 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
     // Even though we use Date.now(), reading tick ensures React knows to re-render
     const _ = tick || 0; // Read tick to create dependency
     
+    // CRITICAL FIX: Check local state first - if timer is active locally, use ONLY local start time
     const isActive = activeTimers[task.id];
-    const isActiveFromDB = task.timer_started_at;
+    
+    // Only use database value if timer is NOT in local state (e.g., after page refresh)
+    // This prevents showing old/stale timer_started_at when timer is actively running
+    const isActiveFromDB = task.timer_started_at && !isActive;
     
     let activeTime = 0;
     if (isActive) {
-      // Timer is active in local state - use current time for real-time updates
-      // Use tick to ensure this recalculates on every tick update
+      // Timer is active in local state - calculate from NEW start time (starts at 00:00:00)
+      // This ensures we show ONLY current session time, not previous logged time
       activeTime = Math.floor((Date.now() - isActive) / 1000);
     } else if (isActiveFromDB) {
       // Timer is active in database but not in local state (e.g., after page refresh)
@@ -2595,11 +2616,12 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
     // Clamp to 0 to prevent negative values (timezone mismatch protection)
     activeTime = Math.max(0, activeTime);
     
-    // If timer is currently active, show only the current session time (starting from 00:00:00)
-    // If timer is stopped, show the cumulative logged time
+    // If timer is currently active, show ONLY the current session time (starting from 00:00:00)
+    // If timer is stopped, show the cumulative logged time (e.g., 0:5:50)
     if (isActive || isActiveFromDB) {
       return formatTime(activeTime);
     } else {
+      // Timer is stopped - show cumulative logged_seconds (yesterday's 0:4:50 + today's 1:00 = 0:5:50)
       const displayTime = formatTime(task.logged_seconds || 0);
       // Debug log when logged_seconds is 0 but we expect it to have a value
       if ((task.logged_seconds || 0) === 0 && task.id && !isActive && !isActiveFromDB) {

@@ -5688,10 +5688,10 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                     return;
                   }
                   
-                  // Store DATETIME format for MySQL (required by MySQL 8.4)
-                  const now = new Date();
+                  // Get current local Pakistan time in ISO format to avoid timezone issues
+                  const now = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Karachi' }).replace(' ', 'T') + '.000Z';
                   
-                  // Start the timer with current UTC timestamp
+                  // Start the timer with current local timestamp (Pakistan timezone)
                   const startTimerQuery = `
                     UPDATE tasks SET 
                       timer_started_at = ?,
@@ -6097,9 +6097,11 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                 
                 const task = tasks[0];
                 const startTime = task.timer_started_at; // This is a Date object from mysql2
+                // Use local Pakistan time for end time
                 const endTime = new Date();
                 
                 // Calculate actual duration in seconds
+                // Both times should be in the same timezone for accurate calculation
                 const actualDurationSeconds = Math.floor((endTime - startTime) / 1000);
                 
                 // Use the calculated duration instead of relying on frontend parameter
@@ -6132,12 +6134,16 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                   `;
                   
                 try {
+                  // Use local Pakistan time for timesheet entries
+                  const localStartTime = new Date(startTime.toLocaleString('sv-SE', { timeZone: 'Asia/Karachi' }).replace(' ', 'T') + '.000Z');
+                  const localEndTime = new Date(endTime.toLocaleString('sv-SE', { timeZone: 'Asia/Karachi' }).replace(' ', 'T') + '.000Z');
+                  
                   await connection.execute(timesheetQuery, [
                     taskId,
                     user_name || 'Admin',
                     user_id || 1,
-                    startTime,
-                    endTime,
+                    localStartTime.toISOString(),
+                    localEndTime.toISOString(),
                     memo || '',
                     finalLoggedSeconds,
                     finalLoggedSeconds
