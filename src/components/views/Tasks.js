@@ -1115,7 +1115,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
       (tasks || []).forEach(task => {
         if (task.timer_started_at && !timerState.running[task.id]) {
           // Check if interval already exists to avoid duplicates
-          if (!timerIntervals[task.id]) {
+          if (!timerState.intervals[task.id]) {
             const startTime = new Date(task.timer_started_at).getTime();
             const now = Date.now();
             
@@ -2249,28 +2249,35 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
     const task = tasks.find(t => t.id === taskId);
     if (!task || !task.timer_started_at) return;
     
-    // Calculate start time based on current time minus elapsed time from timer display
     const endTime = new Date();
-    let startTime;
     
-    const timer = timerRunning[taskId];
+    // ✅ LIVE STATE ACCESS - same source as count-up
+    const timer = timerState.running[taskId];
+    
+    let startTime;
+    let totalSeconds = 0;
+    
     if (timer) {
-      // Use local timer state if available
+      // Use local timer state - most accurate
       startTime = new Date(timer.startTime);
+      totalSeconds = timer.elapsed; // Use elapsed directly from timer
+    } else if (task.timer_started_at) {
+      // Fallback: calculate from database value
+      const dbStart = new Date(task.timer_started_at);
+      totalSeconds = Math.max(0, Math.floor((endTime.getTime() - dbStart.getTime()) / 1000));
+      startTime = dbStart;
     } else {
-      // Calculate start time from current time minus the elapsed time shown in timer display
-      const elapsedSeconds = Math.floor((Date.now() - new Date(task.timer_started_at).getTime()) / 1000);
-      startTime = new Date(endTime.getTime() - (elapsedSeconds * 1000));
+      return;
     }
     
-    // Calculate total seconds, ensuring non-negative
-    const totalSeconds = Math.max(0, Math.floor((endTime.getTime() - startTime.getTime()) / 1000));
+    // Ensure non-negative
+    totalSeconds = Math.max(0, totalSeconds);
     
     updateTimerState({
       stopTimerTaskId: taskId,
       stopTimerStartTime: startTime.toLocaleTimeString('en-US', { hour12: false }),
       stopTimerEndTime: endTime.toLocaleTimeString('en-US', { hour12: false }),
-      stopTimerTotalTime: `${Math.floor(totalSeconds / 3600)}h ${Math.floor((totalSeconds % 3600) / 60)}m`,
+      stopTimerTotalTime: formatTime(totalSeconds), // Use formatTime helper
       stopTimerMemo: ''
     });
     updateUiState({ showStopTimerModal: true });
@@ -2285,7 +2292,8 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
     try {
       // ===== CRITICAL: Calculate loggedSeconds BEFORE clearing running timer =====
       const task = tasks.find(t => t.id === stopTimerTaskId);
-      const timer = timerRunning[stopTimerTaskId];
+      // ✅ LIVE STATE ACCESS - same source as count-up
+      const timer = timerState.running[stopTimerTaskId];
       
       // Get elapsed time from timer, or calculate from DB if timer not in local state
       let loggedSeconds = 0;
@@ -2302,8 +2310,8 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
 
       // ===== OPTIMISTIC UPDATE: Do this AFTER calculating loggedSeconds =====
       // Clear interval and local timer state IMMEDIATELY
-      if (timerIntervals[stopTimerTaskId]) {
-        clearInterval(timerIntervals[stopTimerTaskId]);
+      if (timerState.intervals[stopTimerTaskId]) {
+        clearInterval(timerState.intervals[stopTimerTaskId]);
       }
       
       // Clear running timer and intervals immediately
@@ -2449,7 +2457,8 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
       // Rollback on network error
       console.error('Error stopping timer:', error);
       const task = tasks.find(t => t.id === stopTimerTaskId);
-      const timer = timerRunning[stopTimerTaskId];
+      // ✅ LIVE STATE ACCESS - same source as count-up
+      const timer = timerState.running[stopTimerTaskId];
       
       // Calculate logged seconds if we have timer, otherwise estimate
       let loggedSeconds = 0;
@@ -2604,9 +2613,13 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
 
 
   const formatTime = (seconds) => {
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    const secs = seconds % 60;
+    // 🛡️ SAFETY BELT: Prevent negative values and invalid inputs
+    const safeSeconds = Math.max(0, Number(seconds) || 0);
+    
+    const hours = Math.floor(safeSeconds / 3600);
+    const minutes = Math.floor((safeSeconds % 3600) / 60);
+    const secs = safeSeconds % 60;
+    
     return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
