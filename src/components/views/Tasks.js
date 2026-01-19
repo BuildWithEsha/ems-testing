@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useMemo, useCallback, memo, startTransition, useRef } from 'react';
-import { flushSync } from 'react-dom';
 import { Plus, Edit, Trash2, Upload, Download, Search, Filter, Clock, CheckCircle, AlertTriangle, Briefcase, X, Play, Square, ChevronDown, Settings } from 'lucide-react';
 import Modal from '../ui/Modal';
 import Button from '../ui/Button';
@@ -123,9 +122,8 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
 
   // Consolidated timer state
   const [timerState, setTimerState] = useState({
-    activeTimers: {},
+    running: {}, // { [taskId]: { startTime: number, elapsed: number } }
     intervals: {},
-    tick: 0, // Add tick counter to force re-renders
     stopTimerTaskId: null,
     stopTimerMemo: '',
     stopTimerStartTime: '',
@@ -139,9 +137,6 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
     checklistWarningTask: null,
     checklistCompletion: {}
   });
-
-  // Checklist completion state (renamed to avoid conflict)
-  const [taskChecklistCompletion, setTaskChecklistCompletion] = useState({});
 
   // Column customization state (kept separate for localStorage functionality)
   const [visibleColumns, setVisibleColumns] = useState(() => {
@@ -849,8 +844,8 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
   const setEditingCommentText = useCallback((editingCommentText) => updateTaskDetailState({ editingCommentText }), [updateTaskDetailState]);
   const { editingTask, importLoading, selectedFile, importResult, bulkStatus, newValues, newScores, editingItem, editingScore } = formState;
   const { status: filterStatus, priority: filterPriority, complexity: filterComplexity, impact: filterImpact, effortEstimateLabel: filterEffortEstimateLabel, unit: filterUnit, target: filterTarget, department: filterDepartment, assignedTo: filterAssignedTo, labels: filterLabels, responsible: filterResponsible, accountable: filterAccountable, consulted: filterConsulted, informed: filterInformed, trained: filterTrained } = filterState;
-  const { activeTimers, intervals: timerIntervals, tick, stopTimerTaskId, stopTimerMemo, stopTimerStartTime, stopTimerEndTime, stopTimerTotalTime } = timerState;
-  const { historyToDelete, checklistWarningTask } = modalState;
+  const { running: timerRunning, intervals: timerIntervals, stopTimerTaskId, stopTimerMemo, stopTimerStartTime, stopTimerEndTime, stopTimerTotalTime } = timerState;
+  const { historyToDelete, checklistWarningTask, checklistCompletion } = modalState;
 
   // All timer and modal states are now consolidated above
 
@@ -1036,31 +1031,9 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
       const tasksResponse = await measureTaskLoading(fetch(tasksUrl, { headers: tasksHeaders }));
       if (tasksResponse.ok) {
         const tasksData = await tasksResponse.json();
-        const fetchedTasks = Array.isArray(tasksData.data) ? tasksData.data : (Array.isArray(tasksData) ? tasksData : []);
-        
-        // Use flushSync for timer-related updates to ensure instant UI refresh
-        flushSync(() => {
-          updateDataState(prev => {
-            // Preserve timer_started_at from local state if timer is actively running
-            // This prevents overwriting with stale database values that cause incorrect display
-            const updatedTasks = fetchedTasks.map(fetchedTask => {
-              // If this task has an active timer in local state, preserve the local timer_started_at
-              // This ensures getTimerDisplay() uses the correct NEW start time, not old database value
-              if (activeTimers[fetchedTask.id]) {
-                const localTask = prev.tasks.find(t => t.id === fetchedTask.id);
-                if (localTask && localTask.timer_started_at) {
-                  // Use the local timer_started_at (the NEW start time) instead of database value
-                  return { ...fetchedTask, timer_started_at: localTask.timer_started_at };
-                }
-                // If no local task found but timer is active, create a compatible format from activeTimers
-                const currentTime = activeTimers[fetchedTask.id];
-                const timerStartedAtISO = new Date(currentTime).toISOString().replace('T', ' ').replace('.000Z', '');
-                return { ...fetchedTask, timer_started_at: timerStartedAtISO };
-              }
-              return fetchedTask;
-            });
-            
-            return { ...prev, tasks: updatedTasks };
+        startTransition(() => {
+          updateDataState({ 
+            tasks: Array.isArray(tasksData.data) ? tasksData.data : (Array.isArray(tasksData) ? tasksData : [])
           });
         });
       }
@@ -1128,19 +1101,43 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
     }
   }, [searchTerm, filterStatus, filterPriority, filterComplexity, filterImpact, filterEffortEstimateLabel, filterUnit, filterTarget, filterDepartment, filterAssignedTo, filterLabels, filterResponsible, filterAccountable, filterConsulted, filterInformed, filterTrained]);
 
-  // Restore activeTimers state from database when tasks are loaded (optimized)
+  // Restore running timers from database when tasks are loaded (optimized)
   useEffect(() => {
     if (tasks.length > 0) {
-      const restoredTimers = {};
+      const restoredRunning = {};
       const restoredIntervals = {};
       
       // Only create intervals for tasks with active timers
       (tasks || []).forEach(task => {
-        if (task.timer_started_at) {
+        if (task.timer_started_at && !timerRunning[task.id]) {
           // Check if interval already exists to avoid duplicates
           if (!timerIntervals[task.id]) {
+            const startTime = new Date(task.timer_started_at).getTime();
+            const now = Date.now();
+            
+            // Restore timer in running state
+            restoredRunning[task.id] = {
+              startTime: startTime,
+              elapsed: Math.floor((now - startTime) / 1000)
+            };
+            
+            // Create interval to update elapsed time
             const interval = setInterval(() => {
-              updateTimerState(prev => ({ ...prev })); // Creates NEW object reference - forces re-render
+              updateTimerState(prev => {
+                const timer = prev.running[task.id];
+                if (!timer) return prev; // Timer was stopped
+                
+                return {
+                  ...prev,
+                  running: {
+                    ...prev.running,
+                    [task.id]: {
+                      ...timer,
+                      elapsed: Math.floor((Date.now() - timer.startTime) / 1000)
+                    }
+                  }
+                };
+              });
             }, 1000);
             
             restoredIntervals[task.id] = interval;
@@ -1148,15 +1145,16 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
         }
       });
       
-      // Only update state if there are new intervals
-      if (Object.keys(restoredIntervals).length > 0) {
+      // Only update state if there are new timers or intervals
+      if (Object.keys(restoredRunning).length > 0 || Object.keys(restoredIntervals).length > 0) {
         updateTimerState(prev => ({ 
           ...prev, 
+          running: { ...prev.running, ...restoredRunning },
           intervals: { ...prev.intervals, ...restoredIntervals } 
         }));
       }
     }
-  }, [tasks, timerIntervals]);
+  }, [tasks, timerIntervals, timerRunning]);
 
   // Cleanup intervals on unmount
   useEffect(() => {
@@ -1170,22 +1168,6 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
   // Optimized load task details function with parallel API calls
   const loadTaskDetails = async (taskId) => {
     try {
-      // Load the main task data to ensure we have the latest checklist and other details
-      try {
-        const taskResponse = await fetch(`/api/tasks/${taskId}`);
-        if (taskResponse.ok) {
-          const taskData = await taskResponse.json();
-
-          // Update the selectedTask with the fresh data from the API
-          updateUiState(prev => ({
-            ...prev,
-            selectedTask: taskData
-          }));
-        }
-      } catch (error) {
-        console.error('Error loading main task data:', error);
-      }
-
       // Load task attachments from server
       try {
         const attachmentsResponse = await fetch(`/api/tasks/${taskId}/attachments`);
@@ -1212,7 +1194,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
           ];
         }
       });
-
+      
       // Only set default subtasks if no subtasks exist yet
       setTaskSubtasks(prev => {
         if (Array.isArray(prev) && prev.length > 0) {
@@ -1228,18 +1210,18 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
         }
       });
       setTaskNotes('Important notes about this task implementation...');
-
+      
       // Load timesheet and history data in parallel for better performance
       const [timesheetResponse, historyResponse] = await Promise.allSettled([
         measureTaskDetails(taskId, fetch(`/api/tasks/${taskId}/timesheet`)),
         measureTaskDetails(taskId, fetch(`/api/tasks/${taskId}/history`))
       ]);
-
+      
       // Handle timesheet data
       if (timesheetResponse.status === 'fulfilled' && timesheetResponse.value.ok) {
         const timesheetData = await timesheetResponse.value.json();
         setTaskTimesheet(timesheetData);
-
+        
         // Calculate total time (seconds)
         const totalSeconds = timesheetData.reduce((total, entry) => total + (entry.hours_logged_seconds ?? entry.hours_logged ?? 0), 0);
         setTaskTimesheetTotal(totalSeconds);
@@ -1248,7 +1230,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
         setTaskTimesheet([]);
         setTaskTimesheetTotal(0);
       }
-
+      
       // Handle history data
       if (historyResponse.status === 'fulfilled' && historyResponse.value.ok) {
         const historyData = await historyResponse.value.json();
@@ -1447,14 +1429,27 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
   // Handle task detail view
   const handleTaskClick = (task) => {
     try {
-      updateUiState({
+      updateUiState({ 
         selectedTask: task,
-        showDetailModal: true
+        showDetailModal: true 
       });
-
+      
+      // Load existing checklist completion state
+      if (task.checklist_completed) {
+        try {
+          const completedItems = JSON.parse(task.checklist_completed);
+          setChecklistCompletion(prev => ({
+            ...prev,
+            [task.id]: completedItems
+          }));
+        } catch (e) {
+          console.error('Error parsing checklist completion:', e);
+        }
+      }
+      
       // Load task details and history
       loadTaskDetails(task.id);
-
+      
       // Load history directly
       fetch(`/api/tasks/${task.id}/history`)
         .then(response => response.json())
@@ -1738,8 +1733,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
         target: formData.target,
         effort_estimate_label: formData.effortEstimateLabel,
         time_estimate_hours: formData.timeEstimateHours,
-        time_estimate_minutes: formData.timeEstimateMinutes,
-        checklist: formData.checklist
+        time_estimate_minutes: formData.timeEstimateMinutes
       };
 
       // Remove undefined values to prevent API issues
@@ -2053,11 +2047,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
 
   // Helper function to convert array of employee objects to string
   const employeeArrayToString = (arr) => {
-    if (!arr || !Array.isArray(arr) || arr.length === 0) return '';
-    return arr
-      .filter(item => item && item.label) // Filter out invalid items
-      .map(item => item.label.split(' (')[0])
-      .join(', ');
+    return arr.map(item => item.label.split(' (')[0]).join(', ');
   };
 
   // Helper function to check if user has active timer
@@ -2129,36 +2119,55 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
     }
 
     // ===== OPTIMISTIC UPDATE: Do this FIRST, before API call =====
-    const currentTime = Date.now();
-    let interval = null;
+    const now = Date.now();
     
-    // Start interval immediately - creates NEW object reference to force re-render through memo()
-    interval = setInterval(() => {
-      updateTimerState(prev => ({ ...prev })); // Creates NEW object reference - forces re-render
+    // 1. IMMEDIATE local update - single source of truth
+    updateTimerState(prev => ({
+      ...prev,
+      running: {
+        ...prev.running,
+        [taskId]: {
+          startTime: now,
+          elapsed: 0
+        }
+      }
+    }));
+    
+    // 2. Update tasks array optimistically to show timer is active
+    const timerStartedAtISO = new Date(now).toISOString().replace('T', ' ').replace('.000Z', '');
+    updateDataState(prev => ({
+      ...prev,
+      tasks: prev.tasks.map(task => 
+        task.id === taskId 
+          ? { ...task, timer_started_at: timerStartedAtISO }
+          : task
+      )
+    }));
+    
+    // 3. Start interval - calculates elapsed every second
+    const interval = setInterval(() => {
+      updateTimerState(prev => {
+        const timer = prev.running[taskId];
+        if (!timer) return prev; // Timer was stopped
+        
+        return {
+          ...prev,
+          running: {
+            ...prev.running,
+            [taskId]: {
+              ...timer,
+              elapsed: Math.floor((Date.now() - timer.startTime) / 1000)
+            }
+          }
+        };
+      });
     }, 1000);
     
-    // Use flushSync to force immediate synchronous update - breaks through React batching and memoization
-    const timerStartedAtISO = new Date(currentTime).toISOString().replace('T', ' ').replace('.000Z', '');
-    
-    flushSync(() => {
-      // Update timer state immediately
-      updateTimerState(prev => ({ 
-        ...prev, 
-        activeTimers: { ...prev.activeTimers, [taskId]: currentTime },
-        intervals: { ...prev.intervals, [taskId]: interval },
-        tick: currentTime // Force immediate re-render
-      }));
-      
-      // Update tasks array optimistically to show timer is active
-      updateDataState(prev => ({
-        ...prev,
-        tasks: prev.tasks.map(task => 
-          task.id === taskId 
-            ? { ...task, timer_started_at: timerStartedAtISO }
-            : task
-        )
-      }));
-    });
+    // Store interval for cleanup
+    updateTimerState(prev => ({
+      ...prev,
+      intervals: { ...prev.intervals, [taskId]: interval }
+    }));
 
     // ===== NOW do API call (doesn't block UI) =====
     try {
@@ -2177,11 +2186,11 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
         // Rollback on error
         if (interval) clearInterval(interval);
         updateTimerState(prev => {
-          const newTimers = { ...prev.activeTimers };
-          delete newTimers[taskId];
+          const newRunning = { ...prev.running };
+          delete newRunning[taskId];
           const newIntervals = { ...prev.intervals };
           delete newIntervals[taskId];
-          return { ...prev, activeTimers: newTimers, intervals: newIntervals };
+          return { ...prev, running: newRunning, intervals: newIntervals };
         });
         updateDataState(prev => ({
           ...prev,
@@ -2213,11 +2222,11 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
       // Rollback on network error
       if (interval) clearInterval(interval);
       updateTimerState(prev => {
-        const newTimers = { ...prev.activeTimers };
-        delete newTimers[taskId];
+        const newRunning = { ...prev.running };
+        delete newRunning[taskId];
         const newIntervals = { ...prev.intervals };
         delete newIntervals[taskId];
-        return { ...prev, activeTimers: newTimers, intervals: newIntervals };
+        return { ...prev, running: newRunning, intervals: newIntervals };
       });
       updateDataState(prev => ({
         ...prev,
@@ -2240,9 +2249,10 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
     const endTime = new Date();
     let startTime;
     
-    if (activeTimers[taskId]) {
+    const timer = timerRunning[taskId];
+    if (timer) {
       // Use local timer state if available
-      startTime = new Date(activeTimers[taskId]);
+      startTime = new Date(timer.startTime);
     } else {
       // Calculate start time from current time minus the elapsed time shown in timer display
       const elapsedSeconds = Math.floor((Date.now() - new Date(task.timer_started_at).getTime()) / 1000);
@@ -2269,22 +2279,22 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
     }
 
     try {
-      // ===== CRITICAL: Calculate loggedSeconds BEFORE clearing activeTimers =====
+      // ===== CRITICAL: Calculate loggedSeconds BEFORE clearing running timer =====
       const task = tasks.find(t => t.id === stopTimerTaskId);
-      let startTime = activeTimers[stopTimerTaskId];
+      const timer = timerRunning[stopTimerTaskId];
       
-      // Fallback: If activeTimers doesn't have the start time, calculate from task.timer_started_at
-      if (!startTime && task?.timer_started_at) {
+      // Get elapsed time from timer, or calculate from DB if timer not in local state
+      let loggedSeconds = 0;
+      if (timer) {
+        loggedSeconds = timer.elapsed;
+      } else if (task?.timer_started_at) {
+        // Fallback: calculate from database value
         const timerStartDate = new Date(task.timer_started_at);
-        startTime = timerStartDate.getTime();
-        console.log('⚠️ Using fallback startTime from task.timer_started_at:', task.timer_started_at, 'converted to:', startTime); // Debug log
+        loggedSeconds = Math.floor((Date.now() - timerStartDate.getTime()) / 1000);
       }
       
-      const loggedSeconds = startTime ? Math.floor((Date.now() - startTime) / 1000) : 0;
       const currentLoggedSeconds = task?.logged_seconds || 0;
       const newLoggedSeconds = currentLoggedSeconds + loggedSeconds;
-      
-      console.log('🛑 Stop timer calculation - startTime:', startTime, 'loggedSeconds:', loggedSeconds, 'currentLoggedSeconds:', currentLoggedSeconds, 'newLoggedSeconds:', newLoggedSeconds, 'task.timer_started_at:', task?.timer_started_at); // Debug log
 
       // ===== OPTIMISTIC UPDATE: Do this AFTER calculating loggedSeconds =====
       // Clear interval and local timer state IMMEDIATELY
@@ -2292,36 +2302,32 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
         clearInterval(timerIntervals[stopTimerTaskId]);
       }
       
-      // Use flushSync to force immediate synchronous update - breaks through React batching and memoization
-      flushSync(() => {
-        // Clear activeTimers and intervals immediately
-        updateTimerState(prev => {
-          const newTimers = { ...prev.activeTimers };
-          delete newTimers[stopTimerTaskId];
-          const newIntervals = { ...prev.intervals };
-          delete newIntervals[stopTimerTaskId];
-          return { 
-            ...prev, 
-            activeTimers: newTimers,
-            intervals: newIntervals
-          };
-        });
-        
-        // Update local tasks array immediately with new logged_seconds
-        // This ensures getTimerDisplay shows logged_seconds instead of 00:00:00
-        updateDataState(prev => ({
-          ...prev,
-          tasks: prev.tasks.map(task => 
-            task.id === stopTimerTaskId 
-              ? { 
-                  ...task, 
-                  timer_started_at: null,
-                  logged_seconds: newLoggedSeconds // Update logged_seconds optimistically
-                } 
-              : task
-          )
-        }));
+      // Clear running timer and intervals immediately
+      updateTimerState(prev => {
+        const newRunning = { ...prev.running };
+        delete newRunning[stopTimerTaskId];
+        const newIntervals = { ...prev.intervals };
+        delete newIntervals[stopTimerTaskId];
+        return { 
+          ...prev, 
+          running: newRunning,
+          intervals: newIntervals
+        };
       });
+      
+      // OPTIMISTIC UPDATE: Update local tasks array immediately with new logged_seconds
+      updateDataState(prev => ({
+        ...prev,
+        tasks: prev.tasks.map(task => 
+          task.id === stopTimerTaskId 
+            ? { 
+                ...task, 
+                timer_started_at: null,
+                logged_seconds: newLoggedSeconds
+              } 
+            : task
+        )
+      }));
 
       // ===== NOW do API call =====
       const response = await fetch(`/api/tasks/${stopTimerTaskId}/stop-timer`, {
@@ -2361,12 +2367,8 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
           return { ...prev, tasks: updatedTasks };
         });
         
-        // Delay refresh significantly to avoid overwriting our correct state update
-        // Wait 3 seconds to ensure server has fully processed the update and our state update is visible
-        setTimeout(() => {
-          console.log('🔄 Refreshing tasks after 3 second delay...'); // Debug log
-          refreshTasksOnly();
-        }, 3000);
+        // Refresh immediately after API response to sync with server
+        refreshTasksOnly();
         
         // Reload task details if task detail modal is open
         if (selectedTask && selectedTask.id === stopTimerTaskId) {
@@ -2391,13 +2393,42 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
       } else {
         // Rollback on error - restore timer state
         const errorData = await response.json();
-        const startTime = activeTimers[stopTimerTaskId] || Date.now() - (loggedSeconds * 1000);
-        const interval = setInterval(() => {
-          updateTimerState(prev => ({ ...prev, tick: Date.now() }));
-        }, 1000);
+        const now = Date.now();
+        const startTime = now - (loggedSeconds * 1000);
+        
+        // Restore timer in running state
         updateTimerState(prev => ({
           ...prev,
-          activeTimers: { ...prev.activeTimers, [stopTimerTaskId]: startTime },
+          running: {
+            ...prev.running,
+            [stopTimerTaskId]: {
+              startTime: startTime,
+              elapsed: loggedSeconds
+            }
+          }
+        }));
+        
+        // Restore interval
+        const interval = setInterval(() => {
+          updateTimerState(prev => {
+            const timer = prev.running[stopTimerTaskId];
+            if (!timer) return prev;
+            
+            return {
+              ...prev,
+              running: {
+                ...prev.running,
+                [stopTimerTaskId]: {
+                  ...timer,
+                  elapsed: Math.floor((Date.now() - timer.startTime) / 1000)
+                }
+              }
+            };
+          });
+        }, 1000);
+        
+        updateTimerState(prev => ({
+          ...prev,
           intervals: { ...prev.intervals, [stopTimerTaskId]: interval }
         }));
         updateDataState(prev => ({
@@ -2413,15 +2444,58 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
     } catch (error) {
       // Rollback on network error
       console.error('Error stopping timer:', error);
-      const startTime = activeTimers[stopTimerTaskId] || Date.now() - (loggedSeconds * 1000);
-      const interval = setInterval(() => {
-        updateTimerState(prev => ({ ...prev, tick: Date.now() }));
-      }, 1000);
+      const task = tasks.find(t => t.id === stopTimerTaskId);
+      const timer = timerRunning[stopTimerTaskId];
+      
+      // Calculate logged seconds if we have timer, otherwise estimate
+      let loggedSeconds = 0;
+      if (timer) {
+        loggedSeconds = timer.elapsed;
+      } else if (task?.timer_started_at) {
+        const timerStartDate = new Date(task.timer_started_at);
+        loggedSeconds = Math.floor((Date.now() - timerStartDate.getTime()) / 1000);
+      }
+      
+      const now = Date.now();
+      const startTime = now - (loggedSeconds * 1000);
+      
+      // Restore timer in running state
       updateTimerState(prev => ({
         ...prev,
-        activeTimers: { ...prev.activeTimers, [stopTimerTaskId]: startTime },
+        running: {
+          ...prev.running,
+          [stopTimerTaskId]: {
+            startTime: startTime,
+            elapsed: loggedSeconds
+          }
+        }
+      }));
+      
+      // Restore interval
+      const interval = setInterval(() => {
+        updateTimerState(prev => {
+          const timer = prev.running[stopTimerTaskId];
+          if (!timer) return prev;
+          
+          return {
+            ...prev,
+            running: {
+              ...prev.running,
+              [stopTimerTaskId]: {
+                ...timer,
+                elapsed: Math.floor((Date.now() - timer.startTime) / 1000)
+              }
+            }
+          };
+        });
+      }, 1000);
+      
+      updateTimerState(prev => ({
+        ...prev,
         intervals: { ...prev.intervals, [stopTimerTaskId]: interval }
       }));
+      // Restore task state
+      const currentLoggedSeconds = task?.logged_seconds || 0;
       updateDataState(prev => ({
         ...prev,
         tasks: prev.tasks.map(task => 
@@ -2457,29 +2531,26 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
     if (!task.checklist || task.checklist.trim() === '') {
       return true; // No checklist means no validation needed
     }
-
+    
     const checklistItems = task.checklist.split('\n').filter(item => item.trim() !== '');
     if (checklistItems.length === 0) {
       return true; // No items means complete
     }
-
+    
     // Check local state first (for current session)
-    const localCompleted = taskChecklistCompletion[task.id] || [];
-
-    // Check if the task has checklist completion tracking in database
-    let completedItems = [];
-    if (task.checklist_completed) {
-      try {
-        completedItems = JSON.parse(task.checklist_completed);
-      } catch (e) {
-        console.error('Error parsing checklist completion:', e);
-      }
+    const localCompleted = checklistCompletion[task.id] || [];
+    if (localCompleted.length === checklistItems.length) {
+      return true;
     }
-
-    // Combine local state and database state
-    const allCompleted = [...new Set([...localCompleted, ...completedItems])];
-
-    return allCompleted.length === checklistItems.length;
+    
+    // Check if the task has checklist completion tracking in database
+    if (task.checklist_completed) {
+      const completedItems = JSON.parse(task.checklist_completed);
+      return completedItems.length === checklistItems.length;
+    }
+    
+    // If no completion tracking exists, consider incomplete
+    return false;
   };
 
   // Check if unit is set and valid
@@ -2500,87 +2571,32 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
   };
 
   // Handle checklist item toggle
-  const handleChecklistItemToggle = async (taskId, itemIndex) => {
-    setTaskChecklistCompletion(prev => {
+  const handleChecklistItemToggle = (taskId, itemIndex) => {
+    setChecklistCompletion(prev => {
       const current = prev[taskId] || [];
       const newCompletion = [...current];
-
-      let updatedCompletion;
+      
       if (newCompletion.includes(itemIndex)) {
         // Remove item from completed list
-        updatedCompletion = newCompletion.filter(i => i !== itemIndex);
+        return {
+          ...prev,
+          [taskId]: newCompletion.filter(i => i !== itemIndex)
+        };
       } else {
         // Add item to completed list
-        updatedCompletion = [...newCompletion, itemIndex].sort((a, b) => a - b);
+        return {
+          ...prev,
+          [taskId]: [...newCompletion, itemIndex].sort((a, b) => a - b)
+        };
       }
-
-      // Update the backend with the new completion status
-      updateChecklistCompletionOnServer(taskId, updatedCompletion);
-
-      return {
-        ...prev,
-        [taskId]: updatedCompletion
-      };
     });
-  };
-
-  // Update checklist completion status on the server
-  const updateChecklistCompletionOnServer = async (taskId, completedItems) => {
-    try {
-      const response = await fetch(`/api/tasks/${taskId}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          checklist_completed: JSON.stringify(completedItems),
-          user_name: user?.name || 'Admin',
-          user_id: user?.id || 1
-        }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        console.error('Failed to update checklist completion:', errorData);
-        // Optionally show an error message to the user
-      } else {
-        console.log('Checklist completion updated successfully');
-
-        // Update the selected task in the UI if it's the current task
-        if (selectedTask && selectedTask.id === taskId) {
-          updateUiState({
-            selectedTask: {
-              ...selectedTask,
-              checklist_completed: JSON.stringify(completedItems)
-            }
-          });
-        }
-      }
-    } catch (error) {
-      console.error('Error updating checklist completion:', error);
-    }
   };
 
   // Check if a specific checklist item is completed
   const isChecklistItemCompleted = (taskId, itemIndex) => {
-    const completed = taskChecklistCompletion[taskId] || [];
+    const completed = checklistCompletion[taskId] || [];
     return completed.includes(itemIndex);
   };
-
-  // Load checklist completion state when a task is selected
-  useEffect(() => {
-    if (selectedTask && selectedTask.checklist_completed) {
-      try {
-        const completedItems = JSON.parse(selectedTask.checklist_completed);
-        setTaskChecklistCompletion(prev => ({
-          ...prev,
-          [selectedTask.id]: completedItems
-        }));
-      } catch (e) {
-        console.error('Error parsing checklist completion:', e);
-      }
-    }
-  }, [selectedTask]);
 
 
   const formatTime = (seconds) => {
@@ -2591,72 +2607,16 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
   };
 
   const getTimerDisplay = (task) => {
-    // CRITICAL: Access state directly instead of destructured values to ensure latest state
-    // This prevents stale closures and ensures we get the most up-to-date timer state
-    const currentTimerState = timerState;
-    const currentActiveTimers = currentTimerState.activeTimers;
-    const currentTick = currentTimerState.tick;
+    // Single source of truth - only check local state
+    const timer = timerRunning[task.id];
     
-    // CRITICAL FIX: Check local state first - if timer is active locally, use ONLY local start time
-    const isActive = currentActiveTimers[task.id];
-    
-    // Only use database value if timer is NOT in local state (e.g., after page refresh)
-    // This prevents showing old/stale timer_started_at when timer is actively running
-    const isActiveFromDB = task.timer_started_at && !isActive;
-    
-    let activeTime = 0;
-    if (isActive) {
-      // Timer is active in local state - use tick for immediate updates
-      // Use tick instead of Date.now() to ensure calculation updates when tick changes
-      const currentTime = currentTick || Date.now();
-      activeTime = Math.floor((currentTime - isActive) / 1000);
-    } else if (isActiveFromDB) {
-      // Timer is active in database but not in local state (e.g., after page refresh)
-      // Parse the timer_started_at string correctly - handle both ISO and DATETIME formats
-      let startTime;
-      try {
-        const timerStr = String(task.timer_started_at);
-        // If it's in ISO format (has T), parse it
-        if (timerStr.includes('T')) {
-          startTime = new Date(timerStr);
-        } else if (timerStr.includes(' ')) {
-          // If it's DATETIME format (has space), convert to ISO for parsing
-          startTime = new Date(timerStr.replace(' ', 'T'));
-        } else {
-          startTime = new Date(timerStr);
-        }
-        
-        // Validate the parsed date
-        if (isNaN(startTime.getTime())) {
-          console.error('Invalid timer_started_at:', task.timer_started_at);
-          return formatTime(0);
-        }
-        
-        // Use tick for immediate updates when available, otherwise Date.now()
-        const currentTime = currentTick || Date.now();
-        activeTime = Math.floor((currentTime - startTime.getTime()) / 1000);
-      } catch (error) {
-        console.error('Error parsing timer_started_at:', error, 'value:', task.timer_started_at);
-        return formatTime(0);
-      }
+    if (timer) {
+      // Timer is running - show current elapsed time
+      return formatTime(timer.elapsed);
     }
     
-    // Clamp to 0 to prevent negative values (timezone mismatch protection)
-    activeTime = Math.max(0, activeTime);
-    
-    // If timer is currently active, show ONLY the current session time (starting from 00:00:00)
-    // If timer is stopped, show the cumulative logged time (e.g., 0:5:50)
-    if (isActive || isActiveFromDB) {
-      return formatTime(activeTime);
-    } else {
-      // Timer is stopped - show cumulative logged_seconds (yesterday's 0:4:50 + today's 1:00 = 0:5:50)
-      const displayTime = formatTime(task.logged_seconds || 0);
-      // Debug log when logged_seconds is 0 but we expect it to have a value
-      if ((task.logged_seconds || 0) === 0 && task.id && !isActive && !isActiveFromDB) {
-        console.log('⚠️ getTimerDisplay - Task ID:', task.id, 'logged_seconds:', task.logged_seconds, 'timer_started_at:', task.timer_started_at, 'isActive:', isActive, 'isActiveFromDB:', isActiveFromDB, 'displayTime:', displayTime);
-      }
-      return displayTime;
-    }
+    // Timer is stopped - show cumulative logged time
+    return formatTime(task.logged_seconds || 0);
   };
 
   // Helper function to check if user can edit a specific task
@@ -3850,11 +3810,11 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
                           )}
                           {columnKey === 'logged_seconds' && (
                             <div className="flex items-center space-x-2">
-                              <div className="flex items-center space-x-1" key={`timer-display-${task.id}-${tick}`}>
+                              <div className="flex items-center space-x-1" key={`timer-display-${task.id}`}>
                                 <Clock className="w-4 h-4 text-gray-500" />
                                 <span className="text-xs font-mono">{getTimerDisplay(task)}</span>
                               </div>
-                              {canStopTimer(task) && (activeTimers[task.id] || task.timer_started_at) && (
+                              {canStopTimer(task) && (timerRunning[task.id] || task.timer_started_at) && (
                                 <div className="flex space-x-1">
                                   <button
                                     onClick={() => stopTimer(task.id)}
@@ -3865,7 +3825,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
                                   </button>
                                 </div>
                               )}
-                              {canStartTimer(task) && !activeTimers[task.id] && !task.timer_started_at && (
+                              {canStartTimer(task) && !timerRunning[task.id] && !task.timer_started_at && (
                                 <div className="flex space-x-1">
                                   {(() => {
                                     const userActiveTimer = getUserActiveTimer();
@@ -3896,11 +3856,11 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
                           )}
                           {columnKey === 'timer' && (
                             <div className="flex items-center space-x-2">
-                              <div className="flex items-center space-x-1" key={`timer-display-${task.id}-${tick}`}>
+                              <div className="flex items-center space-x-1" key={`timer-display-${task.id}`}>
                                 <Clock className="w-4 h-4 text-gray-500" />
                                 <span className="text-xs font-mono">{getTimerDisplay(task)}</span>
                               </div>
-                              {canStopTimer(task) && (activeTimers[task.id] || task.timer_started_at) && (
+                              {canStopTimer(task) && (timerRunning[task.id] || task.timer_started_at) && (
                                 <div className="flex space-x-1">
                                   <button
                                     onClick={() => stopTimer(task.id)}
@@ -3911,7 +3871,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
                                   </button>
                                 </div>
                               )}
-                              {canStartTimer(task) && !activeTimers[task.id] && !task.timer_started_at && (
+                              {canStartTimer(task) && !timerRunning[task.id] && !task.timer_started_at && (
                                 <div className="flex space-x-1">
                                   {(() => {
                                     const userActiveTimer = getUserActiveTimer();
@@ -4464,7 +4424,6 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
                   placeholder="Add checklist items, one per line."
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
-                <p className="mt-1 text-xs text-gray-500">Enter each checklist item on a new line</p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Workflow Guide</label>
@@ -5058,7 +5017,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
                   <span>Mark As Complete</span>
                 </button>
                 {(() => {
-                  const isTimerActive = activeTimers[selectedTask.id] || selectedTask.timer_started_at;
+                  const isTimerActive = timerRunning[selectedTask.id] || selectedTask.timer_started_at;
                   const userActiveTimer = getUserActiveTimer();
                   const canStartTimerNow = canStartTimer(selectedTask) && !userActiveTimer;
                   const canStopTimerNow = canStopTimer(selectedTask) && isTimerActive;
@@ -5642,7 +5601,6 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
                     </div>
                   </div>
                 )}
-
 
                 {taskDetailTab === 'comment' && (
                   <div>
