@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, memo, startTransition, useRef } from 'react';
+import { flushSync } from 'react-dom';
 import { Plus, Edit, Trash2, Upload, Download, Search, Filter, Clock, CheckCircle, AlertTriangle, Briefcase, X, Play, Square, ChevronDown, Settings } from 'lucide-react';
 import Modal from '../ui/Modal';
 import Button from '../ui/Button';
@@ -2135,32 +2136,30 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
       updateTimerState(prev => ({ ...prev, tick: Date.now() })); // Update tick to force re-render
     }, 1000);
     
-    // Update ALL state synchronously (before await) for instant UI update
-    updateTimerState(prev => ({ 
-      ...prev, 
-      activeTimers: { ...prev.activeTimers, [taskId]: currentTime },
-      intervals: { ...prev.intervals, [taskId]: interval },
-      tick: currentTime // Force immediate re-render
-    }));
-    
-    // Update tasks array optimistically to show timer is active
-    // Use ISO format that matches what the server returns for consistency
+    // Use flushSync to force immediate synchronous update - breaks through React batching and memoization
     const timerStartedAtISO = new Date(currentTime).toISOString().replace('T', ' ').replace('.000Z', '');
-    updateDataState(prev => ({
-      ...prev,
-      tasks: prev.tasks.map(task => 
-        task.id === taskId 
-          ? { ...task, timer_started_at: timerStartedAtISO }
-          : task
-      )
-    }));
     
-    // Force immediate re-render by updating both timer state and data state multiple times
-    // This breaks through React's memoization and batching
-    setTimeout(() => {
-      updateTimerState(prev => ({ ...prev, tick: Date.now() }));
-      updateDataState(prev => ({ ...prev })); // Force re-render by creating new object reference
-    }, 0);
+    flushSync(() => {
+      // Update timer state immediately
+      updateTimerState(prev => ({ 
+        ...prev, 
+        activeTimers: { ...prev.activeTimers, [taskId]: currentTime },
+        intervals: { ...prev.intervals, [taskId]: interval },
+        tick: currentTime // Force immediate re-render
+      }));
+      
+      // Update tasks array optimistically to show timer is active
+      updateDataState(prev => ({
+        ...prev,
+        tasks: prev.tasks.map(task => 
+          task.id === taskId 
+            ? { ...task, timer_started_at: timerStartedAtISO }
+            : task
+        )
+      }));
+    });
+    
+    // Additional tick updates to ensure continuous updates
     setTimeout(() => {
       updateTimerState(prev => ({ ...prev, tick: Date.now() }));
     }, 10);
@@ -2608,12 +2607,14 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
   };
 
   const getTimerDisplay = (task) => {
-    // Use tick in calculation to force re-render when tick changes
-    // Even though we use Date.now(), reading tick ensures React knows to re-render
-    const _ = tick || 0; // Read tick to create dependency
+    // CRITICAL: Access state directly instead of destructured values to ensure latest state
+    // This prevents stale closures and ensures we get the most up-to-date timer state
+    const currentTimerState = timerState;
+    const currentActiveTimers = currentTimerState.activeTimers;
+    const currentTick = currentTimerState.tick;
     
     // CRITICAL FIX: Check local state first - if timer is active locally, use ONLY local start time
-    const isActive = activeTimers[task.id];
+    const isActive = currentActiveTimers[task.id];
     
     // Only use database value if timer is NOT in local state (e.g., after page refresh)
     // This prevents showing old/stale timer_started_at when timer is actively running
@@ -2623,7 +2624,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
     if (isActive) {
       // Timer is active in local state - use tick for immediate updates
       // Use tick instead of Date.now() to ensure calculation updates when tick changes
-      const currentTime = tick || Date.now();
+      const currentTime = currentTick || Date.now();
       activeTime = Math.floor((currentTime - isActive) / 1000);
     } else if (isActiveFromDB) {
       // Timer is active in database but not in local state (e.g., after page refresh)
@@ -2648,7 +2649,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
         }
         
         // Use tick for immediate updates when available, otherwise Date.now()
-        const currentTime = tick || Date.now();
+        const currentTime = currentTick || Date.now();
         activeTime = Math.floor((currentTime - startTime.getTime()) / 1000);
       } catch (error) {
         console.error('Error parsing timer_started_at:', error, 'value:', task.timer_started_at);
