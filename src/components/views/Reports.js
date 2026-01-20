@@ -642,7 +642,7 @@ const TimeLogReport = () => {
     const params = new URLSearchParams({ start: filters.startDate, end: filters.endDate });
     if (filters.employee) params.append('employee', filters.employee);
     if (filters.department) params.append('department', filters.department);
-    const res = await fetch(`/api/reports/timelog/consolidated?${params.toString()}`);
+    const res = await fetch(`/api/reports/timelog?${params.toString()}`);
     const data = res.ok ? await res.json() : { items: [], totalSeconds: 0 };
     setRows(data.items || []);
     setTotalSeconds(data.totalSeconds || 0);

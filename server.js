@@ -2114,7 +2114,7 @@ app.get('/api/reports/timelog', async (req, res) => {
 
   const query = `
     SELECT tt.employee_name, t.title AS task_title, t.labels, t.priority,
-           DATE(substr(replace(replace(tt.start_time, 'T', ' '), 'Z', ''), 1, 19)) as date,
+           DATE_FORMAT(CONVERT_TZ(tt.start_time, '+00:00', '+05:00'), '%Y-%m-%d') as date,
            SUM(
              CASE 
                WHEN tt.hours_logged_seconds > 0 THEN tt.hours_logged_seconds
