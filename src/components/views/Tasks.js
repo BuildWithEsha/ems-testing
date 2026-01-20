@@ -2302,10 +2302,9 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
       
       // OPTIMISTIC UPDATE: Update local tasks array immediately with new logged_seconds
       // This ensures getTimerDisplay shows logged_seconds instead of 00:00:00
-      // ✅ Use same method as modal: Single state update clears timer_started_at
-      updateDataState(prev => ({
-        ...prev,
-        tasks: prev.tasks.map(task => 
+      // ✅ CRITICAL FIX: Update both dataState and tick in sequence to force immediate re-render
+      updateDataState(prev => {
+        const updatedTasks = prev.tasks.map(task => 
           task.id === stopTimerTaskId 
             ? { 
                 ...task, 
@@ -2313,10 +2312,14 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
                 logged_seconds: newLoggedSeconds // Update logged_seconds optimistically
               } 
             : task
-        )
-      }));
+        );
+        const updatedTask = updatedTasks.find(t => t.id === stopTimerTaskId);
+        console.log('🔄 Optimistic update - ID:', updatedTask?.id, 'timer_started_at:', updatedTask?.timer_started_at, 'logged_seconds:', updatedTask?.logged_seconds);
+        return { ...prev, tasks: updatedTasks };
+      });
       
-      // ✅ Use same method as modal: Update tick after both states to force re-render
+      // ✅ CRITICAL: Update tick IMMEDIATELY after dataState to force re-render with new task object
+      // This ensures the row re-renders and the stop button condition reads the updated task.timer_started_at
       updateTimerState(prev => ({ ...prev, tick: Date.now() }));
 
       // ===== NOW do API call =====
@@ -2358,8 +2361,15 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
           return { ...prev, tasks: updatedTasks };
         });
         
-        // ✅ Use same method as modal: Update tick after dataState to force re-render
+        // ✅ CRITICAL: Update tick IMMEDIATELY after dataState to force re-render with new task object
+        // This ensures the row re-renders (due to row key including tick) and the stop button condition reads the updated task.timer_started_at
         updateTimerState(prev => ({ ...prev, tick: Date.now() }));
+        
+        // ✅ CRITICAL: Force another tick update after a microtask to ensure React processes the state updates
+        // This ensures both state updates are processed before React evaluates the JSX condition
+        setTimeout(() => {
+          updateTimerState(prev => ({ ...prev, tick: Date.now() }));
+        }, 0);
         
         // ✅ NO REFRESH - Local state is authoritative after stop
         // refreshTasksOnly() removed - prevents overwriting correct state
