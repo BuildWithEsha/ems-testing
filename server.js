@@ -5764,8 +5764,8 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                     old_value,
                     new_value,
                     created_at,
-                    -- Subtract 1 hour to fix the timezone offset issue
-                    DATE_FORMAT(DATE_SUB(created_at, INTERVAL 1 HOUR), '%Y-%m-%d %H:%i:%s') as formatted_date
+                    -- Convert from UTC to Pakistan time (UTC+5)
+                    DATE_FORMAT(CONVERT_TZ(created_at, '+00:00', '+05:00'), '%Y-%m-%d %H:%i:%s') as formatted_date
                   FROM task_history 
                   WHERE task_id = ? 
                   ORDER BY created_at DESC
