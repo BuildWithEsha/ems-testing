@@ -5417,6 +5417,12 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                 updateFields.push('checklist = ?');
                 values.push(sanitizeForMySQL(taskData.checklist));
               }
+              // ✅ FIX: Handle checklist_completed (array of completed item indices)
+              if (taskData.checklist_completed !== undefined) {
+                updateFields.push('checklist_completed = ?');
+                // Store as JSON string array (e.g., "[0,1,2]")
+                values.push(JSON.stringify(taskData.checklist_completed));
+              }
               if (taskData.workflowGuide !== undefined) {
                 updateFields.push('workflow_guide = ?');
                 values.push(sanitizeForMySQL(taskData.workflowGuide));

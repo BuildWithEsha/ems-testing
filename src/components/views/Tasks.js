@@ -1419,6 +1419,30 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
   // Handle task detail view
   const handleTaskClick = async (task) => {
     try {
+      // ✅ FIX: Initialize checklistCompletion IMMEDIATELY from list task
+      if (task.checklist_completed) {
+        try {
+          const completedItems = JSON.parse(task.checklist_completed);
+          setChecklistCompletion(prev => ({
+            ...prev,
+            [task.id]: Array.isArray(completedItems) ? completedItems : []
+          }));
+        } catch (e) {
+          console.error('Error parsing checklist completion:', e);
+          // Initialize as empty array if parsing fails
+          setChecklistCompletion(prev => ({
+            ...prev,
+            [task.id]: []
+          }));
+        }
+      } else {
+        // Initialize as empty array if no checklist_completed exists
+        setChecklistCompletion(prev => ({
+          ...prev,
+          [task.id]: []
+        }));
+      }
+      
       // First set the task from list (for immediate UI update)
       updateUiState({ 
         selectedTask: task,
@@ -1439,13 +1463,25 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
           if (fullTask.checklist_completed) {
             try {
               const completedItems = JSON.parse(fullTask.checklist_completed);
+              // ✅ FIX: Ensure it's an array
               setChecklistCompletion(prev => ({
                 ...prev,
-                [task.id]: completedItems
+                [task.id]: Array.isArray(completedItems) ? completedItems : []
               }));
             } catch (e) {
               console.error('Error parsing checklist completion:', e);
+              // ✅ FIX: Initialize as empty array if parsing fails
+              setChecklistCompletion(prev => ({
+                ...prev,
+                [task.id]: []
+              }));
             }
+          } else {
+            // ✅ FIX: Initialize as empty array if no checklist_completed exists
+            setChecklistCompletion(prev => ({
+              ...prev,
+              [task.id]: []
+            }));
           }
         } else {
           console.error('Failed to fetch full task details');
@@ -1453,13 +1489,25 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
           if (task.checklist_completed) {
             try {
               const completedItems = JSON.parse(task.checklist_completed);
+              // ✅ FIX: Ensure it's an array
               setChecklistCompletion(prev => ({
                 ...prev,
-                [task.id]: completedItems
+                [task.id]: Array.isArray(completedItems) ? completedItems : []
               }));
             } catch (e) {
               console.error('Error parsing checklist completion:', e);
+              // ✅ FIX: Initialize as empty array if parsing fails
+              setChecklistCompletion(prev => ({
+                ...prev,
+                [task.id]: []
+              }));
             }
+          } else {
+            // ✅ FIX: Initialize as empty array if no checklist_completed exists
+            setChecklistCompletion(prev => ({
+              ...prev,
+              [task.id]: []
+            }));
           }
         }
       } catch (error) {
@@ -1468,13 +1516,25 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
         if (task.checklist_completed) {
           try {
             const completedItems = JSON.parse(task.checklist_completed);
+            // ✅ FIX: Ensure it's an array
             setChecklistCompletion(prev => ({
               ...prev,
-              [task.id]: completedItems
+              [task.id]: Array.isArray(completedItems) ? completedItems : []
             }));
           } catch (e) {
             console.error('Error parsing checklist completion:', e);
+            // ✅ FIX: Initialize as empty array if parsing fails
+            setChecklistCompletion(prev => ({
+              ...prev,
+              [task.id]: []
+            }));
           }
+        } else {
+          // ✅ FIX: Initialize as empty array if no checklist_completed exists
+          setChecklistCompletion(prev => ({
+            ...prev,
+            [task.id]: []
+          }));
         }
       }
       
@@ -2595,25 +2655,67 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
   };
 
   // Handle checklist item toggle
-  const handleChecklistItemToggle = (taskId, itemIndex) => {
-    setChecklistCompletion(prev => {
-      const current = prev[taskId] || [];
-      const newCompletion = [...current];
+  const handleChecklistItemToggle = async (taskId, itemIndex) => {
+    // Calculate new completion state (optimistic update)
+    const current = checklistCompletion[taskId] || [];
+    let newCompletion;
+    
+    if (current.includes(itemIndex)) {
+      // Remove item from completed list
+      newCompletion = current.filter(i => i !== itemIndex);
+    } else {
+      // Add item to completed list
+      newCompletion = [...current, itemIndex].sort((a, b) => a - b);
+    }
+    
+    // Update local state immediately (optimistic update)
+    setChecklistCompletion(prev => ({
+      ...prev,
+      [taskId]: newCompletion
+    }));
+    
+    // ✅ FIX: Save to database
+    try {
+      const response = await fetch(`/api/tasks/${taskId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'user-role': user?.role || 'employee',
+          'user-permissions': JSON.stringify((user?.role === 'admin' || user?.role === 'Admin') ? ['all'] : (user?.permissions || []))
+        },
+        body: JSON.stringify({
+          checklist_completed: newCompletion
+        }),
+      });
       
-      if (newCompletion.includes(itemIndex)) {
-        // Remove item from completed list
-        return {
+      if (!response.ok) {
+        // Rollback on error - restore previous state
+        setChecklistCompletion(prev => ({
           ...prev,
-          [taskId]: newCompletion.filter(i => i !== itemIndex)
-        };
+          [taskId]: current
+        }));
+        console.error('Failed to save checklist completion');
+        alert('Failed to save checklist completion. Please try again.');
       } else {
-        // Add item to completed list
-        return {
-          ...prev,
-          [taskId]: [...newCompletion, itemIndex].sort((a, b) => a - b)
-        };
+        // Update selectedTask if it's the current task
+        if (selectedTask && selectedTask.id === taskId) {
+          updateUiState({
+            selectedTask: {
+              ...selectedTask,
+              checklist_completed: JSON.stringify(newCompletion)
+            }
+          });
+        }
       }
-    });
+    } catch (error) {
+      // Rollback on error - restore previous state
+      setChecklistCompletion(prev => ({
+        ...prev,
+        [taskId]: current
+      }));
+      console.error('Error saving checklist completion:', error);
+      alert('Failed to save checklist completion. Please check your connection and try again.');
+    }
   };
 
   // Check if a specific checklist item is completed
