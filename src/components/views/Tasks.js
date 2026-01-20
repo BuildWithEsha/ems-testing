@@ -1417,23 +1417,64 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
   };
 
   // Handle task detail view
-  const handleTaskClick = (task) => {
+  const handleTaskClick = async (task) => {
     try {
+      // First set the task from list (for immediate UI update)
       updateUiState({ 
         selectedTask: task,
         showDetailModal: true 
       });
       
-      // Load existing checklist completion state
-      if (task.checklist_completed) {
-        try {
-          const completedItems = JSON.parse(task.checklist_completed);
-          setChecklistCompletion(prev => ({
-            ...prev,
-            [task.id]: completedItems
-          }));
-        } catch (e) {
-          console.error('Error parsing checklist completion:', e);
+      // ✅ FIX: Fetch full task details including checklist from backend
+      try {
+        const fullTaskResponse = await fetch(`/api/tasks/${task.id}`);
+        if (fullTaskResponse.ok) {
+          const fullTask = await fullTaskResponse.json();
+          // Update selectedTask with full data including checklist
+          updateUiState({ 
+            selectedTask: fullTask
+          });
+          
+          // Load existing checklist completion state from full task data
+          if (fullTask.checklist_completed) {
+            try {
+              const completedItems = JSON.parse(fullTask.checklist_completed);
+              setChecklistCompletion(prev => ({
+                ...prev,
+                [task.id]: completedItems
+              }));
+            } catch (e) {
+              console.error('Error parsing checklist completion:', e);
+            }
+          }
+        } else {
+          console.error('Failed to fetch full task details');
+          // Fallback: Use checklist_completed from list task if available
+          if (task.checklist_completed) {
+            try {
+              const completedItems = JSON.parse(task.checklist_completed);
+              setChecklistCompletion(prev => ({
+                ...prev,
+                [task.id]: completedItems
+              }));
+            } catch (e) {
+              console.error('Error parsing checklist completion:', e);
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching full task details:', error);
+        // Fallback: Use checklist_completed from list task if available
+        if (task.checklist_completed) {
+          try {
+            const completedItems = JSON.parse(task.checklist_completed);
+            setChecklistCompletion(prev => ({
+              ...prev,
+              [task.id]: completedItems
+            }));
+          } catch (e) {
+            console.error('Error parsing checklist completion:', e);
+          }
         }
       }
       
