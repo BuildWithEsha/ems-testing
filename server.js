@@ -4800,7 +4800,7 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
   });
               
   // Optimized query with better indexing strategy - include all necessary fields
-  let query = 'SELECT id, title, status, priority, department, assigned_to, created_at, updated_at, due_date, timer_started_at, logged_seconds, labels, complexity, impact, effort_estimate_label, unit, target, time_estimate_hours, time_estimate_minutes FROM tasks WHERE 1=1';
+  let query = 'SELECT id, title, status, priority, department, assigned_to, created_at, updated_at, due_date, timer_started_at, logged_seconds, labels, complexity, impact, effort_estimate_label, unit, target, time_estimate_hours, time_estimate_minutes, checklist, checklist_completed FROM tasks WHERE 1=1';
   let countQuery = 'SELECT COUNT(*) as total FROM tasks WHERE 1=1';
   const params = [];
   const countParams = [];
