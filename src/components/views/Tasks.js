@@ -2254,14 +2254,22 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
   };
 
   const handleStopTimerSubmit = async () => {
+    // 🔍 DEBUG: Confirm function is being called
+    console.log('🚀 handleStopTimerSubmit CALLED - stopTimerTaskId:', stopTimerTaskId, 'memo length:', stopTimerMemo?.length);
+    
     if (!stopTimerMemo.trim()) {
+      console.log('❌ Early return - memo is empty');
       alert('Please enter a memo before stopping the timer');
       return;
     }
 
+    console.log('✅ Memo is valid, proceeding with stop timer...');
+
     try {
+      console.log('🔄 Starting stop timer process...');
       // ===== CRITICAL: Calculate loggedSeconds BEFORE clearing activeTimers =====
       const task = tasks.find(t => t.id === stopTimerTaskId);
+      console.log('🔍 Found task:', task?.id, 'timer_started_at:', task?.timer_started_at);
       // ✅ FIX: Read directly from timerState, not destructured activeTimers
       let startTime = timerState.activeTimers[stopTimerTaskId];
       
@@ -2303,26 +2311,42 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
       // OPTIMISTIC UPDATE: Update local tasks array immediately with new logged_seconds
       // This ensures getTimerDisplay shows logged_seconds instead of 00:00:00
       // ✅ CRITICAL FIX: Update both dataState and tick in sequence to force immediate re-render
+      console.log('🔄 About to update dataState - clearing timer_started_at for task:', stopTimerTaskId);
       updateDataState(prev => {
-        const updatedTasks = prev.tasks.map(task => 
-          task.id === stopTimerTaskId 
-            ? { 
-                ...task, 
-                timer_started_at: null, // ✅ Clear timer_started_at to make stop button disappear
-                logged_seconds: newLoggedSeconds // Update logged_seconds optimistically
-              } 
-            : task
-        );
+        console.log('🔄 Inside updateDataState - prev.tasks length:', prev.tasks.length);
+        const updatedTasks = prev.tasks.map(task => {
+          if (task.id === stopTimerTaskId) {
+            console.log('🔄 Updating task:', task.id, 'OLD timer_started_at:', task.timer_started_at);
+            return { 
+              ...task, 
+              timer_started_at: null, // ✅ Clear timer_started_at to make stop button disappear
+              logged_seconds: newLoggedSeconds // Update logged_seconds optimistically
+            };
+          }
+          return task;
+        });
         const updatedTask = updatedTasks.find(t => t.id === stopTimerTaskId);
         console.log('🔄 Optimistic update - ID:', updatedTask?.id, 'timer_started_at:', updatedTask?.timer_started_at, 'logged_seconds:', updatedTask?.logged_seconds);
+        console.log('🔄 Returning updated state with', updatedTasks.length, 'tasks');
         return { ...prev, tasks: updatedTasks };
       });
+      console.log('🔄 updateDataState called, waiting for React to process...');
       
       // ✅ CRITICAL: Update tick IMMEDIATELY after dataState to force re-render with new task object
-      // This ensures the row re-renders and the stop button condition reads the updated task.timer_started_at
-      updateTimerState(prev => ({ ...prev, tick: Date.now() }));
+      // This ensures the row re-renders (due to row key including tick) and the stop button condition reads the updated task.timer_started_at
+      const newTick = Date.now();
+      console.log('🔄 Updating tick to:', newTick, 'to force re-render');
+      updateTimerState(prev => ({ ...prev, tick: newTick }));
+      
+      // ✅ CRITICAL: Force another tick update after a microtask to ensure React processes the state updates
+      setTimeout(() => {
+        const nextTick = Date.now();
+        console.log('🔄 Second tick update:', nextTick);
+        updateTimerState(prev => ({ ...prev, tick: nextTick }));
+      }, 0);
 
       // ===== NOW do API call =====
+      console.log('🔄 Making API call to stop timer...');
       const response = await fetch(`/api/tasks/${stopTimerTaskId}/stop-timer`, {
         method: 'POST',
         headers: {
@@ -2345,21 +2369,31 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
         
         // Update local task state immediately with server's logged_seconds
         // This ensures getTimerDisplay shows the correct total time instead of 00:00:00
-        // ✅ Use same method as modal: Single state update clears timer_started_at
+        // ✅ CRITICAL FIX: Update both dataState and tick in sequence to force immediate re-render
+        console.log('✅ About to update dataState after server response - clearing timer_started_at for task:', stopTimerTaskId);
         updateDataState(prev => {
-          const updatedTasks = prev.tasks.map(task => 
-            task.id === stopTimerTaskId 
-              ? { 
-                  ...task, 
-                  timer_started_at: null, // ✅ Clear timer_started_at to make stop button disappear
-                  logged_seconds: serverLoggedSeconds // Use server's logged_seconds
-                } 
-              : task
-          );
+          console.log('✅ Inside updateDataState (server response) - prev.tasks length:', prev.tasks.length);
+          const updatedTasks = prev.tasks.map(task => {
+            if (task.id === stopTimerTaskId) {
+              console.log('✅ Updating task:', task.id, 'OLD timer_started_at:', task.timer_started_at);
+              return { 
+                ...task, 
+                timer_started_at: null, // ✅ Clear timer_started_at to make stop button disappear
+                logged_seconds: serverLoggedSeconds // Use server's logged_seconds
+              };
+            }
+            return task;
+          });
           const updatedTask = updatedTasks.find(t => t.id === stopTimerTaskId);
-          console.log('✅ Updated task state - ID:', updatedTask?.id, 'logged_seconds:', updatedTask?.logged_seconds, 'timer_started_at:', updatedTask?.timer_started_at); // Debug log
+          console.log('✅ Server response update - ID:', updatedTask?.id, 'timer_started_at:', updatedTask?.timer_started_at, 'logged_seconds:', updatedTask?.logged_seconds);
+          // 🔍 CRITICAL: Verify timer_started_at is actually null
+          if (updatedTask?.timer_started_at !== null && updatedTask?.timer_started_at !== undefined) {
+            console.error('❌ ERROR: timer_started_at is NOT null after update!', updatedTask?.timer_started_at);
+          }
+          console.log('✅ Returning updated state with', updatedTasks.length, 'tasks');
           return { ...prev, tasks: updatedTasks };
         });
+        console.log('✅ updateDataState (server response) called, waiting for React to process...');
         
         // ✅ CRITICAL: Update tick IMMEDIATELY after dataState to force re-render with new task object
         // This ensures the row re-renders (due to row key including tick) and the stop button condition reads the updated task.timer_started_at
