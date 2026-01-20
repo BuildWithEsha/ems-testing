@@ -2285,7 +2285,8 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
         clearInterval(timerState.intervals[stopTimerTaskId]);
       }
       
-      // Clear activeTimers and intervals in a single state update for immediate UI update
+      // ✅ Use same method as modal: Update both states together with tick for instant UI update
+      // Clear activeTimers and intervals in a single state update
       updateTimerState(prev => {
         const newTimers = { ...prev.activeTimers };
         delete newTimers[stopTimerTaskId];
@@ -2301,20 +2302,21 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
       
       // OPTIMISTIC UPDATE: Update local tasks array immediately with new logged_seconds
       // This ensures getTimerDisplay shows logged_seconds instead of 00:00:00
+      // ✅ Use same method as modal: Single state update clears timer_started_at
       updateDataState(prev => ({
         ...prev,
         tasks: prev.tasks.map(task => 
           task.id === stopTimerTaskId 
             ? { 
                 ...task, 
-                timer_started_at: null,
+                timer_started_at: null, // ✅ Clear timer_started_at to make stop button disappear
                 logged_seconds: newLoggedSeconds // Update logged_seconds optimistically
               } 
             : task
         )
       }));
       
-      // ✅ Force immediate re-render to show updated logged_seconds
+      // ✅ Use same method as modal: Update tick after both states to force re-render
       updateTimerState(prev => ({ ...prev, tick: Date.now() }));
 
       // ===== NOW do API call =====
@@ -2340,12 +2342,13 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
         
         // Update local task state immediately with server's logged_seconds
         // This ensures getTimerDisplay shows the correct total time instead of 00:00:00
+        // ✅ Use same method as modal: Single state update clears timer_started_at
         updateDataState(prev => {
           const updatedTasks = prev.tasks.map(task => 
             task.id === stopTimerTaskId 
               ? { 
                   ...task, 
-                  timer_started_at: null, // Clear timer
+                  timer_started_at: null, // ✅ Clear timer_started_at to make stop button disappear
                   logged_seconds: serverLoggedSeconds // Use server's logged_seconds
                 } 
               : task
@@ -2355,7 +2358,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
           return { ...prev, tasks: updatedTasks };
         });
         
-        // ✅ Force re-render to ensure stop button disappears and logged time shows
+        // ✅ Use same method as modal: Update tick after dataState to force re-render
         updateTimerState(prev => ({ ...prev, tick: Date.now() }));
         
         // ✅ NO REFRESH - Local state is authoritative after stop
@@ -2372,7 +2375,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
             .catch(error => console.error('Error refreshing history:', error));
         }
         
-        // Close modal and reset state
+        // ✅ Use same method as modal: Close modal and update tick in single state update
         updateUiState({ showStopTimerModal: false });
         updateTimerState({
           stopTimerTaskId: null,
@@ -2380,7 +2383,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
           stopTimerStartTime: '',
           stopTimerEndTime: '',
           stopTimerTotalTime: '',
-          tick: Date.now() // ✅ Force re-render to show updated state
+          tick: Date.now() // ✅ Force re-render to show updated state (same as modal)
         });
       } else {
         // Rollback on error - restore timer state
