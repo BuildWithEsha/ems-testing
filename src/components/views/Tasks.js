@@ -748,7 +748,14 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
 
   // Helper functions for state updates
   const updateDataState = useCallback((updates) => {
-    setDataState(prev => ({ ...prev, ...updates }));
+    // ✅ FIX: Handle both function and object updates (like React's setState)
+    if (typeof updates === 'function') {
+      // If updates is a function, pass it directly to setState
+      setDataState(updates);
+    } else {
+      // If updates is an object, merge it with previous state
+      setDataState(prev => ({ ...prev, ...updates }));
+    }
   }, []);
 
   const updateUiState = useCallback((updates) => {
