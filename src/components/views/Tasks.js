@@ -3761,7 +3761,8 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
                                 <Clock className="w-4 h-4 text-gray-500" />
                                 <span className="text-xs font-mono">{getTimerDisplay(task)}</span>
                               </div>
-                              {canStopTimer(task) && (activeTimers[task.id] || task.timer_started_at) && (
+                              {/* ✅ FIX: Use timerState.activeTimers directly to prevent stale closure in JSX */}
+                              {canStopTimer(task) && (timerState.activeTimers[task.id] || task.timer_started_at) && (
                                 <div className="flex space-x-1">
                                   <button
                                     onClick={() => stopTimer(task.id)}
@@ -3772,7 +3773,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
                                   </button>
                                 </div>
                               )}
-                              {canStartTimer(task) && !activeTimers[task.id] && !task.timer_started_at && (
+                              {canStartTimer(task) && !timerState.activeTimers[task.id] && !task.timer_started_at && (
                                 <div className="flex space-x-1">
                                   {(() => {
                                     const userActiveTimer = getUserActiveTimer();
@@ -3807,7 +3808,8 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
                                 <Clock className="w-4 h-4 text-gray-500" />
                                 <span className="text-xs font-mono">{getTimerDisplay(task)}</span>
                               </div>
-                              {canStopTimer(task) && (activeTimers[task.id] || task.timer_started_at) && (
+                              {/* ✅ FIX: Use timerState.activeTimers directly to prevent stale closure in JSX */}
+                              {canStopTimer(task) && (timerState.activeTimers[task.id] || task.timer_started_at) && (
                                 <div className="flex space-x-1">
                                   <button
                                     onClick={() => stopTimer(task.id)}
@@ -3818,7 +3820,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
                                   </button>
                                 </div>
                               )}
-                              {canStartTimer(task) && !activeTimers[task.id] && !task.timer_started_at && (
+                              {canStartTimer(task) && !timerState.activeTimers[task.id] && !task.timer_started_at && (
                                 <div className="flex space-x-1">
                                   {(() => {
                                     const userActiveTimer = getUserActiveTimer();
