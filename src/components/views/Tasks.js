@@ -849,6 +849,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
     }
   }, [updateTaskDetailState]);
   const setTaskTimesheet = useCallback((timesheet) => updateTaskDetailState({ timesheet }), [updateTaskDetailState]);
+  const setTaskTimesheetTotal = useCallback((timesheetTotal) => updateTaskDetailState({ timesheetTotal }), [updateTaskDetailState]);
   const setTaskNotes = useCallback((notes) => updateTaskDetailState({ notes }), [updateTaskDetailState]);
   const setTaskHistory = useCallback((history) => updateTaskDetailState({ history }), [updateTaskDetailState]);
   const setNewComment = useCallback((newComment) => updateTaskDetailState({ newComment }), [updateTaskDetailState]);
