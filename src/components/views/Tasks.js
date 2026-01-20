@@ -1423,23 +1423,32 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
       if (task.checklist_completed) {
         try {
           const completedItems = JSON.parse(task.checklist_completed);
-          setChecklistCompletion(prev => ({
+          setModalState(prev => ({
             ...prev,
-            [task.id]: Array.isArray(completedItems) ? completedItems : []
+            checklistCompletion: {
+              ...prev.checklistCompletion,
+              [task.id]: Array.isArray(completedItems) ? completedItems : []
+            }
           }));
         } catch (e) {
           console.error('Error parsing checklist completion:', e);
           // Initialize as empty array if parsing fails
-          setChecklistCompletion(prev => ({
+          setModalState(prev => ({
             ...prev,
-            [task.id]: []
+            checklistCompletion: {
+              ...prev.checklistCompletion,
+              [task.id]: []
+            }
           }));
         }
       } else {
         // Initialize as empty array if no checklist_completed exists
-        setChecklistCompletion(prev => ({
+        setModalState(prev => ({
           ...prev,
-          [task.id]: []
+          checklistCompletion: {
+            ...prev.checklistCompletion,
+            [task.id]: []
+          }
         }));
       }
       
@@ -1464,23 +1473,32 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
             try {
               const completedItems = JSON.parse(fullTask.checklist_completed);
               // ✅ FIX: Ensure it's an array
-              setChecklistCompletion(prev => ({
+              setModalState(prev => ({
                 ...prev,
-                [task.id]: Array.isArray(completedItems) ? completedItems : []
+                checklistCompletion: {
+                  ...prev.checklistCompletion,
+                  [task.id]: Array.isArray(completedItems) ? completedItems : []
+                }
               }));
             } catch (e) {
               console.error('Error parsing checklist completion:', e);
               // ✅ FIX: Initialize as empty array if parsing fails
-              setChecklistCompletion(prev => ({
+              setModalState(prev => ({
                 ...prev,
-                [task.id]: []
+                checklistCompletion: {
+                  ...prev.checklistCompletion,
+                  [task.id]: []
+                }
               }));
             }
           } else {
             // ✅ FIX: Initialize as empty array if no checklist_completed exists
-            setChecklistCompletion(prev => ({
+            setModalState(prev => ({
               ...prev,
-              [task.id]: []
+              checklistCompletion: {
+                ...prev.checklistCompletion,
+                [task.id]: []
+              }
             }));
           }
         } else {
@@ -1490,23 +1508,32 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
             try {
               const completedItems = JSON.parse(task.checklist_completed);
               // ✅ FIX: Ensure it's an array
-              setChecklistCompletion(prev => ({
+              setModalState(prev => ({
                 ...prev,
-                [task.id]: Array.isArray(completedItems) ? completedItems : []
+                checklistCompletion: {
+                  ...prev.checklistCompletion,
+                  [task.id]: Array.isArray(completedItems) ? completedItems : []
+                }
               }));
             } catch (e) {
               console.error('Error parsing checklist completion:', e);
               // ✅ FIX: Initialize as empty array if parsing fails
-              setChecklistCompletion(prev => ({
+              setModalState(prev => ({
                 ...prev,
-                [task.id]: []
+                checklistCompletion: {
+                  ...prev.checklistCompletion,
+                  [task.id]: []
+                }
               }));
             }
           } else {
             // ✅ FIX: Initialize as empty array if no checklist_completed exists
-            setChecklistCompletion(prev => ({
+            setModalState(prev => ({
               ...prev,
-              [task.id]: []
+              checklistCompletion: {
+                ...prev.checklistCompletion,
+                [task.id]: []
+              }
             }));
           }
         }
@@ -1517,23 +1544,32 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
           try {
             const completedItems = JSON.parse(task.checklist_completed);
             // ✅ FIX: Ensure it's an array
-            setChecklistCompletion(prev => ({
+            setModalState(prev => ({
               ...prev,
-              [task.id]: Array.isArray(completedItems) ? completedItems : []
+              checklistCompletion: {
+                ...prev.checklistCompletion,
+                [task.id]: Array.isArray(completedItems) ? completedItems : []
+              }
             }));
           } catch (e) {
             console.error('Error parsing checklist completion:', e);
             // ✅ FIX: Initialize as empty array if parsing fails
-            setChecklistCompletion(prev => ({
+            setModalState(prev => ({
               ...prev,
-              [task.id]: []
+              checklistCompletion: {
+                ...prev.checklistCompletion,
+                [task.id]: []
+              }
             }));
           }
         } else {
           // ✅ FIX: Initialize as empty array if no checklist_completed exists
-          setChecklistCompletion(prev => ({
+          setModalState(prev => ({
             ...prev,
-            [task.id]: []
+            checklistCompletion: {
+              ...prev.checklistCompletion,
+              [task.id]: []
+            }
           }));
         }
       }
@@ -2669,9 +2705,12 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
     }
     
     // Update local state immediately (optimistic update)
-    setChecklistCompletion(prev => ({
+    setModalState(prev => ({
       ...prev,
-      [taskId]: newCompletion
+      checklistCompletion: {
+        ...prev.checklistCompletion,
+        [taskId]: newCompletion
+      }
     }));
     
     // ✅ FIX: Save to database
@@ -2690,9 +2729,12 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
       
       if (!response.ok) {
         // Rollback on error - restore previous state
-        setChecklistCompletion(prev => ({
+        setModalState(prev => ({
           ...prev,
-          [taskId]: current
+          checklistCompletion: {
+            ...prev.checklistCompletion,
+            [taskId]: current
+          }
         }));
         console.error('Failed to save checklist completion');
         alert('Failed to save checklist completion. Please try again.');
@@ -2709,9 +2751,12 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
       }
     } catch (error) {
       // Rollback on error - restore previous state
-      setChecklistCompletion(prev => ({
+      setModalState(prev => ({
         ...prev,
-        [taskId]: current
+        checklistCompletion: {
+          ...prev.checklistCompletion,
+          [taskId]: current
+        }
       }));
       console.error('Error saving checklist completion:', error);
       alert('Failed to save checklist completion. Please check your connection and try again.');
