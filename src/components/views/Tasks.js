@@ -3504,7 +3504,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
                 </tr>
               ) : (
                 filteredTasks.map((task) => (
-                  <tr key={task.id} className="hover:bg-gray-50">
+                  <tr key={`task-${task.id}-${tick}`} className="hover:bg-gray-50">
                     {columnOrder.map(columnKey => 
                       visibleColumns[columnKey] && (
                         <td key={columnKey} className="px-6 py-4" style={{ width: `${columnWidths[columnKey]}px` }}>
@@ -3765,7 +3765,24 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
                                 <span className="text-xs font-mono">{getTimerDisplay(task)}</span>
                               </div>
                               {/* ✅ FIX: Use timerState.activeTimers directly to prevent stale closure in JSX */}
-                              {canStopTimer(task) && (timerState.activeTimers[task.id] || task.timer_started_at) && (
+                              {canStopTimer(task) && (() => {
+                                // 🔍 DEBUG: Log condition evaluation to diagnose stop button issue
+                                const hasActiveTimer = timerState.activeTimers[task.id];
+                                const hasTimerStarted = task.timer_started_at;
+                                const shouldShow = hasActiveTimer || hasTimerStarted;
+                                if (shouldShow) {
+                                  console.log('🛑 Stop button condition (logged_seconds):', {
+                                    taskId: task.id,
+                                    hasActiveTimer,
+                                    hasTimerStarted,
+                                    condition: shouldShow,
+                                    timerStateKeys: Object.keys(timerState.activeTimers),
+                                    taskTimerStarted: task.timer_started_at,
+                                    tick: tick
+                                  });
+                                }
+                                return shouldShow;
+                              })() && (
                                 <div className="flex space-x-1">
                                   <button
                                     onClick={() => stopTimer(task.id)}
@@ -3812,7 +3829,24 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
                                 <span className="text-xs font-mono">{getTimerDisplay(task)}</span>
                               </div>
                               {/* ✅ FIX: Use timerState.activeTimers directly to prevent stale closure in JSX */}
-                              {canStopTimer(task) && (timerState.activeTimers[task.id] || task.timer_started_at) && (
+                              {canStopTimer(task) && (() => {
+                                // 🔍 DEBUG: Log condition evaluation to diagnose stop button issue
+                                const hasActiveTimer = timerState.activeTimers[task.id];
+                                const hasTimerStarted = task.timer_started_at;
+                                const shouldShow = hasActiveTimer || hasTimerStarted;
+                                if (shouldShow) {
+                                  console.log('🛑 Stop button condition (timer column):', {
+                                    taskId: task.id,
+                                    hasActiveTimer,
+                                    hasTimerStarted,
+                                    condition: shouldShow,
+                                    timerStateKeys: Object.keys(timerState.activeTimers),
+                                    taskTimerStarted: task.timer_started_at,
+                                    tick: tick
+                                  });
+                                }
+                                return shouldShow;
+                              })() && (
                                 <div className="flex space-x-1">
                                   <button
                                     onClick={() => stopTimer(task.id)}
