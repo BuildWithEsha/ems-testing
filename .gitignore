@@ -3,3 +3,4 @@ node_modules
 sync_databases.js
 sync_progress.json
 compare_databases.js*
+.env.hosting

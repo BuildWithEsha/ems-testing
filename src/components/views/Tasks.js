@@ -2108,7 +2108,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
       ...prev, 
       activeTimers: { ...prev.activeTimers, [taskId]: currentTime },
       intervals: { ...prev.intervals, [taskId]: interval },
-      tick: currentTime // Force immediate re-render
+      tick: Date.now() // ✅ Use current time, not start time - ensures immediate count-up
     }));
     
     // Update tasks array optimistically to show timer is active
@@ -2121,10 +2121,10 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
       )
     }));
     
-    // Force a second tick update to ensure re-render (React batching workaround)
+    // ✅ Trigger immediate re-render with fresh tick for faster update
     setTimeout(() => {
       updateTimerState(prev => ({ ...prev, tick: Date.now() }));
-    }, 50);
+    }, 10); // Reduced from 50ms for faster update
 
     // ===== NOW do API call (doesn't block UI) =====
     try {
@@ -2350,6 +2350,9 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
           return { ...prev, tasks: updatedTasks };
         });
         
+        // ✅ Force re-render to ensure stop button disappears and logged time shows
+        updateTimerState(prev => ({ ...prev, tick: Date.now() }));
+        
         // ✅ NO REFRESH - Local state is authoritative after stop
         // refreshTasksOnly() removed - prevents overwriting correct state
         
@@ -2512,9 +2515,11 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
 
 
   const formatTime = (seconds) => {
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    const secs = seconds % 60;
+    // ✅ Extra safety: ensure non-negative values
+    const safeSeconds = Math.max(0, Number(seconds) || 0);
+    const hours = Math.floor(safeSeconds / 3600);
+    const minutes = Math.floor((safeSeconds % 3600) / 60);
+    const secs = safeSeconds % 60;
     return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
