@@ -2206,12 +2206,14 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
     if (!task || !task.timer_started_at) return;
     
     // 🔒 FREEZE TIMER IMMEDIATELY - Clear interval first to stop count-up
-    if (timerIntervals[taskId]) {
-      clearInterval(timerIntervals[taskId]);
+    // ✅ FIX: Read directly from timerState, not destructured timerIntervals
+    if (timerState.intervals[taskId]) {
+      clearInterval(timerState.intervals[taskId]);
     }
     
     // ✅ PRESERVE start time before clearing - needed for handleStopTimerSubmit
-    const preservedStartTime = activeTimers[taskId] || new Date(task.timer_started_at).getTime();
+    // ✅ FIX: Read directly from timerState, not destructured activeTimers
+    const preservedStartTime = timerState.activeTimers[taskId] || new Date(task.timer_started_at).getTime();
     
     // 🔒 Freeze timer state - clear interval but KEEP activeTimers for calculation
     updateTimerState(prev => {
@@ -2228,9 +2230,10 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
     const endTime = new Date();
     let startTime;
     
-    if (activeTimers[taskId]) {
+    // ✅ FIX: Read directly from timerState, not destructured activeTimers
+    if (timerState.activeTimers[taskId]) {
       // Use local timer state if available
-      startTime = new Date(activeTimers[taskId]);
+      startTime = new Date(timerState.activeTimers[taskId]);
     } else {
       // Calculate start time from current time minus the elapsed time shown in timer display
       const elapsedSeconds = Math.floor((Date.now() - new Date(task.timer_started_at).getTime()) / 1000);
@@ -2259,7 +2262,8 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
     try {
       // ===== CRITICAL: Calculate loggedSeconds BEFORE clearing activeTimers =====
       const task = tasks.find(t => t.id === stopTimerTaskId);
-      let startTime = activeTimers[stopTimerTaskId];
+      // ✅ FIX: Read directly from timerState, not destructured activeTimers
+      let startTime = timerState.activeTimers[stopTimerTaskId];
       
       // Fallback: If activeTimers doesn't have the start time, calculate from task.timer_started_at
       if (!startTime && task?.timer_started_at) {
@@ -2276,8 +2280,9 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
 
       // ===== OPTIMISTIC UPDATE: Do this AFTER calculating loggedSeconds =====
       // Clear interval and local timer state IMMEDIATELY
-      if (timerIntervals[stopTimerTaskId]) {
-        clearInterval(timerIntervals[stopTimerTaskId]);
+      // ✅ FIX: Read directly from timerState, not destructured timerIntervals
+      if (timerState.intervals[stopTimerTaskId]) {
+        clearInterval(timerState.intervals[stopTimerTaskId]);
       }
       
       // Clear activeTimers and intervals in a single state update for immediate UI update
@@ -2380,7 +2385,8 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
       } else {
         // Rollback on error - restore timer state
         const errorData = await response.json();
-        const startTime = activeTimers[stopTimerTaskId] || Date.now() - (loggedSeconds * 1000);
+        // ✅ FIX: Read directly from timerState, not destructured activeTimers
+        const startTime = timerState.activeTimers[stopTimerTaskId] || Date.now() - (loggedSeconds * 1000);
         const interval = setInterval(() => {
           updateTimerState(prev => ({ ...prev, tick: Date.now() }));
         }, 1000);
@@ -2402,7 +2408,8 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
     } catch (error) {
       // Rollback on network error
       console.error('Error stopping timer:', error);
-      const startTime = activeTimers[stopTimerTaskId] || Date.now() - (loggedSeconds * 1000);
+      // ✅ FIX: Read directly from timerState, not destructured activeTimers
+      const startTime = timerState.activeTimers[stopTimerTaskId] || Date.now() - (loggedSeconds * 1000);
       const interval = setInterval(() => {
         updateTimerState(prev => ({ ...prev, tick: Date.now() }));
       }, 1000);
@@ -2524,19 +2531,20 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
   };
 
   const getTimerDisplay = (task) => {
-    const isActive = activeTimers[task.id];
+    // ✅ FIX: Read directly from timerState, not destructured activeTimers (prevents stale closure)
+    const isActive = timerState.activeTimers[task.id];
     const isActiveFromDB = task.timer_started_at;
     
     let activeTime = 0;
     if (isActive) {
       // Timer is active in local state - use current time for real-time updates
       // ✅ Use tick in calculation to ensure React re-renders when tick changes
-      const currentTime = tick || Date.now();
+      const currentTime = timerState.tick || Date.now();
       activeTime = Math.floor((currentTime - isActive) / 1000);
     } else if (isActiveFromDB) {
       // Timer is active in database but not in local state (e.g., after page refresh)
       // ✅ Use tick to ensure re-renders
-      const currentTime = tick || Date.now();
+      const currentTime = timerState.tick || Date.now();
       const startTime = new Date(isActiveFromDB).getTime();
       activeTime = Math.floor((currentTime - startTime) / 1000);
     }
@@ -4956,7 +4964,8 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
                   <span>Mark As Complete</span>
                 </button>
                 {(() => {
-                  const isTimerActive = activeTimers[selectedTask.id] || selectedTask.timer_started_at;
+                  // ✅ FIX: Read directly from timerState, not destructured activeTimers
+                  const isTimerActive = timerState.activeTimers[selectedTask.id] || selectedTask.timer_started_at;
                   const userActiveTimer = getUserActiveTimer();
                   const canStartTimerNow = canStartTimer(selectedTask) && !userActiveTimer;
                   const canStopTimerNow = canStopTimer(selectedTask) && isTimerActive;
