@@ -1861,12 +1861,22 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
         target: formData.target,
         effort_estimate_label: formData.effortEstimateLabel,
         time_estimate_hours: formData.timeEstimateHours,
-        time_estimate_minutes: formData.timeEstimateMinutes
+        time_estimate_minutes: formData.timeEstimateMinutes,
+        checklist: formData.checklist !== undefined ? formData.checklist : '' // ✅ Always include checklist
       };
 
       // Remove undefined values to prevent API issues
+      // But preserve checklist and other text fields even if empty (to allow clearing them)
+      const fieldsToPreserve = ['checklist', 'description', 'workflow_guide']; // Fields that can be empty
       Object.keys(apiData).forEach(key => {
-        if (apiData[key] === undefined || apiData[key] === '') {
+        if (apiData[key] === undefined) {
+          delete apiData[key];
+        }
+        // ✅ Preserve certain fields even if empty
+        if (fieldsToPreserve.includes(key)) {
+          return; // Don't delete these fields
+        }
+        if (apiData[key] === '') {
           delete apiData[key];
         }
       });
