@@ -775,7 +775,14 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
   }, []);
 
   const updateTimerState = useCallback((updates) => {
-    setTimerState(prev => ({ ...prev, ...updates }));
+    // ✅ FIX: Handle both function and object updates (like React's setState)
+    if (typeof updates === 'function') {
+      // If updates is a function, pass it directly to setState
+      setTimerState(updates);
+    } else {
+      // If updates is an object, merge it with previous state
+      setTimerState(prev => ({ ...prev, ...updates }));
+    }
   }, []);
 
   const updateModalState = useCallback((updates) => {
