@@ -12,6 +12,9 @@ const ActionMenu = ({ onSelect, onEdit, onDelete, isErrorMenu = false, itemType 
   const actionExecutingRef = useRef(false); // ✅ Track if action is executing
 
   const handleToggle = (e) => {
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/8935d4b0-ae4d-43cf-854a-300784cb786c',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ActionMenu.js:14',message:'handleToggle called',data:{isOpenBefore:isOpen,eventType:e.type},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+    // #endregion
     e.stopPropagation();
     e.preventDefault(); // ✅ Prevent default behavior
     if (buttonRef.current) {
@@ -21,7 +24,12 @@ const ActionMenu = ({ onSelect, onEdit, onDelete, isErrorMenu = false, itemType 
         left: rect.right - 160 
       });
     }
-    setIsOpen(prev => !prev);
+    setIsOpen(prev => {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/8935d4b0-ae4d-43cf-854a-300784cb786c',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ActionMenu.js:24',message:'setIsOpen state change',data:{from:prev,to:!prev},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+      // #endregion
+      return !prev;
+    });
   };
 
   useEffect(() => {
@@ -34,8 +42,14 @@ const ActionMenu = ({ onSelect, onEdit, onDelete, isErrorMenu = false, itemType 
 
     // ✅ Use mousedown instead of click for better timing
     const handleMouseDownOutside = (e) => {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/8935d4b0-ae4d-43cf-854a-300784cb786c',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ActionMenu.js:36',message:'handleMouseDownOutside called',data:{target:e.target?.tagName,isClickingInside:isClickingInsideRef.current,actionExecuting:actionExecutingRef.current,menuContains:menuRef.current?.contains(e.target),buttonContains:buttonRef.current?.contains(e.target)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+      // #endregion
       // ✅ Don't close if we're clicking inside or action is executing
       if (isClickingInsideRef.current || actionExecutingRef.current) {
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/8935d4b0-ae4d-43cf-854a-300784cb786c',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ActionMenu.js:38',message:'handleMouseDownOutside blocked by flags',data:{isClickingInside:isClickingInsideRef.current,actionExecuting:actionExecutingRef.current},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+        // #endregion
         return;
       }
       
@@ -45,6 +59,9 @@ const ActionMenu = ({ onSelect, onEdit, onDelete, isErrorMenu = false, itemType 
         buttonRef.current && 
         !buttonRef.current.contains(e.target)
       ) {
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/8935d4b0-ae4d-43cf-854a-300784cb786c',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ActionMenu.js:48',message:'handleMouseDownOutside closing menu',data:{target:e.target?.tagName},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+        // #endregion
         setIsOpen(false);
       }
     };
@@ -59,6 +76,9 @@ const ActionMenu = ({ onSelect, onEdit, onDelete, isErrorMenu = false, itemType 
 
     // ✅ Use longer delay and attach to mousedown instead of click
     const timeoutId = setTimeout(() => {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/8935d4b0-ae4d-43cf-854a-300784cb786c',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ActionMenu.js:61',message:'Attaching event listeners',data:{delay:50,isOpen:isOpen},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+      // #endregion
       document.addEventListener('mousedown', handleMouseDownOutside);
       window.addEventListener('blur', handleBlur);
     }, 50); // ✅ Increased delay significantly
@@ -95,20 +115,35 @@ const ActionMenu = ({ onSelect, onEdit, onDelete, isErrorMenu = false, itemType 
   // Always show the menu (no permission restrictions)
 
   const handleMenuAction = (actionFn) => {
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/8935d4b0-ae4d-43cf-854a-300784cb786c',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ActionMenu.js:97',message:'handleMenuAction called',data:{hasActionFn:!!actionFn,isOpenBefore:isOpen},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+    // #endregion
     // ✅ Mark that we're executing an action
     actionExecutingRef.current = true;
     isClickingInsideRef.current = true;
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/8935d4b0-ae4d-43cf-854a-300784cb786c',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ActionMenu.js:100',message:'Flags set in handleMenuAction',data:{actionExecuting:actionExecutingRef.current,isClickingInside:isClickingInsideRef.current},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+    // #endregion
     
     // ✅ Close menu immediately
     setIsOpen(false);
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/8935d4b0-ae4d-43cf-854a-300784cb786c',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ActionMenu.js:103',message:'Menu closed in handleMenuAction',data:{isOpenAfter:false},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+    // #endregion
     
     // ✅ Execute action with a small delay to ensure menu closes first
     setTimeout(() => {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/8935d4b0-ae4d-43cf-854a-300784cb786c',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ActionMenu.js:106',message:'Executing action function',data:{hasActionFn:!!actionFn},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+      // #endregion
       if (actionFn) {
         actionFn();
       }
       // ✅ Reset flag after action executes
       setTimeout(() => {
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/8935d4b0-ae4d-43cf-854a-300784cb786c',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ActionMenu.js:111',message:'Resetting flags after action',data:{actionExecutingBefore:actionExecutingRef.current,isClickingInsideBefore:isClickingInsideRef.current},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+        // #endregion
         actionExecutingRef.current = false;
         isClickingInsideRef.current = false;
       }, 100);
@@ -138,8 +173,14 @@ const ActionMenu = ({ onSelect, onEdit, onDelete, isErrorMenu = false, itemType 
           }} 
           className="w-40 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5" 
           onMouseDown={(e) => {
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/8935d4b0-ae4d-43cf-854a-300784cb786c',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ActionMenu.js:140',message:'Menu container mousedown',data:{target:e.target?.tagName,isClickingInsideBefore:isClickingInsideRef.current},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+            // #endregion
             e.stopPropagation();
             isClickingInsideRef.current = true; // ✅ Set flag on mousedown
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/8935d4b0-ae4d-43cf-854a-300784cb786c',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ActionMenu.js:142',message:'Menu container flag set',data:{isClickingInsideAfter:isClickingInsideRef.current},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+            // #endregion
           }}
           onClick={(e) => e.stopPropagation()}
         >
