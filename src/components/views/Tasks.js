@@ -1453,10 +1453,18 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
         }));
       }
       
+      // Save scroll position before opening modal to prevent scroll jump
+      const scrollY = window.scrollY;
+      
       // First set the task from list (for immediate UI update)
       updateUiState({ 
         selectedTask: task,
         showDetailModal: true 
+      });
+      
+      // Restore scroll position after state update to prevent scroll jump
+      requestAnimationFrame(() => {
+        window.scrollTo(0, scrollY);
       });
       
       // ✅ FIX: Fetch full task details including checklist from backend
@@ -3088,7 +3096,15 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
       checklist: task.checklist || '',
       workflowGuide: task.workflow_guide || '',
     });
+    
+    // Save scroll position before opening modal to prevent scroll jump
+    const scrollY = window.scrollY;
     updateUiState({ showModal: true });
+    
+    // Restore scroll position after state update to prevent scroll jump
+    requestAnimationFrame(() => {
+      window.scrollTo(0, scrollY);
+    });
   };
 
   // Handle add
@@ -3761,7 +3777,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
                 </tr>
               ) : (
                 filteredTasks.map((task) => (
-                  <tr key={`task-${task.id}-${tick}`} className="hover:bg-gray-50">
+                  <tr key={`task-${task.id}`} className="hover:bg-gray-50">
                     {columnOrder.map(columnKey => 
                       visibleColumns[columnKey] && (
                         <td key={columnKey} className="px-6 py-4" style={{ width: `${columnWidths[columnKey]}px` }}>
