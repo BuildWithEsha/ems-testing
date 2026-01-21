@@ -8,6 +8,7 @@ const ActionMenu = ({ onSelect, onEdit, onDelete, isErrorMenu = false, itemType 
   const [position, setPosition] = useState({ top: 0, left: 0 });
   const buttonRef = useRef(null);
   const menuRef = useRef(null);
+  const justOpenedRef = useRef(false); // Track if menu was just opened
 
   const handleToggle = (e) => {
     e.stopPropagation();
@@ -18,7 +19,18 @@ const ActionMenu = ({ onSelect, onEdit, onDelete, isErrorMenu = false, itemType 
         left: rect.right - 160 
       });
     }
-    setIsOpen(prev => !prev);
+    setIsOpen(prev => {
+      const newState = !prev;
+      // If opening the menu, set flag to ignore the next click event
+      if (newState) {
+        justOpenedRef.current = true;
+        // Clear flag after a short delay to allow click event to complete
+        setTimeout(() => {
+          justOpenedRef.current = false;
+        }, 100);
+      }
+      return newState;
+    });
   };
 
   useEffect(() => {
@@ -27,6 +39,11 @@ const ActionMenu = ({ onSelect, onEdit, onDelete, isErrorMenu = false, itemType 
     }
 
     const handleClickOutside = (e) => {
+      // CRITICAL: Ignore click if menu was just opened (prevents immediate closing)
+      if (justOpenedRef.current) {
+        return;
+      }
+      
       // CRITICAL: Check if clicking on a menu item button FIRST
       // This prevents closing when clicking menu items
       const clickedMenuItem = e.target.closest('button[role="menuitem"]');
