@@ -8,7 +8,7 @@ const ActionMenu = ({ onSelect, onEdit, onDelete, isErrorMenu = false, itemType 
   const [position, setPosition] = useState({ top: 0, left: 0 });
   const buttonRef = useRef(null);
   const menuRef = useRef(null);
-  const ignoreNextClickRef = useRef(false); // Track if we should ignore the next click
+  const isProcessingClickRef = useRef(false); // Track if we're processing a menu item click
 
   const handleToggle = (e) => {
     e.stopPropagation();
@@ -29,9 +29,8 @@ const ActionMenu = ({ onSelect, onEdit, onDelete, isErrorMenu = false, itemType 
 
     // Use bubble phase so menu item onClick fires first
     const handleClickOutside = (e) => {
-      // If we're ignoring the next click (menu item was just clicked), ignore it
-      if (ignoreNextClickRef.current) {
-        ignoreNextClickRef.current = false;
+      // CRITICAL: Don't close if we're processing a menu item click
+      if (isProcessingClickRef.current) {
         return;
       }
       
@@ -81,27 +80,28 @@ const ActionMenu = ({ onSelect, onEdit, onDelete, isErrorMenu = false, itemType 
   // Always show the menu (no permission restrictions)
 
   const handleMenuAction = (actionFn) => {
-    // Mark that we should ignore the next outside click
-    ignoreNextClickRef.current = true;
+    // CRITICAL: Set flag BEFORE anything else to prevent document handler from closing
+    isProcessingClickRef.current = true;
     
-    // Close menu immediately (before action executes)
-    setIsOpen(false);
-    
-    // Execute action in next tick to ensure menu closes first
-    // This prevents parent re-render from interfering
-    setTimeout(() => {
-      if (actionFn) {
-        try {
-          actionFn();
-        } catch (error) {
-          console.error('Error executing menu action:', error);
-        }
+    // Execute action immediately (synchronously)
+    if (actionFn) {
+      try {
+        actionFn();
+      } catch (error) {
+        console.error('Error executing menu action:', error);
       }
-      // Reset flag after action completes
+    }
+    
+    // Close menu AFTER click event has fully propagated
+    // Use requestAnimationFrame to ensure DOM updates complete first
+    requestAnimationFrame(() => {
+      setIsOpen(false);
+      
+      // Reset flag after menu closes
       setTimeout(() => {
-        ignoreNextClickRef.current = false;
+        isProcessingClickRef.current = false;
       }, 100);
-    }, 0);
+    });
   };
 
   return (
