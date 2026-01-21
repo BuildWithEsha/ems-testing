@@ -7954,6 +7954,7 @@ app.get('/api/notifications/less-trained-employees', async (req, res) => {
         END as task_type,
         CASE 
           WHEN t.trained IS NULL OR t.trained = '' OR t.trained = 'null' THEN 0
+          WHEN JSON_VALID(t.trained) = 0 THEN 0
           ELSE JSON_LENGTH(t.trained)
         END as trained_count
       FROM tasks t
@@ -7970,7 +7971,8 @@ app.get('/api/notifications/less-trained-employees', async (req, res) => {
           t.trained IS NULL 
           OR t.trained = '' 
           OR t.trained = 'null'
-          OR JSON_LENGTH(t.trained) < ?
+          OR JSON_VALID(t.trained) = 0
+          OR (JSON_VALID(t.trained) = 1 AND JSON_LENGTH(t.trained) < ?)
         )
       ORDER BY t.department, t.priority DESC, t.created_at ASC
     `;
