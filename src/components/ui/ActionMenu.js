@@ -7,7 +7,8 @@ const ActionMenu = ({ onSelect, onEdit, onDelete, isErrorMenu = false, itemType 
   const [isOpen, setIsOpen] = useState(false);
   const [position, setPosition] = useState({ top: 0, left: 0 });
   const buttonRef = useRef(null);
-  const menuRef = useRef(null); // ✅ Add ref for menu container
+  const menuRef = useRef(null);
+  const isClickingInsideRef = useRef(false); // ✅ Track if clicking inside menu
 
   const handleToggle = (e) => {
     e.stopPropagation();
@@ -25,7 +26,14 @@ const ActionMenu = ({ onSelect, onEdit, onDelete, isErrorMenu = false, itemType 
     if (!isOpen) return;
 
     // ✅ Fix: Only close if click is outside both button and menu
+    // Use bubble phase (not capture) so menu item clicks execute first
     const handleClickOutside = (e) => {
+      // ✅ Don't close if we're clicking inside the menu
+      if (isClickingInsideRef.current) {
+        isClickingInsideRef.current = false;
+        return;
+      }
+      
       if (
         menuRef.current && 
         !menuRef.current.contains(e.target) && 
@@ -36,27 +44,38 @@ const ActionMenu = ({ onSelect, onEdit, onDelete, isErrorMenu = false, itemType 
       }
     };
 
-    // ✅ Fix: Only close on significant scroll, and use passive listener
+    // ✅ Fix: Disable scroll handler entirely - it's too aggressive
+    // Only close on actual user scroll, not on layout shifts
+    let scrollTimeout;
     let lastScrollY = window.scrollY;
     const handleScroll = () => {
+      // Clear any pending scroll close
+      clearTimeout(scrollTimeout);
+      
       const currentScrollY = window.scrollY;
-      // Only close if scroll is significant (more than 5px) to avoid closing on minor layout shifts
-      if (Math.abs(currentScrollY - lastScrollY) > 5) {
-        setIsOpen(false);
+      const scrollDiff = Math.abs(currentScrollY - lastScrollY);
+      
+      // Only close on significant user scroll (more than 10px)
+      // Use a timeout to debounce and avoid closing on rapid small scrolls
+      if (scrollDiff > 10) {
+        scrollTimeout = setTimeout(() => {
+          setIsOpen(false);
+        }, 100); // Small delay to avoid closing during action execution
       }
       lastScrollY = currentScrollY;
     };
 
-    // ✅ Use setTimeout to ensure this runs after the current click event
-    // This prevents the menu from closing immediately when opened
+    // ✅ Use longer delay to ensure menu item clicks execute first
     const timeoutId = setTimeout(() => {
-      document.addEventListener('click', handleClickOutside, true);
+      // Use bubble phase (default, no 'true') so target's onClick fires first
+      document.addEventListener('click', handleClickOutside);
       window.addEventListener('scroll', handleScroll, { passive: true });
-    }, 0);
+    }, 10); // ✅ Increased delay to ensure menu item clicks register first
     
     return () => {
       clearTimeout(timeoutId);
-      document.removeEventListener('click', handleClickOutside, true);
+      clearTimeout(scrollTimeout);
+      document.removeEventListener('click', handleClickOutside);
       window.removeEventListener('scroll', handleScroll);
     };
   }, [isOpen]);
@@ -84,6 +103,16 @@ const ActionMenu = ({ onSelect, onEdit, onDelete, isErrorMenu = false, itemType 
   console.log('🔍 Can Delete:', specificPermissions.canDelete);
 
   // Always show the menu (no permission restrictions)
+
+  const handleMenuAction = (actionFn) => {
+    // ✅ Mark that we're clicking inside before executing action
+    isClickingInsideRef.current = true;
+    setIsOpen(false);
+    // ✅ Execute action immediately without setTimeout
+    if (actionFn) {
+      actionFn();
+    }
+  };
 
   return (
     <>
@@ -114,14 +143,13 @@ const ActionMenu = ({ onSelect, onEdit, onDelete, isErrorMenu = false, itemType 
               <button
                 onClick={(e) => { 
                   e.preventDefault();
-                  e.stopPropagation(); // ✅ Stop propagation
-                  setIsOpen(false); // Close first
-                  // ✅ Use setTimeout to ensure menu closes before action executes
-                  setTimeout(() => {
-                    onSelect(); 
-                  }, 0);
+                  e.stopPropagation();
+                  handleMenuAction(onSelect); // ✅ Use helper function
                 }} 
-                onMouseDown={(e) => e.stopPropagation()} // ✅ Prevent mouseDown
+                onMouseDown={(e) => {
+                  e.stopPropagation();
+                  isClickingInsideRef.current = true; // ✅ Mark as clicking inside
+                }}
                 className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors" 
                 role="menuitem"
               >
@@ -135,14 +163,13 @@ const ActionMenu = ({ onSelect, onEdit, onDelete, isErrorMenu = false, itemType 
               <button
                 onClick={(e) => { 
                   e.preventDefault();
-                  e.stopPropagation(); // ✅ Stop propagation
-                  setIsOpen(false); // Close first
-                  // ✅ Use setTimeout to ensure menu closes before action executes
-                  setTimeout(() => {
-                    onEdit(); 
-                  }, 0);
+                  e.stopPropagation();
+                  handleMenuAction(onEdit); // ✅ Use helper function
                 }} 
-                onMouseDown={(e) => e.stopPropagation()} // ✅ Prevent mouseDown
+                onMouseDown={(e) => {
+                  e.stopPropagation();
+                  isClickingInsideRef.current = true; // ✅ Mark as clicking inside
+                }}
                 className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors" 
                 role="menuitem"
               >
@@ -156,14 +183,13 @@ const ActionMenu = ({ onSelect, onEdit, onDelete, isErrorMenu = false, itemType 
               <button
                 onClick={(e) => { 
                   e.preventDefault();
-                  e.stopPropagation(); // ✅ Stop propagation
-                  setIsOpen(false); // Close first
-                  // ✅ Use setTimeout to ensure menu closes before action executes
-                  setTimeout(() => {
-                    onDelete(); 
-                  }, 0);
+                  e.stopPropagation();
+                  handleMenuAction(onDelete); // ✅ Use helper function
                 }} 
-                onMouseDown={(e) => e.stopPropagation()} // ✅ Prevent mouseDown
+                onMouseDown={(e) => {
+                  e.stopPropagation();
+                  isClickingInsideRef.current = true; // ✅ Mark as clicking inside
+                }}
                 className="flex items-center w-full px-4 py-2 text-sm text-red-600 hover:bg-gray-100 transition-colors" 
                 role="menuitem"
               >
