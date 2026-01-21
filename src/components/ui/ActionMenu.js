@@ -8,13 +8,10 @@ const ActionMenu = ({ onSelect, onEdit, onDelete, isErrorMenu = false, itemType 
   const [position, setPosition] = useState({ top: 0, left: 0 });
   const buttonRef = useRef(null);
   const menuRef = useRef(null);
-  const isClickingInsideRef = useRef(false);
-  const actionExecutingRef = useRef(false);
-  const closeTimeoutRef = useRef(null); // Track close timeout
+  const ignoreNextClickRef = useRef(false); // Track if we should ignore the next click
 
   const handleToggle = (e) => {
     e.stopPropagation();
-    // Remove preventDefault to allow normal button behavior
     if (buttonRef.current) {
       const rect = buttonRef.current.getBoundingClientRect();
       setPosition({ 
@@ -27,29 +24,14 @@ const ActionMenu = ({ onSelect, onEdit, onDelete, isErrorMenu = false, itemType 
 
   useEffect(() => {
     if (!isOpen) {
-      // CRITICAL FIX: Don't reset flags immediately - they might still be needed
-      // Only reset if action is not executing
-      if (!actionExecutingRef.current) {
-        // Delay reset to ensure any pending actions complete
-        const resetTimeout = setTimeout(() => {
-          isClickingInsideRef.current = false;
-          actionExecutingRef.current = false;
-        }, 500); // Long delay to ensure action completes
-        return () => clearTimeout(resetTimeout);
-      }
       return;
     }
 
-    // Use click with capture phase for better control
+    // Use bubble phase so menu item onClick fires first
     const handleClickOutside = (e) => {
-      // CRITICAL: Check flags FIRST before any other logic
-      if (actionExecutingRef.current) {
-        return; // Never close during action execution
-      }
-      
-      if (isClickingInsideRef.current) {
-        // Reset flag after checking
-        isClickingInsideRef.current = false;
+      // If we're ignoring the next click (menu item was just clicked), ignore it
+      if (ignoreNextClickRef.current) {
+        ignoreNextClickRef.current = false;
         return;
       }
       
@@ -66,11 +48,11 @@ const ActionMenu = ({ onSelect, onEdit, onDelete, isErrorMenu = false, itemType 
       setIsOpen(false);
     };
 
-    // Attach listener immediately (no delay needed with proper flag handling)
-    document.addEventListener('click', handleClickOutside, true);
+    // Use bubble phase (no capture) so menu item onClick runs first
+    document.addEventListener('click', handleClickOutside);
     
     return () => {
-      document.removeEventListener('click', handleClickOutside, true);
+      document.removeEventListener('click', handleClickOutside);
     };
   }, [isOpen]);
 
@@ -99,36 +81,27 @@ const ActionMenu = ({ onSelect, onEdit, onDelete, isErrorMenu = false, itemType 
   // Always show the menu (no permission restrictions)
 
   const handleMenuAction = (actionFn) => {
-    // CRITICAL FIX: Set flags BEFORE any async operations
-    actionExecutingRef.current = true;
-    isClickingInsideRef.current = true;
+    // Mark that we should ignore the next outside click
+    ignoreNextClickRef.current = true;
     
-    // CRITICAL FIX: Don't close menu immediately - delay it
-    // This prevents useEffect cleanup from resetting flags too early
-    if (closeTimeoutRef.current) {
-      clearTimeout(closeTimeoutRef.current);
-    }
+    // Close menu immediately (before action executes)
+    setIsOpen(false);
     
-    // Close menu after a delay to let click event complete
-    closeTimeoutRef.current = setTimeout(() => {
-      setIsOpen(false);
-    }, 50);
-    
-    // Execute action immediately (don't wait)
-    if (actionFn) {
-      try {
-        actionFn();
-      } catch (error) {
-        console.error('Error executing menu action:', error);
-      }
-    }
-    
-    // Reset flags after action has time to execute and menu closes
+    // Execute action in next tick to ensure menu closes first
+    // This prevents parent re-render from interfering
     setTimeout(() => {
-      actionExecutingRef.current = false;
-      isClickingInsideRef.current = false;
-      closeTimeoutRef.current = null;
-    }, 500); // Long delay to ensure everything completes
+      if (actionFn) {
+        try {
+          actionFn();
+        } catch (error) {
+          console.error('Error executing menu action:', error);
+        }
+      }
+      // Reset flag after action completes
+      setTimeout(() => {
+        ignoreNextClickRef.current = false;
+      }, 100);
+    }, 0);
   };
 
   return (
@@ -153,21 +126,12 @@ const ActionMenu = ({ onSelect, onEdit, onDelete, isErrorMenu = false, itemType 
             zIndex: 9999
           }} 
           className="w-40 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5" 
-          onMouseDown={(e) => {
-            e.stopPropagation();
-            isClickingInsideRef.current = true;
-          }}
           onClick={(e) => e.stopPropagation()}
         >
           <div className="py-1" role="menu" aria-orientation="vertical">
             {/* View Action */}
             {!isErrorMenu && specificPermissions.canView && onSelect && (
               <button
-                onMouseDown={(e) => {
-                  // CRITICAL FIX: Remove preventDefault to allow scrolling
-                  e.stopPropagation();
-                  isClickingInsideRef.current = true;
-                }}
                 onClick={(e) => { 
                   e.preventDefault();
                   e.stopPropagation();
@@ -184,11 +148,6 @@ const ActionMenu = ({ onSelect, onEdit, onDelete, isErrorMenu = false, itemType 
             {/* Edit Action */}
             {specificPermissions.canEdit && onEdit && (
               <button
-                onMouseDown={(e) => {
-                  // CRITICAL FIX: Remove preventDefault to allow scrolling
-                  e.stopPropagation();
-                  isClickingInsideRef.current = true;
-                }}
                 onClick={(e) => { 
                   e.preventDefault();
                   e.stopPropagation();
@@ -205,11 +164,6 @@ const ActionMenu = ({ onSelect, onEdit, onDelete, isErrorMenu = false, itemType 
             {/* Delete Action */}
             {specificPermissions.canDelete && onDelete && (
               <button
-                onMouseDown={(e) => {
-                  // CRITICAL FIX: Remove preventDefault to allow scrolling
-                  e.stopPropagation();
-                  isClickingInsideRef.current = true;
-                }}
                 onClick={(e) => { 
                   e.preventDefault();
                   e.stopPropagation();
