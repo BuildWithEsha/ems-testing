@@ -8,7 +8,6 @@ const ActionMenu = ({ onSelect, onEdit, onDelete, isErrorMenu = false, itemType 
   const [position, setPosition] = useState({ top: 0, left: 0 });
   const buttonRef = useRef(null);
   const menuRef = useRef(null);
-  const isProcessingClickRef = useRef(false); // Track if we're processing a menu item click
 
   const handleToggle = (e) => {
     e.stopPropagation();
@@ -27,18 +26,21 @@ const ActionMenu = ({ onSelect, onEdit, onDelete, isErrorMenu = false, itemType 
       return;
     }
 
-    // Use bubble phase so menu item onClick fires first
     const handleClickOutside = (e) => {
-      // CRITICAL: Don't close if we're processing a menu item click
-      if (isProcessingClickRef.current) {
+      // CRITICAL: Check if clicking on a menu item button FIRST
+      // This prevents closing when clicking menu items
+      const clickedMenuItem = e.target.closest('button[role="menuitem"]');
+      if (clickedMenuItem && menuRef.current?.contains(clickedMenuItem)) {
+        // Clicking on a menu item - don't close, let the onClick handle it
         return;
       }
       
-      // Check if clicking inside menu or button
+      // Check if clicking inside menu container
       if (menuRef.current?.contains(e.target)) {
         return;
       }
       
+      // Check if clicking on the toggle button
       if (buttonRef.current?.contains(e.target)) {
         return;
       }
@@ -47,11 +49,11 @@ const ActionMenu = ({ onSelect, onEdit, onDelete, isErrorMenu = false, itemType 
       setIsOpen(false);
     };
 
-    // Use bubble phase (no capture) so menu item onClick runs first
-    document.addEventListener('click', handleClickOutside);
+    // Use bubble phase so menu item onClick runs first
+    document.addEventListener('click', handleClickOutside, false);
     
     return () => {
-      document.removeEventListener('click', handleClickOutside);
+      document.removeEventListener('click', handleClickOutside, false);
     };
   }, [isOpen]);
 
@@ -80,28 +82,19 @@ const ActionMenu = ({ onSelect, onEdit, onDelete, isErrorMenu = false, itemType 
   // Always show the menu (no permission restrictions)
 
   const handleMenuAction = (actionFn) => {
-    // CRITICAL: Set flag BEFORE anything else to prevent document handler from closing
-    isProcessingClickRef.current = true;
+    // Close menu first
+    setIsOpen(false);
     
-    // Execute action immediately (synchronously)
-    if (actionFn) {
-      try {
-        actionFn();
-      } catch (error) {
-        console.error('Error executing menu action:', error);
+    // Execute action after menu closes
+    setTimeout(() => {
+      if (actionFn) {
+        try {
+          actionFn();
+        } catch (error) {
+          console.error('Error executing menu action:', error);
+        }
       }
-    }
-    
-    // Close menu AFTER click event has fully propagated
-    // Use requestAnimationFrame to ensure DOM updates complete first
-    requestAnimationFrame(() => {
-      setIsOpen(false);
-      
-      // Reset flag after menu closes
-      setTimeout(() => {
-        isProcessingClickRef.current = false;
-      }, 100);
-    });
+    }, 0);
   };
 
   return (
