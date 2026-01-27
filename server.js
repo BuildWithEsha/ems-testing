@@ -2272,6 +2272,46 @@ app.get('/api/attendance/day-summary', async (req, res) => {
     }
   }
 });
+
+// Route alias for daily-log (frontend compatibility)
+app.get('/api/attendance/daily-log', async (req, res) => {
+  const { date } = req.query; // YYYY-MM-DD
+  const base = date ? new Date(date) : new Date();
+  const start = new Date(base.getFullYear(), base.getMonth(), base.getDate()).toISOString();
+  const end = new Date(base.getFullYear(), base.getMonth(), base.getDate() + 1).toISOString();
+
+  let connection;
+  try {
+    connection = await mysqlPool.getConnection();
+    await connection.ping();
+
+    const query = `
+      SELECT a.employee_id, e.name as employee_name,
+             MIN(a.clock_in) as first_clock_in,
+             MAX(a.clock_out) as last_clock_out,
+             SUM(a.duration_seconds) as total_seconds
+      FROM attendance a
+      LEFT JOIN employees e ON e.id = a.employee_id
+      WHERE a.clock_in >= ? AND a.clock_in < ?
+      GROUP BY a.employee_id
+    `;
+
+    const [rows] = await connection.execute(query, [start, end]);
+    const [emps] = await connection.execute('SELECT id, name FROM employees');
+
+      const presentIds = new Set(rows.map(r => r.employee_id));
+      const notClockedIn = emps.filter(e => !presentIds.has(e.id));
+    
+      res.json({ date: start.slice(0,10), entries: rows, notClockedIn });
+  } catch (err) {
+    console.error('Error fetching daily log:', err);
+    res.status(500).json({ error: 'Database error' });
+  } finally {
+    if (connection) {
+      connection.release();
+    }
+  }
+});
 // Errors APIs
 app.get('/api/errors', async (req, res) => {
   const query = `
