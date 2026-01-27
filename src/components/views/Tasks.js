@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, memo, startTransition, useRef } from 'react';
-import { Plus, Edit, Trash2, Upload, Download, Search, Filter, Clock, CheckCircle, AlertTriangle, Briefcase, X, Play, Square, ChevronDown, Settings } from 'lucide-react';
+import { Plus, Edit, Trash2, Upload, Download, Search, Filter, Clock, CheckCircle, AlertTriangle, Briefcase, X, Play, Square, ChevronDown, Settings, Circle } from 'lucide-react';
 import Modal from '../ui/Modal';
 import Button from '../ui/Button';
 import Input from '../ui/Input';
@@ -1129,14 +1129,15 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
     if (user) {
       const searchParams = getSearchFilterParams();
       fetchAllData(false, 1, false, searchParams);
-      fetchAllTasksForDashboard();
+      fetchAllTasksForDashboard(searchParams); // Pass filter params
     }
   }, [user]);
 
   // Fetch all tasks for dashboard when filters change
   useEffect(() => {
-    if (user && allTasks.length > 0) {
-      // allFilteredTasks will be recalculated automatically due to dependency on filter states
+    if (user) {
+      const searchParams = getSearchFilterParams();
+      fetchAllTasksForDashboard(searchParams);
     }
   }, [searchTerm, filterStatus, filterPriority, filterComplexity, filterImpact, filterEffortEstimateLabel, filterUnit, filterTarget, filterDepartment, filterAssignedTo, filterLabels, filterResponsible, filterAccountable, filterConsulted, filterInformed, filterTrained]);
 
@@ -1268,8 +1269,8 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
   // State for all tasks (for dashboard calculations)
   const [allTasks, setAllTasks] = useState([]);
 
-  // Fetch all tasks for dashboard calculations (without pagination)
-  const fetchAllTasksForDashboard = async () => {
+  // Fetch all tasks for dashboard calculations (with filters)
+  const fetchAllTasksForDashboard = async (filterParams = {}) => {
     try {
       let tasksUrl = '/api/tasks';
       if (user) {
@@ -1277,9 +1278,21 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
           user_id: user.id,
           role: user.role,
           employee_name: user.name || '',
-          // Get all tasks by setting a very high limit
-          limit: 10000,
-          page: 1
+          all: 'true', // Get all tasks (no pagination) for accurate summary
+          // Add filter parameters
+          ...(filterParams.search && { search: filterParams.search }),
+          ...(filterParams.status && { status: filterParams.status }),
+          ...(filterParams.priority && { priority: filterParams.priority }),
+          ...(filterParams.complexity && { complexity: filterParams.complexity }),
+          ...(filterParams.impact && { impact: filterParams.impact }),
+          ...(filterParams.effortEstimateLabel && { effortEstimateLabel: filterParams.effortEstimateLabel }),
+          ...(filterParams.unit && { unit: filterParams.unit }),
+          ...(filterParams.target && { target: filterParams.target }),
+          ...(filterParams.labels && { labels: filterParams.labels }),
+          ...(filterParams.assignedTo && { assignedTo: filterParams.assignedTo }),
+          // Support snake_case for backend compatibility
+          ...(filterParams.assignedTo && { assigned_to: filterParams.assignedTo }),
+          ...(filterParams.department && { department: filterParams.department })
         });
         tasksUrl += `?${params.toString()}`;
       }
@@ -1382,6 +1395,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
   // Calculate summary statistics based on all filtered tasks
   const completedTasks = (allFilteredTasks || []).filter(task => task.status === 'Completed').length;
   const inProgressTasks = (allFilteredTasks || []).filter(task => task.status === 'In Progress').length;
+  const pendingTasks = (allFilteredTasks || []).filter(task => task.status === 'Pending').length;
   const overdueTasks = (allFilteredTasks || []).filter(task => {
     if (!task.due_date) return false;
     return new Date(task.due_date) < new Date() && task.status !== 'Completed';
@@ -1414,6 +1428,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
     const searchParams = getSearchFilterParams();
     
     fetchAllData(true, 1, false, searchParams);
+    fetchAllTasksForDashboard(searchParams); // Also update summary cards with filtered data
   };
 
   const handleClearFilters = () => {
@@ -3562,7 +3577,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
 
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
         <div className="bg-white p-4 rounded-lg shadow">
           <div className="flex items-center">
             <Briefcase className="w-8 h-8 text-purple-600 mr-3" />
@@ -3592,6 +3607,15 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
             <div>
               <div className="text-2xl font-bold text-gray-900">{inProgressTasks}</div>
               <div className="text-sm text-gray-600">In Progress</div>
+            </div>
+          </div>
+        </div>
+        <div className="bg-white p-4 rounded-lg shadow">
+          <div className="flex items-center">
+            <Circle className="w-8 h-8 text-yellow-600 mr-3" />
+            <div>
+              <div className="text-2xl font-bold text-gray-900">{pendingTasks}</div>
+              <div className="text-sm text-gray-600">Pending</div>
             </div>
           </div>
         </div>
