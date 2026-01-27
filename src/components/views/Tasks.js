@@ -1029,6 +1029,9 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
     try {
       let tasksUrl = '/api/tasks';
       if (user) {
+        // ✅ FIX: Get current filter parameters to preserve filters when refreshing
+        const filterParams = getSearchFilterParams();
+        
         const params = new URLSearchParams({
           user_id: user.id,
           role: user.role,
@@ -1036,6 +1039,24 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
           limit: 100,
           page: 1
         });
+        
+        // ✅ FIX: Add filter parameters (only if they have values, consistent with fetchAllData)
+        if (filterParams.search) params.append('search', filterParams.search);
+        if (filterParams.status) params.append('status', filterParams.status);
+        if (filterParams.priority) params.append('priority', filterParams.priority);
+        if (filterParams.complexity) params.append('complexity', filterParams.complexity);
+        if (filterParams.impact) params.append('impact', filterParams.impact);
+        if (filterParams.effortEstimateLabel) params.append('effortEstimateLabel', filterParams.effortEstimateLabel);
+        if (filterParams.unit) params.append('unit', filterParams.unit);
+        if (filterParams.target) params.append('target', filterParams.target);
+        if (filterParams.labels) params.append('labels', filterParams.labels);
+        if (filterParams.assignedTo) {
+          params.append('assignedTo', filterParams.assignedTo);
+          // Support snake_case for backend compatibility
+          params.append('assigned_to', filterParams.assignedTo);
+        }
+        if (filterParams.department) params.append('department', filterParams.department);
+        
         tasksUrl += `?${params.toString()}`;
       }
       
