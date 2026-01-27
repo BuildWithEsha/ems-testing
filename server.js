@@ -5372,8 +5372,8 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                 sanitizeForMySQL(taskData.effortLabel), 
                 sanitizeForMySQL(taskData.checklist), 
                 sanitizeForMySQL(taskData.workflowGuide),
-                sanitizeForMySQL(taskData.fileLinks),
-                sanitizeForMySQL(taskData.videoLinks)
+                sanitizeForMySQL(taskData.fileLinks !== undefined ? taskData.fileLinks : null),
+                sanitizeForMySQL(taskData.videoLinks !== undefined ? taskData.videoLinks : null)
               ];
               
               try {
