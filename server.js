@@ -1443,9 +1443,82 @@ app.post('/api/attendance/clock-out', async (req, res) => {
   }
 });
 
-// Monthly summary and entries
+// Get attendance summary statistics (date-range based - must come before monthly endpoint)
 app.get('/api/attendance/summary', async (req, res) => {
-  const { employee_id, month, year } = req.query;
+  const { employee_id, from_date, to_date, exclude_imported } = req.query;
+  
+  // If from_date and to_date are provided, use date-range logic
+  if (from_date && to_date) {
+    let connection;
+    try {
+      connection = await mysqlPool.getConnection();
+      await connection.ping();
+
+      // Calculate total working days in the date range (MySQL version)
+      const workingDaysQuery = `
+        WITH RECURSIVE dates(date) AS (
+          SELECT ? as date
+          UNION ALL
+            SELECT DATE_ADD(date, INTERVAL 1 DAY)
+          FROM dates
+          WHERE date <= ?
+        )
+        SELECT COUNT(*) as total_working_days
+        FROM dates
+          WHERE DAYOFWEEK(date) NOT IN (1, 7) -- Exclude Sunday (1) and Saturday (7)
+        `;
+
+      const [workingDaysResult] = await connection.execute(workingDaysQuery, [from_date, to_date]);
+      const totalWorkingDays = workingDaysResult[0].total_working_days || 0;
+
+      // Now get attendance data for the date range
+      let attendanceQuery = `
+        SELECT 
+          COUNT(DISTINCT a.date) as total_days,
+          SUM(a.hours_worked) as total_hours,
+          SUM(a.duration_seconds) as total_seconds
+        FROM attendance a 
+        WHERE a.date >= ? AND a.date <= ?
+      `;
+      const attendanceParams = [from_date, to_date];
+
+      if (employee_id) {
+        attendanceQuery += ' AND a.employee_id = ?';
+        attendanceParams.push(employee_id);
+      }
+      if (exclude_imported === 'true') {
+        attendanceQuery += ' AND (a.is_imported = 0 OR a.is_imported IS NULL)';
+      }
+
+      const [attendanceResult] = await connection.execute(attendanceQuery, attendanceParams);
+      const attendanceRow = attendanceResult[0];
+        
+      const totalDays = attendanceRow.total_days || 0;
+      const totalHours = attendanceRow.total_hours || 0;
+      const absentees = Math.max(0, totalWorkingDays - totalDays);
+        
+      const summary = {
+        total_days: totalDays,
+        total_hours: totalHours,
+        total_seconds: attendanceRow.total_seconds || 0,
+        absentees: absentees,
+        total_working_days: totalWorkingDays
+      };
+        
+      res.json(summary);
+    } catch (err) {
+      console.error('Error fetching attendance summary:', err);
+      res.status(500).json({ error: 'Database error' });
+    } finally {
+      if (connection) {
+        connection.release();
+      }
+    }
+    return; // Exit early to prevent falling through to monthly logic
+  }
+
+  // Monthly summary and entries (fallback when from_date/to_date not provided)
+  const { month, year } = req.query;
   if (!employee_id) return res.status(400).json({ error: 'employee_id is required' });
   
   let connection;
@@ -1795,80 +1868,6 @@ app.get('/api/attendance/debug', async (req, res) => {
     });
   } catch (err) {
     console.error('Error fetching attendance debug data:', err);
-    res.status(500).json({ error: 'Database error' });
-  } finally {
-    if (connection) {
-      connection.release();
-    }
-  }
-});
-// Get attendance summary statistics
-app.get('/api/attendance/summary', async (req, res) => {
-  const { employee_id, from_date, to_date, exclude_imported } = req.query;
-  
-  if (!from_date || !to_date) {
-    return res.status(400).json({ error: 'from_date and to_date are required' });
-  }
-
-  let connection;
-  try {
-    connection = await mysqlPool.getConnection();
-    await connection.ping();
-
-    // Calculate total working days in the date range (MySQL version)
-  const workingDaysQuery = `
-    WITH RECURSIVE dates(date) AS (
-      SELECT ? as date
-      UNION ALL
-        SELECT DATE_ADD(date, INTERVAL 1 DAY)
-      FROM dates
-      WHERE date <= ?
-    )
-    SELECT COUNT(*) as total_working_days
-    FROM dates
-      WHERE DAYOFWEEK(date) NOT IN (1, 7) -- Exclude Sunday (1) and Saturday (7)
-    `;
-
-    const [workingDaysResult] = await connection.execute(workingDaysQuery, [from_date, to_date]);
-    const totalWorkingDays = workingDaysResult[0].total_working_days || 0;
-
-    // Now get attendance data for the date range
-    let attendanceQuery = `
-      SELECT 
-        COUNT(DISTINCT a.date) as total_days,
-        SUM(a.hours_worked) as total_hours,
-        SUM(a.duration_seconds) as total_seconds
-      FROM attendance a 
-      WHERE a.date >= ? AND a.date <= ?
-    `;
-    const attendanceParams = [from_date, to_date];
-
-    if (employee_id) {
-      attendanceQuery += ' AND a.employee_id = ?';
-      attendanceParams.push(employee_id);
-    }
-    if (exclude_imported === 'true') {
-      attendanceQuery += ' AND (a.is_imported = 0 OR a.is_imported IS NULL)';
-    }
-
-    const [attendanceResult] = await connection.execute(attendanceQuery, attendanceParams);
-    const attendanceRow = attendanceResult[0];
-      
-      const totalDays = attendanceRow.total_days || 0;
-      const totalHours = attendanceRow.total_hours || 0;
-      const absentees = Math.max(0, totalWorkingDays - totalDays);
-      
-      const summary = {
-        total_days: totalDays,
-        total_hours: totalHours,
-        total_seconds: attendanceRow.total_seconds || 0,
-        absentees: absentees,
-        total_working_days: totalWorkingDays
-      };
-      
-      res.json(summary);
-  } catch (err) {
-    console.error('Error fetching attendance summary:', err);
     res.status(500).json({ error: 'Database error' });
   } finally {
     if (connection) {
