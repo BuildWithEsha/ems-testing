@@ -900,6 +900,8 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
     effortLabel: '',
     checklist: '',
     workflowGuide: '',
+    fileLinks: '',
+    videoLinks: '',
     // Time estimate fields
     timeEstimateHours: 0,
     timeEstimateMinutes: 0,
@@ -1421,37 +1423,14 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
   const handleTaskClick = async (task) => {
     try {
       // ✅ FIX: Initialize checklistCompletion IMMEDIATELY from list task
-      if (task.checklist_completed) {
-        try {
-          const completedItems = JSON.parse(task.checklist_completed);
-          setModalState(prev => ({
-            ...prev,
-            checklistCompletion: {
-              ...prev.checklistCompletion,
-              [task.id]: Array.isArray(completedItems) ? completedItems : []
-            }
-          }));
-        } catch (e) {
-          console.error('Error parsing checklist completion:', e);
-          // Initialize as empty array if parsing fails
-          setModalState(prev => ({
-            ...prev,
-            checklistCompletion: {
-              ...prev.checklistCompletion,
-              [task.id]: []
-            }
-          }));
+      const completedItems = parseChecklistCompleted(task.checklist_completed);
+      setModalState(prev => ({
+        ...prev,
+        checklistCompletion: {
+          ...prev.checklistCompletion,
+          [task.id]: completedItems
         }
-      } else {
-        // Initialize as empty array if no checklist_completed exists
-        setModalState(prev => ({
-          ...prev,
-          checklistCompletion: {
-            ...prev.checklistCompletion,
-            [task.id]: []
-          }
-        }));
-      }
+      }));
       
       // Save scroll position before opening modal to prevent scroll jump
       const scrollY = window.scrollY;
@@ -1478,109 +1457,37 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
           });
           
           // Load existing checklist completion state from full task data
-          if (fullTask.checklist_completed) {
-            try {
-              const completedItems = JSON.parse(fullTask.checklist_completed);
-              // ✅ FIX: Ensure it's an array
-              setModalState(prev => ({
-                ...prev,
-                checklistCompletion: {
-                  ...prev.checklistCompletion,
-                  [task.id]: Array.isArray(completedItems) ? completedItems : []
-                }
-              }));
-            } catch (e) {
-              console.error('Error parsing checklist completion:', e);
-              // ✅ FIX: Initialize as empty array if parsing fails
-              setModalState(prev => ({
-                ...prev,
-                checklistCompletion: {
-                  ...prev.checklistCompletion,
-                  [task.id]: []
-                }
-              }));
-            }
-          } else {
-            // ✅ FIX: Initialize as empty array if no checklist_completed exists
-            setModalState(prev => ({
-              ...prev,
-              checklistCompletion: {
-                ...prev.checklistCompletion,
-                [task.id]: []
-              }
-            }));
-          }
-        } else {
-          console.error('Failed to fetch full task details');
-          // Fallback: Use checklist_completed from list task if available
-          if (task.checklist_completed) {
-            try {
-              const completedItems = JSON.parse(task.checklist_completed);
-              // ✅ FIX: Ensure it's an array
-              setModalState(prev => ({
-                ...prev,
-                checklistCompletion: {
-                  ...prev.checklistCompletion,
-                  [task.id]: Array.isArray(completedItems) ? completedItems : []
-                }
-              }));
-            } catch (e) {
-              console.error('Error parsing checklist completion:', e);
-              // ✅ FIX: Initialize as empty array if parsing fails
-              setModalState(prev => ({
-                ...prev,
-                checklistCompletion: {
-                  ...prev.checklistCompletion,
-                  [task.id]: []
-                }
-              }));
-            }
-          } else {
-            // ✅ FIX: Initialize as empty array if no checklist_completed exists
-            setModalState(prev => ({
-              ...prev,
-              checklistCompletion: {
-                ...prev.checklistCompletion,
-                [task.id]: []
-              }
-            }));
-          }
-        }
-      } catch (error) {
-        console.error('Error fetching full task details:', error);
-        // Fallback: Use checklist_completed from list task if available
-        if (task.checklist_completed) {
-          try {
-            const completedItems = JSON.parse(task.checklist_completed);
-            // ✅ FIX: Ensure it's an array
-            setModalState(prev => ({
-              ...prev,
-              checklistCompletion: {
-                ...prev.checklistCompletion,
-                [task.id]: Array.isArray(completedItems) ? completedItems : []
-              }
-            }));
-          } catch (e) {
-            console.error('Error parsing checklist completion:', e);
-            // ✅ FIX: Initialize as empty array if parsing fails
-            setModalState(prev => ({
-              ...prev,
-              checklistCompletion: {
-                ...prev.checklistCompletion,
-                [task.id]: []
-              }
-            }));
-          }
-        } else {
-          // ✅ FIX: Initialize as empty array if no checklist_completed exists
+          const completedItems = parseChecklistCompleted(fullTask.checklist_completed);
           setModalState(prev => ({
             ...prev,
             checklistCompletion: {
               ...prev.checklistCompletion,
-              [task.id]: []
+              [task.id]: completedItems
+            }
+          }));
+        } else {
+          console.error('Failed to fetch full task details');
+          // Fallback: Use checklist_completed from list task if available
+          const completedItems = parseChecklistCompleted(task.checklist_completed);
+          setModalState(prev => ({
+            ...prev,
+            checklistCompletion: {
+              ...prev.checklistCompletion,
+              [task.id]: completedItems
             }
           }));
         }
+      } catch (error) {
+        console.error('Error fetching full task details:', error);
+        // Fallback: Use checklist_completed from list task if available
+        const completedItems = parseChecklistCompleted(task.checklist_completed);
+        setModalState(prev => ({
+          ...prev,
+          checklistCompletion: {
+            ...prev.checklistCompletion,
+            [task.id]: completedItems
+          }
+        }));
       }
       
       // Load task details and history
@@ -1870,12 +1777,14 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
         effort_estimate_label: formData.effortEstimateLabel,
         time_estimate_hours: formData.timeEstimateHours,
         time_estimate_minutes: formData.timeEstimateMinutes,
-        checklist: formData.checklist !== undefined ? formData.checklist : '' // ✅ Always include checklist
+        checklist: formData.checklist !== undefined ? formData.checklist : '', // ✅ Always include checklist
+        fileLinks: formData.fileLinks || '',
+        videoLinks: formData.videoLinks || ''
       };
 
       // Remove undefined values to prevent API issues
       // But preserve checklist and other text fields even if empty (to allow clearing them)
-      const fieldsToPreserve = ['checklist', 'description', 'workflow_guide']; // Fields that can be empty
+      const fieldsToPreserve = ['checklist', 'description', 'workflow_guide', 'fileLinks', 'videoLinks']; // Fields that can be empty
       Object.keys(apiData).forEach(key => {
         if (apiData[key] === undefined) {
           delete apiData[key];
@@ -2665,6 +2574,34 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
     stopTimerWithMemo(taskId);
   };
 
+  // Helper function to parse checklist_completed and filter by date
+  const parseChecklistCompleted = (checklistCompletedString) => {
+    if (!checklistCompletedString) {
+      return [];
+    }
+    
+    try {
+      const parsed = JSON.parse(checklistCompletedString);
+      const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
+      
+      // Old format (array) → incomplete (no date means reset)
+      if (Array.isArray(parsed)) {
+        return [];
+      }
+      
+      // New format → check if date matches today
+      if (parsed.date && parsed.date === today && Array.isArray(parsed.indices)) {
+        return parsed.indices; // Return indices only if date matches today
+      }
+      
+      // Date doesn't match today or invalid format → incomplete
+      return [];
+    } catch (e) {
+      console.error('Error parsing checklist completion:', e);
+      return [];
+    }
+  };
+
   // Check if all checklist items are completed
   const areAllChecklistItemsCompleted = (task) => {
     if (!task.checklist || task.checklist.trim() === '') {
@@ -2684,7 +2621,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
     
     // Check if the task has checklist completion tracking in database
     if (task.checklist_completed) {
-      const completedItems = JSON.parse(task.checklist_completed);
+      const completedItems = parseChecklistCompleted(task.checklist_completed);
       return completedItems.length === checklistItems.length;
     }
     
@@ -3095,6 +3032,8 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
       effortLabel: task.effort_label || '',
       checklist: task.checklist || '',
       workflowGuide: task.workflow_guide || '',
+      fileLinks: task.file_links || '',
+      videoLinks: task.video_links || '',
     });
     
     // Save scroll position before opening modal to prevent scroll jump
@@ -3151,6 +3090,8 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
       effortLabel: '',
       checklist: '',
       workflowGuide: '',
+      fileLinks: '',
+      videoLinks: '',
     });
     updateUiState({ showModal: true });
   };
@@ -4615,6 +4556,30 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
                   />
                 </div>
             </div>
+            <div className="mt-4 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">File Links</label>
+                <textarea
+                  value={formData.fileLinks}
+                  onChange={(e) => setFormData({ ...formData, fileLinks: e.target.value })}
+                  rows="3"
+                  placeholder="Enter file links (one per line or comma-separated)..."
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <p className="mt-1 text-xs text-gray-500">Enter file URLs, one per line or separated by commas</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Video Links</label>
+                <textarea
+                  value={formData.videoLinks}
+                  onChange={(e) => setFormData({ ...formData, videoLinks: e.target.value })}
+                  rows="3"
+                  placeholder="Enter video links (one per line or comma-separated)..."
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <p className="mt-1 text-xs text-gray-500">Enter video URLs (YouTube, Vimeo, etc.), one per line or separated by commas</p>
+              </div>
+            </div>
             <div className="mt-4 space-y-2">
               <label className="flex items-center">
                 <input
@@ -5426,6 +5391,64 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
                     <label className="text-sm font-medium text-gray-700">Description</label>
                     <p className="text-gray-900">{selectedTask.description || '-'}</p>
                   </div>
+
+                  {/* File Links Section */}
+                  {selectedTask.file_links && (
+                    <div>
+                      <label className="text-sm font-medium text-gray-700 mb-2 block">File Links</label>
+                      <div className="space-y-1">
+                        {selectedTask.file_links.split(/[,\n]/).filter(link => link.trim()).map((link, index) => {
+                          const trimmedLink = link.trim();
+                          const isUrl = trimmedLink.startsWith('http://') || trimmedLink.startsWith('https://');
+                          return (
+                            <div key={index} className="flex items-center space-x-2">
+                              {isUrl ? (
+                                <a
+                                  href={trimmedLink}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-blue-600 hover:text-blue-800 underline break-all"
+                                >
+                                  {trimmedLink}
+                                </a>
+                              ) : (
+                                <span className="text-gray-900 break-all">{trimmedLink}</span>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Video Links Section */}
+                  {selectedTask.video_links && (
+                    <div>
+                      <label className="text-sm font-medium text-gray-700 mb-2 block">Video Links</label>
+                      <div className="space-y-1">
+                        {selectedTask.video_links.split(/[,\n]/).filter(link => link.trim()).map((link, index) => {
+                          const trimmedLink = link.trim();
+                          const isUrl = trimmedLink.startsWith('http://') || trimmedLink.startsWith('https://');
+                          return (
+                            <div key={index} className="flex items-center space-x-2">
+                              {isUrl ? (
+                                <a
+                                  href={trimmedLink}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-blue-600 hover:text-blue-800 underline break-all"
+                                >
+                                  {trimmedLink}
+                                </a>
+                              ) : (
+                                <span className="text-gray-900 break-all">{trimmedLink}</span>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
 
                   {/* Checklist Section */}
                   {selectedTask.checklist && (

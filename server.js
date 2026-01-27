@@ -346,6 +346,34 @@ const initializeDatabaseTables = async () => {
       }
     }
     
+    // Add file_links column to tasks table if it doesn't exist
+    try {
+      await connection.execute(`
+        ALTER TABLE tasks ADD COLUMN file_links TEXT DEFAULT NULL
+      `);
+      console.log('file_links column added to tasks table');
+    } catch (err) {
+      if (err.code === 'ER_DUP_FIELDNAME') {
+        console.log('file_links column already exists in tasks table');
+      } else {
+        console.error('Error adding file_links column:', err.message);
+      }
+    }
+    
+    // Add video_links column to tasks table if it doesn't exist
+    try {
+      await connection.execute(`
+        ALTER TABLE tasks ADD COLUMN video_links TEXT DEFAULT NULL
+      `);
+      console.log('video_links column added to tasks table');
+    } catch (err) {
+      if (err.code === 'ER_DUP_FIELDNAME') {
+        console.log('video_links column already exists in tasks table');
+      } else {
+        console.error('Error adding video_links column:', err.message);
+      }
+    }
+    
     console.log('Database tables initialized successfully');
   } catch (err) {
     console.error('Error initializing database tables:', err);
@@ -4800,7 +4828,7 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
   });
               
   // Optimized query with better indexing strategy - include all necessary fields
-  let query = 'SELECT id, title, status, priority, department, assigned_to, created_at, updated_at, due_date, timer_started_at, logged_seconds, labels, complexity, impact, effort_estimate_label, unit, target, time_estimate_hours, time_estimate_minutes, checklist, checklist_completed FROM tasks WHERE 1=1';
+  let query = 'SELECT id, title, status, priority, department, assigned_to, created_at, updated_at, due_date, timer_started_at, logged_seconds, labels, complexity, impact, effort_estimate_label, unit, target, time_estimate_hours, time_estimate_minutes, checklist, checklist_completed, file_links, video_links FROM tasks WHERE 1=1';
   let countQuery = 'SELECT COUNT(*) as total FROM tasks WHERE 1=1';
   const params = [];
   const countParams = [];
@@ -4967,7 +4995,12 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                 const total = countResult[0][0].total;
                 
                 // Format timer_started_at to ISO format for JavaScript Date parsing (matching backup format)
+                // Also filter checklist_completed by date (reset if not today)
+                const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
                 const formattedTasks = results[0].map(task => {
+                  let updatedTask = { ...task };
+                  
+                  // Format timer_started_at
                   if (task.timer_started_at) {
                     // Convert DATETIME format to ISO format without Z (parse as local time to match stored Pakistan time)
                     let timerValue;
@@ -4986,9 +5019,36 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                         timerValue = timerStr.replace(' ', 'T');
                       }
                     }
-                    return { ...task, timer_started_at: timerValue };
+                    updatedTask.timer_started_at = timerValue;
                   }
-                  return task;
+                  
+                  // Filter checklist_completed by date (reset if date doesn't match today)
+                  if (task.checklist_completed) {
+                    try {
+                      const parsed = JSON.parse(task.checklist_completed);
+                      // Old format (array) → reset (no date means incomplete)
+                      if (Array.isArray(parsed)) {
+                        updatedTask.checklist_completed = JSON.stringify({ indices: [], date: today });
+                      }
+                      // New format: check if date matches today
+                      else if (parsed.date && parsed.date === today) {
+                        // Date matches today → keep as is
+                        updatedTask.checklist_completed = task.checklist_completed;
+                      }
+                      else {
+                        // Date doesn't match today → reset
+                        updatedTask.checklist_completed = JSON.stringify({ indices: [], date: today });
+                      }
+                    } catch (e) {
+                      // Invalid JSON → reset
+                      updatedTask.checklist_completed = JSON.stringify({ indices: [], date: today });
+                    }
+                  } else {
+                    // No checklist_completed → initialize with today's date
+                    updatedTask.checklist_completed = JSON.stringify({ indices: [], date: today });
+                  }
+                  
+                  return updatedTask;
                 });
                 
                 if (skipPagination) {
@@ -5179,7 +5239,37 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                   res.status(404).json({ error: 'Task not found' });
                   return;
                 }
-                res.json(results[0]);
+                
+                // Filter checklist_completed by date (reset if not today)
+                const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
+                const task = results[0];
+                
+                if (task.checklist_completed) {
+                  try {
+                    const parsed = JSON.parse(task.checklist_completed);
+                    // Old format (array) → reset (no date means incomplete)
+                    if (Array.isArray(parsed)) {
+                      task.checklist_completed = JSON.stringify({ indices: [], date: today });
+                    }
+                    // New format: check if date matches today
+                    else if (parsed.date && parsed.date === today) {
+                      // Date matches today → keep as is
+                      // task.checklist_completed stays the same
+                    }
+                    else {
+                      // Date doesn't match today → reset
+                      task.checklist_completed = JSON.stringify({ indices: [], date: today });
+                    }
+                  } catch (e) {
+                    // Invalid JSON → reset
+                    task.checklist_completed = JSON.stringify({ indices: [], date: today });
+                  }
+                } else {
+                  // No checklist_completed → initialize with today's date
+                  task.checklist_completed = JSON.stringify({ indices: [], date: today });
+                }
+                
+                res.json(task);
               } catch (err) {
                 console.error('Error fetching task:', err);
                 res.status(500).json({ error: 'Database error' });
@@ -5206,8 +5296,8 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                   title, department, task_category, project, start_date, due_date, without_due_date,
                   assigned_to, status, description, responsible, accountable, consulted, informed, trained,
                   labels, milestones, priority, complexity, impact, unit, target, effort_estimate_label, time_estimate_hours, time_estimate_minutes, make_private, share, \`repeat\`, \`is_dependent\`,
-                  validation_by, effort_label, checklist, workflow_guide
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  validation_by, effort_label, checklist, workflow_guide, file_links, video_links
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
               `;
               const values = [
                 sanitizeForMySQL(taskData.title), 
@@ -5242,7 +5332,9 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                 sanitizeForMySQL(taskData.validationBy), 
                 sanitizeForMySQL(taskData.effortLabel), 
                 sanitizeForMySQL(taskData.checklist), 
-                sanitizeForMySQL(taskData.workflowGuide)
+                sanitizeForMySQL(taskData.workflowGuide),
+                sanitizeForMySQL(taskData.fileLinks),
+                sanitizeForMySQL(taskData.videoLinks)
               ];
               
               try {
@@ -5417,15 +5509,28 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                 updateFields.push('checklist = ?');
                 values.push(sanitizeForMySQL(taskData.checklist));
               }
-              // ✅ FIX: Handle checklist_completed (array of completed item indices)
+              // ✅ FIX: Handle checklist_completed (array of completed item indices with date)
               if (taskData.checklist_completed !== undefined) {
                 updateFields.push('checklist_completed = ?');
-                // Store as JSON string array (e.g., "[0,1,2]")
-                values.push(JSON.stringify(taskData.checklist_completed));
+                // Store as JSON object with indices and today's date (e.g., {"indices": [0,1,2], "date": "2026-01-20"})
+                const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
+                // If it's an array (from frontend), wrap it with today's date
+                const dataToStore = Array.isArray(taskData.checklist_completed)
+                  ? { indices: taskData.checklist_completed, date: today }
+                  : taskData.checklist_completed; // Already in new format
+                values.push(JSON.stringify(dataToStore));
               }
               if (taskData.workflowGuide !== undefined) {
                 updateFields.push('workflow_guide = ?');
                 values.push(sanitizeForMySQL(taskData.workflowGuide));
+              }
+              if (taskData.fileLinks !== undefined) {
+                updateFields.push('file_links = ?');
+                values.push(sanitizeForMySQL(taskData.fileLinks));
+              }
+              if (taskData.videoLinks !== undefined) {
+                updateFields.push('video_links = ?');
+                values.push(sanitizeForMySQL(taskData.videoLinks));
               }
 
               // Always update the updated_at timestamp
