@@ -374,6 +374,51 @@ const initializeDatabaseTables = async () => {
       }
     }
     
+    // Add indexes for tasks table to improve query performance
+    try {
+      // Single column indexes for filtering
+      await connection.execute(`
+        CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)
+      `);
+      await connection.execute(`
+        CREATE INDEX IF NOT EXISTS idx_tasks_priority ON tasks(priority)
+      `);
+      await connection.execute(`
+        CREATE INDEX IF NOT EXISTS idx_tasks_department ON tasks(department)
+      `);
+      await connection.execute(`
+        CREATE INDEX IF NOT EXISTS idx_tasks_complexity ON tasks(complexity)
+      `);
+      await connection.execute(`
+        CREATE INDEX IF NOT EXISTS idx_tasks_impact ON tasks(impact)
+      `);
+      await connection.execute(`
+        CREATE INDEX IF NOT EXISTS idx_tasks_created_at ON tasks(created_at DESC)
+      `);
+      
+      // Index for assigned_to (TEXT column - use prefix index)
+      await connection.execute(`
+        CREATE INDEX IF NOT EXISTS idx_tasks_assigned_to ON tasks(assigned_to(255))
+      `);
+      
+      // Composite indexes for common query patterns
+      await connection.execute(`
+        CREATE INDEX IF NOT EXISTS idx_tasks_dept_status ON tasks(department, status)
+      `);
+      await connection.execute(`
+        CREATE INDEX IF NOT EXISTS idx_tasks_assigned_status ON tasks(assigned_to(255), status)
+      `);
+      
+      console.log('✅ Database indexes created/verified for tasks table');
+    } catch (err) {
+      // Index might already exist, which is fine
+      if (err.code !== 'ER_DUP_KEYNAME' && err.code !== 'ER_CANT_DROP_FIELD_OR_KEY') {
+        console.error('Error creating indexes:', err);
+      } else {
+        console.log('✅ Database indexes already exist for tasks table');
+      }
+    }
+    
     console.log('Database tables initialized successfully');
   } catch (err) {
     console.error('Error initializing database tables:', err);
@@ -4846,13 +4891,13 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
   const userRole = req.headers['user-role'] || role || 'employee';
   const userName = req.headers['user-name'] || employee_name || '';
   
-  // For admin users or when all=true, don't use pagination at all
+  // Force pagination for all users (including admin) - only skip when explicitly requesting all
   const isAdmin = (userRole === 'admin' || userRole === 'Admin');
-  const skipPagination = getAll || isAdmin;
+  const skipPagination = getAll; // Remove isAdmin - force pagination for everyone
   
-  // Pagination parameters - only use if not admin and not requesting all
+  // Pagination parameters - allow higher limit for admin users but still paginate
   const pageNum = parseInt(page);
-  const limitNum = skipPagination ? null : Math.min(parseInt(limit), 100); // No limit for admin/all
+  const limitNum = skipPagination ? null : (isAdmin ? Math.min(parseInt(limit) || 500, 500) : Math.min(parseInt(limit), 100));
   const offset = skipPagination ? null : (pageNum - 1) * limitNum;
   
   // Debug logging
@@ -5124,6 +5169,134 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                   console.error('Error fetching tasks:', err);
                   res.status(500).json({ error: 'Database error' });
                 }
+            });
+            // Get task summary (counts only - optimized for dashboard)
+            app.get('/api/tasks/summary', async (req, res) => {
+              const { user_id, role, employee_name, department, employee, search, status, priority, complexity, impact, effortEstimateLabel, unit, target, labels, assignedTo } = req.query;
+              
+              // Get user permissions from headers
+              const userPermissions = req.headers['user-permissions'] ? JSON.parse(req.headers['user-permissions']) : [];
+              const userRole = req.headers['user-role'] || role || 'employee';
+              const userName = req.headers['user-name'] || employee_name || '';
+              
+              // Build WHERE clause (same logic as /api/tasks but only return counts)
+              let query = `
+                SELECT 
+                  COUNT(*) as total,
+                  SUM(CASE WHEN status = 'Completed' THEN 1 ELSE 0 END) as completed,
+                  SUM(CASE WHEN status = 'In Progress' THEN 1 ELSE 0 END) as in_progress,
+                  SUM(CASE WHEN status = 'Pending' THEN 1 ELSE 0 END) as pending,
+                  SUM(CASE WHEN due_date < CURDATE() AND status != 'Completed' THEN 1 ELSE 0 END) as overdue
+                FROM tasks 
+                WHERE 1=1
+              `;
+              const params = [];
+              
+              // Check permissions to determine what tasks user can see (same logic as /api/tasks)
+              const hasViewOwnTasks = userPermissions.includes('view_own_tasks');
+              const hasViewAllTasks = userPermissions.includes('view_tasks') || userPermissions.includes('all');
+              const hasViewTasksContent = userPermissions.includes('view_tasks_content');
+              const hasDwmView = userPermissions.includes('dwm_view');
+              
+              const isAdminUser = userRole === 'admin';
+              const hasViewAllTasksPermission = userPermissions.includes('view_tasks') || userPermissions.includes('all');
+              
+              // If user only has view_own_tasks permission, filter by assigned_to
+              if (hasViewOwnTasks && !hasViewAllTasksPermission && !isAdminUser && userName) {
+                if (hasDwmView) {
+                  query += ' AND (assigned_to LIKE ? OR (assigned_to LIKE ? AND status != \'Completed\' AND (LOWER(IFNULL(labels,\'\')) LIKE \'%daily%\' OR LOWER(IFNULL(labels,\'\')) LIKE \'%weekly%\' OR LOWER(IFNULL(labels,\'\')) LIKE \'%monthly%\')))';
+                  params.push(`%${userName}%`, `%${userName}%`);
+                } else {
+                  query += ' AND assigned_to LIKE ?';
+                  params.push(`%${userName}%`);
+                }
+              } else if (hasViewAllTasksPermission || isAdminUser) {
+                // User can see all tasks
+              } else if (hasViewTasksContent && !hasViewOwnTasks && !hasViewAllTasksPermission && !isAdminUser) {
+                query += ' AND 1=0'; // Show no tasks
+              } else {
+                query += ' AND 1=0'; // Show no tasks
+              }
+              
+              // Add search functionality
+              if (search) {
+                query += ' AND (title LIKE ? OR description LIKE ? OR assigned_to LIKE ?)';
+                const searchTerm = `%${search}%`;
+                params.push(searchTerm, searchTerm, searchTerm);
+              }
+              
+              // Add filter functionality (same as /api/tasks)
+              if (department) {
+                query += ' AND department = ?';
+                params.push(department);
+              }
+              if (employee) {
+                query += ' AND assigned_to LIKE ?';
+                params.push(`%${employee}%`);
+              }
+              if (status) {
+                query += ' AND status = ?';
+                params.push(status);
+              }
+              if (priority) {
+                query += ' AND priority = ?';
+                params.push(priority);
+              }
+              if (complexity) {
+                query += ' AND complexity = ?';
+                params.push(complexity);
+              }
+              if (impact) {
+                query += ' AND impact = ?';
+                params.push(impact);
+              }
+              if (effortEstimateLabel) {
+                query += ' AND effort_estimate_label = ?';
+                params.push(effortEstimateLabel);
+              }
+              if (unit) {
+                query += ' AND unit = ?';
+                params.push(unit);
+              }
+              if (target) {
+                query += ' AND target = ?';
+                params.push(target);
+              }
+              if (labels) {
+                const labelParts = String(labels)
+                  .split(',')
+                  .map(s => s.trim())
+                  .filter(Boolean);
+                
+                if (labelParts.length === 1) {
+                  query += ' AND labels LIKE ?';
+                  params.push(`%${labelParts[0]}%`);
+                } else if (labelParts.length > 1) {
+                  const likeConditions = labelParts.map(() => 'labels LIKE ?').join(' OR ');
+                  query += ` AND (${likeConditions})`;
+                  for (const part of labelParts) {
+                    params.push(`%${part}%`);
+                  }
+                }
+              }
+              if (assignedTo) {
+                query += ' AND assigned_to LIKE ?';
+                params.push(`%${assignedTo}%`);
+              }
+              
+              try {
+                const [results] = await mysqlPool.execute(query, params);
+                res.json({
+                  total: results[0].total || 0,
+                  completed: results[0].completed || 0,
+                  in_progress: results[0].in_progress || 0,
+                  pending: results[0].pending || 0,
+                  overdue: results[0].overdue || 0
+                });
+              } catch (err) {
+                console.error('Error fetching task summary:', err);
+                res.status(500).json({ error: 'Database error' });
+              }
             });
             // Export tasks to CSV/Excel (must be before /api/tasks/:id route)
             app.get('/api/tasks/export', async (req, res) => {

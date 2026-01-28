@@ -47,7 +47,11 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
     totalTasks: 0,
     currentPage: 1,
     hasMoreTasks: true,
-    loadingMore: false
+    loadingMore: false,
+    completedTasks: 0,
+    inProgressTasks: 0,
+    pendingTasks: 0,
+    overdueTasks: 0
   });
 
   // Consolidated task detail state
@@ -791,7 +795,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
 
   // Destructured state for easier access
   const { tasks, departments, employees, labels, loading, error } = dataState;
-  const { searchTerm, selectedTask, selectedTasks, taskDetailTab, showModal, showImportModal, showFilterModal, showColumnModal, showDetailModal, showBulkStatusModal, showTaskCalculationModal, showStopTimerModal, showDeleteHistoryModal, showDeleteAllHistoryModal, showChecklistWarningModal, showExportModal, showUpdateModal, totalTasks, currentPage, hasMoreTasks, loadingMore } = uiState;
+  const { searchTerm, selectedTask, selectedTasks, taskDetailTab, showModal, showImportModal, showFilterModal, showColumnModal, showDetailModal, showBulkStatusModal, showTaskCalculationModal, showStopTimerModal, showDeleteHistoryModal, showDeleteAllHistoryModal, showChecklistWarningModal, showExportModal, showUpdateModal, totalTasks, currentPage, hasMoreTasks, loadingMore, completedTasks: completedTasksFromState, inProgressTasks: inProgressTasksFromState, pendingTasks: pendingTasksFromState, overdueTasks: overdueTasksFromState } = uiState;
   const { files: taskFiles, subtasks: taskSubtasks, comments: taskComments, timesheet: taskTimesheet, timesheetTotal, notes: taskNotes, history: taskHistory, newComment, newSubtask, uploadedFile, editingSubtaskId, editingSubtaskTitle, editingCommentId, editingCommentText } = taskDetailState;
   
   // Reconcile fallback assignees to real employee records when employees load
@@ -927,8 +931,9 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
           user_id: user.id,
           role: user.role,
           employee_name: user.name || '',
-          // For admin users, load all tasks without pagination
-          ...((user.role === 'admin' || user.role === 'Admin') ? { all: 'true' } : { limit: 100, page: page }),
+          // Force pagination for all users (admin gets higher limit of 500)
+          limit: (user.role === 'admin' || user.role === 'Admin') ? 500 : 100,
+          page: page,
           // Add search and filter parameters
           ...(searchParams.search && { search: searchParams.search }),
           ...(searchParams.status && { status: searchParams.status }),
@@ -1129,7 +1134,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
     if (user) {
       const searchParams = getSearchFilterParams();
       fetchAllData(false, 1, false, searchParams);
-      fetchAllTasksForDashboard(searchParams); // Pass filter params
+      fetchTaskSummary(searchParams); // Pass filter params
     }
   }, [user]);
 
@@ -1269,16 +1274,15 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
   // State for all tasks (for dashboard calculations)
   const [allTasks, setAllTasks] = useState([]);
 
-  // Fetch all tasks for dashboard calculations (with filters)
-  const fetchAllTasksForDashboard = async (filterParams = {}) => {
+  // Fetch task summary (counts only - optimized for dashboard)
+  const fetchTaskSummary = async (filterParams = {}) => {
     try {
-      let tasksUrl = '/api/tasks';
+      let tasksUrl = '/api/tasks/summary';
       if (user) {
         const params = new URLSearchParams({
           user_id: user.id,
           role: user.role,
           employee_name: user.name || '',
-          all: 'true', // Get all tasks (no pagination) for accurate summary
           // Add filter parameters
           ...(filterParams.search && { search: filterParams.search }),
           ...(filterParams.status && { status: filterParams.status }),
@@ -1306,12 +1310,18 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
       
       const response = await fetch(tasksUrl, { headers: tasksHeaders });
       if (response.ok) {
-        const tasksData = await response.json();
-        const allTasksData = Array.isArray(tasksData.data) ? tasksData.data : (Array.isArray(tasksData) ? tasksData : []);
-        setAllTasks(allTasksData);
+        const summaryData = await response.json();
+        // Update summary state directly instead of processing all tasks
+        updateUiState({
+          totalTasks: summaryData.total || 0,
+          completedTasks: summaryData.completed || 0,
+          inProgressTasks: summaryData.in_progress || 0,
+          pendingTasks: summaryData.pending || 0,
+          overdueTasks: summaryData.overdue || 0
+        });
       }
     } catch (error) {
-      console.error('Error fetching all tasks for dashboard:', error);
+      console.error('Error fetching task summary:', error);
     }
   };
 
@@ -1392,14 +1402,11 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
   }, [selectedTasks, filteredTasks]);
 
 
-  // Calculate summary statistics based on all filtered tasks
-  const completedTasks = (allFilteredTasks || []).filter(task => task.status === 'Completed').length;
-  const inProgressTasks = (allFilteredTasks || []).filter(task => task.status === 'In Progress').length;
-  const pendingTasks = (allFilteredTasks || []).filter(task => task.status === 'Pending').length;
-  const overdueTasks = (allFilteredTasks || []).filter(task => {
-    if (!task.due_date) return false;
-    return new Date(task.due_date) < new Date() && task.status !== 'Completed';
-  }).length;
+  // Use summary statistics from API (optimized - no need to process all tasks)
+  const completedTasks = completedTasksFromState;
+  const inProgressTasks = inProgressTasksFromState;
+  const pendingTasks = pendingTasksFromState;
+  const overdueTasks = overdueTasksFromState;
 
 
 
@@ -3582,7 +3589,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
           <div className="flex items-center">
             <Briefcase className="w-8 h-8 text-purple-600 mr-3" />
             <div>
-              <div className="text-2xl font-bold text-gray-900">{allFilteredTasks.length}</div>
+              <div className="text-2xl font-bold text-gray-900">{totalTasks}</div>
               <div className="text-sm text-gray-600">
                 Total Tasks
                 {hasMoreTasks && user?.role !== 'admin' && (
