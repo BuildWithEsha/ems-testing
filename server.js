@@ -7637,10 +7637,8 @@ app.get('/api/notifications/dwm-incomplete', async (req, res) => {
       WHERE (
         -- Daily tasks: always due (check both labels and title)
         (
-          // LOWER(IFNULL(t.labels,'')) LIKE '%daily%' 
-          OR LOWER(IFNULL(t.labels,'')) LIKE '%daily-task%'
+          LOWER(IFNULL(t.labels,'')) LIKE '%daily-task%'
           OR LOWER(IFNULL(t.labels,'')) LIKE '%daily task%'
-          // OR LOWER(t.title) LIKE '%daily%'
           OR LOWER(t.title) LIKE '%daily task%'
         )
         -- Weekly tasks: only due on their specific day (check both labels and title)
@@ -7715,7 +7713,12 @@ app.get('/api/notifications/dwm-incomplete', async (req, res) => {
     res.json(formattedNotifications);
   } catch (err) {
     console.error('Error fetching DWM incomplete notifications:', err);
-    res.status(500).json({ error: 'Database error' });
+    console.error('Error stack:', err.stack);
+    res.status(500).json({ 
+      error: 'Database error',
+      message: err.message,
+      details: process.env.NODE_ENV === 'development' ? err.stack : undefined
+    });
   } finally {
     if (connection) {
       connection.release();
