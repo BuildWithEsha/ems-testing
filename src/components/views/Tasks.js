@@ -1138,11 +1138,11 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
     }
   }, [user]);
 
-  // Fetch all tasks for dashboard when filters change
+  // Fetch task summary for dashboard when filters change
   useEffect(() => {
     if (user) {
       const searchParams = getSearchFilterParams();
-      fetchAllTasksForDashboard(searchParams);
+      fetchTaskSummary(searchParams);
     }
   }, [searchTerm, filterStatus, filterPriority, filterComplexity, filterImpact, filterEffortEstimateLabel, filterUnit, filterTarget, filterDepartment, filterAssignedTo, filterLabels, filterResponsible, filterAccountable, filterConsulted, filterInformed, filterTrained]);
 
@@ -1435,7 +1435,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
     const searchParams = getSearchFilterParams();
     
     fetchAllData(true, 1, false, searchParams);
-    fetchAllTasksForDashboard(searchParams); // Also update summary cards with filtered data
+    fetchTaskSummary(searchParams); // Also update summary cards with filtered data
   };
 
   const handleClearFilters = () => {
