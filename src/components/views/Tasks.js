@@ -1812,7 +1812,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
         accountable: employeeArrayToString(formData.accountable),
         consulted: employeeArrayToString(formData.consulted),
         informed: employeeArrayToString(formData.informed),
-        trained: employeeArrayToString(formData.trained),
+        trained: trainedArrayToJSON(formData.trained), // ✅ Use JSON format for trained field
         impact: formData.impact,
         complexity: formData.complexity,
         unit: formData.unit,
@@ -2146,6 +2146,42 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
   // Helper function to convert array of employee objects to string
   const employeeArrayToString = (arr) => {
     return arr.map(item => item.label.split(' (')[0]).join(', ');
+  };
+
+  // Helper function to convert trained array to JSON string (for database storage)
+  const trainedArrayToJSON = (arr) => {
+    if (!arr || !Array.isArray(arr) || arr.length === 0) return null;
+    const names = arr.map(item => item.label.split(' (')[0]);
+    return JSON.stringify(names);
+  };
+
+  // Helper function to parse trained JSON string back to employee array
+  const parseTrainedToEmployeeArray = (str, employees) => {
+    if (!str) return [];
+    
+    // Try to parse as JSON first (new format)
+    try {
+      const parsed = JSON.parse(str);
+      if (Array.isArray(parsed)) {
+        // It's a JSON array of names
+        return parsed.map(name => {
+          const employee = employees.find(emp => emp.name === name) ||
+                          employees.find(emp => emp.name?.toLowerCase() === String(name).toLowerCase());
+          if (employee) {
+            return { value: employee.id, label: `${employee.name} (${employee.employee_id})` };
+          }
+          return {
+            value: `fallback-${String(name).replace(/\s+/g, '-').toLowerCase()}`,
+            label: String(name)
+          };
+        }).filter(Boolean);
+      }
+    } catch (e) {
+      // Not valid JSON, fall back to comma-separated string parsing
+    }
+    
+    // Fallback to comma-separated string parsing (old format)
+    return stringToEmployeeArray(str, employees);
   };
 
   // Helper function to check if user has active timer
@@ -3056,7 +3092,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
       accountable: stringToEmployeeArray(task.accountable, employees),
       consulted: stringToEmployeeArray(task.consulted, employees),
       informed: stringToEmployeeArray(task.informed, employees),
-      trained: stringToEmployeeArray(task.trained, employees),
+      trained: parseTrainedToEmployeeArray(task.trained, employees), // ✅ Parse JSON format for trained field
       labels: task.labels || '',
       milestones: task.milestones || '',
       priority: task.priority || '',
