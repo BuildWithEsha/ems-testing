@@ -1133,6 +1133,12 @@ app.get('/api/reports/dwm', async (req, res) => {
     for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
       const dayIso = d.toISOString().split('T')[0];
       const dayOfWeek = d.getDay(); // 0 = Sunday, 1 = Monday, etc.
+      
+      // Skip Sunday (dayOfWeek === 0) - no work on Sundays
+      if (dayOfWeek === 0) {
+        continue; // Skip this iteration, don't add Sunday to the report
+      }
+      
       const dayOfMonth = d.getDate();
       
       // Calculate completed counts for this specific day
@@ -7556,6 +7562,13 @@ app.get('/api/notifications/dwm-incomplete', async (req, res) => {
 
     // Parse the date to get day of week and day of month
     const targetDate = new Date(date + 'T00:00:00');
+    const dayOfWeekNum = targetDate.getDay(); // 0 = Sunday, 1 = Monday, etc.
+    
+    // Skip Sunday - return empty array so no incomplete notifications for Sunday
+    if (dayOfWeekNum === 0) {
+      return res.json([]); // Return empty array, no incomplete tasks on Sunday
+    }
+    
     const dayOfWeek = targetDate.toLocaleDateString('en-US', { weekday: 'long' });
     const dayOfMonth = targetDate.getDate();
     
