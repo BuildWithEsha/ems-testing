@@ -2171,11 +2171,12 @@ app.get('/api/reports/timelog', async (req, res) => {
   if (!start || !end) return res.status(400).json({ error: 'start and end are required (YYYY-MM-DD)' });
 
   // Build dynamic filters
+  // Use simple date format to match how times are stored in the database (local PKT time)
   const params = [];
-  let where = `tt.start_time >= ? AND tt.start_time < ?`;
-  const startIso = `${start}T00:00:00.000Z`;
-  const endIso = `${end}T23:59:59.999Z`;
-  params.push(startIso, endIso);
+  let where = `tt.start_time >= ? AND tt.start_time <= ?`;
+  const startDate = `${start} 00:00:00`;
+  const endDate = `${end} 23:59:59`;
+  params.push(startDate, endDate);
 
   if (employee) {
     where += ` AND tt.employee_name = ?`;
@@ -2229,11 +2230,12 @@ app.get('/api/reports/timelog/consolidated', async (req, res) => {
   if (!start || !end) return res.status(400).json({ error: 'start and end are required (YYYY-MM-DD)' });
 
   // Build dynamic filters
+  // Use simple date format to match how times are stored in the database (local PKT time)
   const params = [];
-  let where = `tt.start_time >= ? AND tt.start_time < ?`;
-  const startIso = `${start}T00:00:00.000Z`;
-  const endIso = `${end}T23:59:59.999Z`;
-  params.push(startIso, endIso);
+  let where = `tt.start_time >= ? AND tt.start_time <= ?`;
+  const startDate = `${start} 00:00:00`;
+  const endDate = `${end} 23:59:59`;
+  params.push(startDate, endDate);
 
   if (employee) {
     where += ` AND tt.employee_name = ?`;
