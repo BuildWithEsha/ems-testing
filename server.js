@@ -2188,13 +2188,15 @@ app.get('/api/reports/timelog', async (req, res) => {
 
   const query = `
     SELECT tt.employee_name, t.title AS task_title, t.labels, t.priority,
-           DATE_FORMAT(CONVERT_TZ(tt.start_time, '+00:00', '+05:00'), '%Y-%m-%d') as log_date,
+           DATE_FORMAT(tt.start_time, '%Y-%m-%d') as log_date,
            SUM(
              CASE 
-               WHEN tt.hours_logged_seconds > 0 THEN tt.hours_logged_seconds
-               WHEN tt.hours_logged > 0 THEN tt.hours_logged
+               WHEN tt.hours_logged_seconds IS NOT NULL AND tt.hours_logged_seconds != 0 
+                 THEN ABS(tt.hours_logged_seconds)
+               WHEN tt.hours_logged IS NOT NULL AND tt.hours_logged != 0 
+                 THEN ABS(tt.hours_logged)
                WHEN tt.start_time IS NOT NULL AND tt.end_time IS NOT NULL THEN 
-                 TIMESTAMPDIFF(SECOND, tt.start_time, tt.end_time)
+                 ABS(TIMESTAMPDIFF(SECOND, tt.start_time, tt.end_time))
                ELSE 0
              END
            ) as seconds
@@ -2250,10 +2252,12 @@ app.get('/api/reports/timelog/consolidated', async (req, res) => {
       t.priority,
       SUM(
         CASE 
-          WHEN tt.hours_logged_seconds > 0 THEN tt.hours_logged_seconds
-          WHEN tt.hours_logged > 0 THEN tt.hours_logged
+          WHEN tt.hours_logged_seconds IS NOT NULL AND tt.hours_logged_seconds != 0 
+            THEN ABS(tt.hours_logged_seconds)
+          WHEN tt.hours_logged IS NOT NULL AND tt.hours_logged != 0 
+            THEN ABS(tt.hours_logged)
           WHEN tt.start_time IS NOT NULL AND tt.end_time IS NOT NULL THEN 
-            TIMESTAMPDIFF(SECOND, tt.start_time, tt.end_time)
+            ABS(TIMESTAMPDIFF(SECOND, tt.start_time, tt.end_time))
           ELSE 0
         END
       ) as seconds
@@ -6382,31 +6386,35 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                 }
                 
                 const task = tasks[0];
-                // Format timer_started_at from DATETIME to ISO format (same as /api/tasks endpoint)
-                let timerValue;
-                if (task.timer_started_at instanceof Date) {
-                  timerValue = task.timer_started_at.toISOString();
-                } else {
-                  const timerStr = String(task.timer_started_at);
-                  // If already in ISO format (has T), ensure it has Z
-                  if (timerStr.includes('T')) {
-                    timerValue = timerStr.includes('Z') ? timerStr : timerStr + (timerStr.includes('.') ? 'Z' : '.000Z');
-                  } else {
-                    // Convert "YYYY-MM-DD HH:mm:ss" to "YYYY-MM-DDTHH:mm:ss.000Z" (matching backup)
-                    timerValue = timerStr.replace(' ', 'T') + '.000Z';
-                  }
-                }
-                const startTime = new Date(timerValue);
+                // Get current time for end time
                 const endTime = new Date();
+                
+                // Parse timer_started_at - MySQL returns it as local server time (PKT)
+                // We need to handle it consistently without double timezone conversion
+                let startTime;
+                if (task.timer_started_at instanceof Date) {
+                  startTime = task.timer_started_at;
+                } else {
+                  // MySQL DATETIME string "YYYY-MM-DD HH:mm:ss" is in server's local timezone
+                  // Parse it correctly without adding Z (which would treat it as UTC)
+                  const timerStr = String(task.timer_started_at);
+                  startTime = new Date(timerStr.replace(' ', 'T'));
+                }
                 
                 // Calculate actual duration in seconds (for fallback only)
                 const actualDurationSeconds = Math.floor((endTime - startTime) / 1000);
                 
                 // ✅ ALWAYS trust frontend's loggedSeconds if it exists
                 // Backend calculation is ONLY fallback when frontend value is missing
-                const finalLoggedSeconds = (loggedSeconds && loggedSeconds > 0) 
+                let finalLoggedSeconds = (loggedSeconds && loggedSeconds > 0) 
                   ? loggedSeconds  // Frontend wins - most accurate
                   : actualDurationSeconds; // Fallback only if frontend missing
+                
+                // ✅ SAFEGUARD: Ensure logged seconds is never negative
+                if (finalLoggedSeconds < 0) {
+                  console.warn(`⚠️ Negative duration detected (${finalLoggedSeconds}s) for task ${taskId}, using absolute value`);
+                  finalLoggedSeconds = Math.abs(finalLoggedSeconds);
+                }
                 
                 const updateQuery = `
                   UPDATE tasks SET 
@@ -6435,19 +6443,29 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                   `;
                   
                 try {
-                  // Use local Pakistan time for timesheet entries
-                  const localStartTime = new Date(startTime.toLocaleString('sv-SE', { timeZone: 'Asia/Karachi' }).replace(' ', 'T') + '.000Z');
-                  const localEndTime = new Date(endTime.toLocaleString('sv-SE', { timeZone: 'Asia/Karachi' }).replace(' ', 'T') + '.000Z');
+                  // Format times for MySQL DATETIME storage
+                  // Use consistent formatting: store as local Pakistan time strings
+                  const formatForMySQL = (date) => {
+                    // Convert to Pakistan timezone string for MySQL storage
+                    const pktString = date.toLocaleString('sv-SE', { timeZone: 'Asia/Karachi' });
+                    return pktString; // Returns "YYYY-MM-DD HH:mm:ss" format
+                  };
+                  
+                  const startTimeForDB = formatForMySQL(startTime);
+                  const endTimeForDB = formatForMySQL(endTime);
+                  
+                  // Ensure hours_logged_seconds is positive
+                  const safeLoggedSeconds = Math.abs(finalLoggedSeconds);
                   
                   await connection.execute(timesheetQuery, [
                     taskId,
                     user_name || 'Admin',
                     user_id || 1,
-                    sanitizeForMySQL(localStartTime.toISOString()),
-                    sanitizeForMySQL(localEndTime.toISOString()),
+                    sanitizeForMySQL(startTimeForDB),
+                    sanitizeForMySQL(endTimeForDB),
                     memo || '',
-                    finalLoggedSeconds,
-                    finalLoggedSeconds
+                    safeLoggedSeconds,
+                    safeLoggedSeconds
                   ]);
                 } catch (timesheetErr) {
                   console.error('Error saving timesheet entry:', timesheetErr);
@@ -7407,10 +7425,11 @@ app.get('/api/tasks/:id/timesheet', async (req, res) => {
         DATE_FORMAT(tt.start_time, '%a %d %b %Y %H:%i') as formatted_start_time,
         DATE_FORMAT(tt.end_time, '%a %d %b %Y %H:%i') as formatted_end_time,
         -- Use hours_logged if available, otherwise calculate from start_time and end_time
+        -- Use ABS() to handle any legacy negative values
         CASE 
-          WHEN tt.hours_logged > 0 THEN tt.hours_logged
+          WHEN tt.hours_logged IS NOT NULL AND tt.hours_logged != 0 THEN ABS(tt.hours_logged)
           WHEN tt.start_time IS NOT NULL AND tt.end_time IS NOT NULL THEN 
-            TIMESTAMPDIFF(SECOND, tt.start_time, tt.end_time)
+            ABS(TIMESTAMPDIFF(SECOND, tt.start_time, tt.end_time))
           ELSE 0
         END as hours_logged_seconds
       FROM task_timesheet tt
@@ -7466,9 +7485,10 @@ app.get('/api/reports/dwm/details', async (req, res) => {
 
     if (wantCompleted) {
       // Completed tasks on that date (from history)
+      // Use ABS() to handle any legacy negative values in hours_logged
       const q = `
         SELECT t.id, t.title, t.status, t.labels, t.priority,
-               COALESCE(SUM(CASE WHEN date(ts.start_time) = ? THEN ts.hours_logged ELSE 0 END), 0) AS seconds
+               COALESCE(SUM(CASE WHEN date(ts.start_time) = ? THEN ABS(IFNULL(ts.hours_logged, 0)) ELSE 0 END), 0) AS seconds
         FROM task_history th
         JOIN tasks t ON t.id = th.task_id
         LEFT JOIN task_timesheet ts ON ts.task_id = t.id
@@ -8383,16 +8403,18 @@ app.get('/api/notifications/low-hours-employees', async (req, res) => {
         e.working_hours,
         COALESCE(SUM(
           CASE 
-            WHEN tt.hours_logged_seconds > 0 THEN tt.hours_logged_seconds
-            WHEN tt.hours_logged > 0 THEN tt.hours_logged
+            WHEN tt.hours_logged_seconds IS NOT NULL AND tt.hours_logged_seconds != 0 
+              THEN ABS(tt.hours_logged_seconds)
+            WHEN tt.hours_logged IS NOT NULL AND tt.hours_logged != 0 
+              THEN ABS(tt.hours_logged)
             WHEN tt.start_time IS NOT NULL AND tt.end_time IS NOT NULL THEN 
-              TIMESTAMPDIFF(SECOND, tt.start_time, tt.end_time)
+              ABS(TIMESTAMPDIFF(SECOND, tt.start_time, tt.end_time))
             ELSE 0
           END
         ), 0) as total_seconds
       FROM employees e
       LEFT JOIN task_timesheet tt ON tt.employee_name = e.name
-        AND DATE(CONVERT_TZ(tt.start_time, '+00:00', '+05:00')) = ?
+        AND DATE(tt.start_time) = ?
       WHERE e.status = 'Active'
       GROUP BY e.id, e.name, e.employee_id, e.department, e.working_hours
       HAVING total_seconds < ?
