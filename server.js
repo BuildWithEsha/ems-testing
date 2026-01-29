@@ -2188,7 +2188,7 @@ app.get('/api/reports/timelog', async (req, res) => {
 
   const query = `
     SELECT tt.employee_name, t.title AS task_title, t.labels, t.priority,
-           DATE_FORMAT(CONVERT_TZ(tt.start_time, '+00:00', '+05:00'), '%Y-%m-%d') as date,
+           DATE_FORMAT(CONVERT_TZ(tt.start_time, '+00:00', '+05:00'), '%Y-%m-%d') as log_date,
            SUM(
              CASE 
                WHEN tt.hours_logged_seconds > 0 THEN tt.hours_logged_seconds
@@ -2201,8 +2201,8 @@ app.get('/api/reports/timelog', async (req, res) => {
     FROM task_timesheet tt
     LEFT JOIN tasks t ON t.id = tt.task_id
     WHERE ${where}
-    GROUP BY tt.employee_name, t.title, date
-    ORDER BY date ASC
+    GROUP BY tt.employee_name, t.title, log_date
+    ORDER BY log_date ASC
   `;
   let connection;
   try {

@@ -702,7 +702,7 @@ const TimeLogReport = () => {
               <tr key={idx} className="border-b">
                 <td className="px-6 py-3">{r.employee_name}</td>
                 <td className="px-6 py-3">{r.task_title}</td>
-                <td className="px-6 py-3">{new Date(r.date).toLocaleDateString()}</td>
+                <td className="px-6 py-3">{new Date(r.log_date).toLocaleDateString()}</td>
                 <td className="px-6 py-3">{r.labels || '-'}</td>
                 <td className="px-6 py-3">{r.priority || '-'}</td>
                 <td className="px-6 py-3 text-right font-mono text-indigo-700">{formatHMS(r.seconds)}</td>
