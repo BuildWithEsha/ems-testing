@@ -9,11 +9,17 @@
 // - Weekly tasks are counted on the date that matches their due_date's weekday when due_date exists; otherwise, they are not included (insufficient data to infer weekday)
 
 function parseMinutesFromEstimate(task) {
+  // ✅ FIX: Combine both hours AND minutes (was only returning one or the other)
   const minutes = Number(task.time_estimate_minutes);
-  if (!Number.isNaN(minutes) && minutes > 0) return minutes;
-
   const hours = Number(task.time_estimate_hours);
-  if (!Number.isNaN(hours) && hours > 0) return Math.round(hours * 60);
+  
+  const validMinutes = !Number.isNaN(minutes) && minutes >= 0 ? minutes : 0;
+  const validHours = !Number.isNaN(hours) && hours >= 0 ? hours : 0;
+  
+  // If we have hours or minutes, combine them
+  if (validHours > 0 || validMinutes > 0) {
+    return Math.round(validHours * 60) + validMinutes;
+  }
 
   // Some backends may store a combined numeric minutes field named time_estimate
   if (typeof task.time_estimate === 'number' && Number.isFinite(task.time_estimate)) {
