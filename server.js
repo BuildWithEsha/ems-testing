@@ -2204,7 +2204,7 @@ app.get('/api/reports/timelog', async (req, res) => {
     FROM task_timesheet tt
     LEFT JOIN tasks t ON t.id = tt.task_id
     WHERE ${where}
-    GROUP BY tt.employee_name, t.title, log_date
+    GROUP BY tt.employee_name, t.title, t.labels, t.priority, log_date
     ORDER BY log_date ASC
   `;
   let connection;
