@@ -7,6 +7,7 @@ import AbsenceNotificationPanel from '../ui/AbsenceNotificationPanel';
 import CLETNotificationPanel from '../ui/CLETNotificationPanel';
 import MissedTaskNotificationPanel from '../ui/MissedTaskNotificationPanel';
 import LessTrainedEmployeeNotificationPanel from '../ui/LessTrainedEmployeeNotificationPanel';
+import LowHoursNotificationPanel from '../ui/LowHoursNotificationPanel';
 import NotificationBell from '../ui/NotificationBell';
 import ChangePasswordModal from '../ui/ChangePasswordModal';
 import { useNotifications } from '../../hooks/useNotifications';
@@ -14,6 +15,7 @@ import { useAbsenceNotifications } from '../../hooks/useAbsenceNotifications';
 import { useCLETNotifications } from '../../hooks/useCLETNotifications';
 import { useMissedTaskNotifications } from '../../hooks/useMissedTaskNotifications';
 import { useLessTrainedEmployeeNotifications } from '../../hooks/useLessTrainedEmployeeNotifications';
+import { useLowHoursNotifications } from '../../hooks/useLowHoursNotifications';
 
 const Header = ({ onSearch, onLogout, tasks, employees, onStartTimer, onStopTimer, onOpenTask }) => {
   const { user } = useAuth();
@@ -23,6 +25,7 @@ const Header = ({ onSearch, onLogout, tasks, employees, onStartTimer, onStopTime
   const [showAbsenceNotificationPanel, setShowAbsenceNotificationPanel] = useState(false);
   const [showCLETNotificationPanel, setShowCLETNotificationPanel] = useState(false);
   const [showLessTrainedEmployeeNotificationPanel, setShowLessTrainedEmployeeNotificationPanel] = useState(false);
+  const [showLowHoursNotificationPanel, setShowLowHoursNotificationPanel] = useState(false);
   const [showMissedTaskNotificationPanel, setShowMissedTaskNotificationPanel] = useState(false);
   const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
   const userMenuRef = useRef(null);
@@ -46,6 +49,9 @@ const Header = ({ onSearch, onLogout, tasks, employees, onStartTimer, onStopTime
   
   // LTE notification system for admin users
   const { lessTrainedEmployeeNotifications, hasLessTrainedEmployeeNotifications, loading: lessTrainedEmployeeNotificationsLoading, minTrainedThreshold, updateMinTrainedThreshold } = useLessTrainedEmployeeNotifications();
+  
+  // LHE (Low Hours Employees) notification system for admin users
+  const { lowHoursNotifications, hasLowHoursNotifications, loading: lowHoursNotificationsLoading, minHoursThreshold, selectedDate: lowHoursSelectedDate, updateMinHoursThreshold, updateSelectedDate: updateLowHoursDate } = useLowHoursNotifications();
   
   // MTW notification system for admin users
   const { missedTaskNotifications, hasMissedTaskNotifications, loading: missedTaskNotificationsLoading, daysThreshold, updateDaysThreshold } = useMissedTaskNotifications();
@@ -398,6 +404,30 @@ const Header = ({ onSearch, onLogout, tasks, employees, onStartTimer, onStopTime
               </button>
             )}
 
+            {/* LHE Notifications - Only show if user has lhe_view permission */}
+            {(user?.permissions?.includes('lhe_view') || user?.permissions?.includes('all') || user?.role === 'admin' || user?.role === 'Admin') && (
+              <button 
+                className="p-2 rounded-lg hover:bg-gray-100 relative transition-colors"
+                onClick={() => {
+                  setShowLowHoursNotificationPanel(true);
+                }}
+                title="Low Hours Employees Notifications"
+                disabled={lowHoursNotificationsLoading}
+              >
+                <span className={`text-sm font-medium ${lowHoursNotificationsLoading ? 'text-gray-400' : 'text-orange-600'}`}>LHE</span>
+                {hasLowHoursNotifications && !lowHoursNotificationsLoading && (
+                  <span className="absolute -top-1 -right-1 bg-orange-500 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center animate-pulse">
+                    {lowHoursNotifications.length}
+                  </span>
+                )}
+                {lowHoursNotificationsLoading && (
+                  <span className="absolute -top-1 -right-1 bg-gray-400 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center">
+                    <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  </span>
+                )}
+              </button>
+            )}
+
             {/* MTW Notifications - Only show if user has mtw_view permission */}
             {(user?.permissions?.includes('mtw_view') || user?.permissions?.includes('all') || user?.role === 'admin' || user?.role === 'Admin') && (
               <button 
@@ -560,6 +590,17 @@ const Header = ({ onSearch, onLogout, tasks, employees, onStartTimer, onStopTime
         lessTrainedEmployeeNotifications={lessTrainedEmployeeNotifications}
         minTrainedThreshold={minTrainedThreshold}
         onUpdateMinTrainedThreshold={updateMinTrainedThreshold}
+      />
+
+      {/* LHE (Low Hours Employees) Notification Panel */}
+      <LowHoursNotificationPanel
+        isOpen={showLowHoursNotificationPanel}
+        onClose={() => setShowLowHoursNotificationPanel(false)}
+        lowHoursNotifications={lowHoursNotifications}
+        minHoursThreshold={minHoursThreshold}
+        onUpdateMinHoursThreshold={updateMinHoursThreshold}
+        selectedDate={lowHoursSelectedDate}
+        onUpdateSelectedDate={updateLowHoursDate}
       />
 
       {/* MTW Notification Panel */}

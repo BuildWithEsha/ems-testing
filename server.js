@@ -8337,7 +8337,96 @@ app.get('/api/notifications/less-trained-employees', async (req, res) => {
   }
 });
 
+// Low Hours Employees Notifications API - employees who logged less than threshold hours
+app.get('/api/notifications/low-hours-employees', async (req, res) => {
+  const userRole = req.headers['x-user-role'];
+  const userPermissions = req.headers['x-user-permissions'];
+  const { date, minHours = 8 } = req.query;
 
+  if (!userRole || !userPermissions) {
+    return res.status(401).json({ error: 'User role and permissions required' });
+  }
+
+  let permissions;
+  try {
+    permissions = JSON.parse(userPermissions);
+  } catch (e) {
+    return res.status(400).json({ error: 'Invalid permissions format' });
+  }
+
+  // Check permission (use lhe_view or fall back to admin/all)
+  if (!permissions.includes('lhe_view') && !permissions.includes('all') && userRole !== 'admin' && userRole !== 'Admin') {
+    console.log(`Access denied: User role ${userRole} attempted to access Low Hours notifications without permission`);
+    return res.status(403).json({
+      error: 'Access denied. You do not have permission to view Low Hours notifications.',
+      requiredPermission: 'lhe_view'
+    });
+  }
+
+  let connection;
+  try {
+    connection = await mysqlPool.getConnection();
+    await connection.ping();
+
+    // Use provided date or default to today
+    const targetDate = date || new Date().toISOString().split('T')[0];
+    const minSeconds = parseFloat(minHours) * 3600; // Convert hours to seconds
+
+    console.log(`🔔 Low Hours Notifications: Fetching employees who logged less than ${minHours} hours on ${targetDate}`);
+
+    const query = `
+      SELECT 
+        e.id,
+        e.name,
+        e.employee_id,
+        e.department,
+        e.working_hours,
+        COALESCE(SUM(
+          CASE 
+            WHEN tt.hours_logged_seconds > 0 THEN tt.hours_logged_seconds
+            WHEN tt.hours_logged > 0 THEN tt.hours_logged
+            WHEN tt.start_time IS NOT NULL AND tt.end_time IS NOT NULL THEN 
+              TIMESTAMPDIFF(SECOND, tt.start_time, tt.end_time)
+            ELSE 0
+          END
+        ), 0) as total_seconds
+      FROM employees e
+      LEFT JOIN task_timesheet tt ON tt.employee_name = e.name
+        AND DATE(CONVERT_TZ(tt.start_time, '+00:00', '+05:00')) = ?
+      WHERE e.status = 'Active'
+      GROUP BY e.id, e.name, e.employee_id, e.department, e.working_hours
+      HAVING total_seconds < ?
+      ORDER BY total_seconds ASC, e.department, e.name
+    `;
+
+    console.log('🔔 Low Hours Debug: Executing query with date and minSeconds:', targetDate, minSeconds);
+    const [rows] = await connection.execute(query, [targetDate, minSeconds]);
+    console.log(`🔔 Low Hours Debug: Query result rows: ${rows.length}`);
+
+    const formattedNotifications = rows.map(row => ({
+      employeeId: row.id,
+      employeeName: row.name,
+      employeeCode: row.employee_id,
+      department: row.department || 'Unassigned',
+      shiftHours: row.working_hours || 8,
+      loggedSeconds: parseInt(row.total_seconds) || 0,
+      loggedHours: ((parseInt(row.total_seconds) || 0) / 3600).toFixed(2),
+      requiredHours: parseFloat(minHours),
+      shortfallSeconds: Math.max(0, minSeconds - (parseInt(row.total_seconds) || 0)),
+      shortfallHours: Math.max(0, parseFloat(minHours) - ((parseInt(row.total_seconds) || 0) / 3600)).toFixed(2),
+      date: targetDate
+    }));
+
+    res.json(formattedNotifications);
+  } catch (err) {
+    console.error('Error fetching Low Hours notifications:', err);
+    res.status(500).json({ error: 'Database error' });
+  } finally {
+    if (connection) {
+      connection.release();
+    }
+  }
+});
 
 // Helper: reset recurring tasks to Pending (labels include daily/weekly/monthly)
 async function resetRecurringTasks(callback) {
