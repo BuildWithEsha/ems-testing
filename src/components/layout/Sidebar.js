@@ -123,13 +123,13 @@ const Sidebar = ({ currentView, onViewChange }) => {
   const menuItems = getMenuItems();
 
   return (
-    <div className="w-64 bg-white shadow-lg h-screen">
-      <div className="p-6">
+    <div className="w-64 flex flex-col bg-white shadow-lg h-screen overflow-hidden">
+      <div className="flex-shrink-0 p-6">
         <h1 className="text-2xl font-bold text-indigo-600">EMS</h1>
         <p className="text-sm text-gray-500">Employee Management System</p>
       </div>
-      
-      <nav className="mt-6">
+
+      <nav className="flex-1 min-h-0 overflow-y-auto mt-2 pb-4">
         {menuItems.map((item) => {
           if (item.group === 'hr') {
             const Icon = item.icon;

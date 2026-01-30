@@ -573,9 +573,11 @@ const AuthenticatedApp = () => {
   };
 
   return (
-    <div className="flex h-screen bg-gray-50">
-      {/* Sidebar */}
-      <Sidebar currentView={view} onViewChange={handleViewChange} />
+    <div className="flex h-screen overflow-hidden bg-gray-50">
+      {/* Sidebar - flex-shrink-0 so it keeps fixed width and doesn't participate in overflow */}
+      <div className="flex-shrink-0 h-screen">
+        <Sidebar currentView={view} onViewChange={handleViewChange} />
+      </div>
       
       {/* Main Content */}
       <div className="flex-1 flex flex-col overflow-hidden">
