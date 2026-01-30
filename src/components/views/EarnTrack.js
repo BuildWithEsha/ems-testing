@@ -4,6 +4,10 @@ import { Play, Pause, RefreshCw, Settings, Wallet, Sparkles, Target, Sun, Moon }
 const STORAGE_KEY = 'ems_earnTrackState';
 const THEME_KEY = 'ems_earnTrackTheme';
 
+/**
+ * Quotes: loaded from this array (no API). "Get Motivation" shows one; refresh cycles to next (quoteIndex % length).
+ * Tracking: Start sets sessionStartTime = Date.now(). requestAnimationFrame runs updateEarnings: earnings = (now - sessionStartTime)/3600000 * hourlyRate; setCurrentSessionEarnings(earnings). Stop pushes { startTime, endTime, earnings, durationSeconds } to sessions and clears session. Total = totalSavedEarnings + sum(sessions.earnings) + currentSessionEarnings. State persisted to localStorage on change.
+ */
 const MOTIVATION_QUOTES = [
   { message: 'Time is money. Make it count!', tip: 'Stay focused on the goal.' },
   { message: 'Every hour you track is an hour you own.', tip: 'Track time, own results.' },
@@ -35,20 +39,20 @@ function TargetProgress({ type, target, current, hourlyRate, dark }) {
   }, [type]);
 
   const cardClass = dark
-    ? 'bg-slate-800/50 border-slate-700/50'
+    ? 'bg-gray-800/60 border-gray-700/50'
     : 'bg-white/80 border-gray-200 shadow-sm';
-  const labelClass = dark ? 'text-slate-400' : 'text-gray-500';
-  const valueClass = dark ? 'text-white' : 'text-gray-900';
-  const mutedClass = dark ? 'text-slate-600' : 'text-gray-400';
-  const barBgClass = dark ? 'bg-slate-900' : 'bg-gray-200';
-  const tipClass = dark ? 'text-slate-500' : 'text-gray-500';
+  const labelClass = dark ? 'text-gray-400' : 'text-gray-500';
+  const valueClass = dark ? 'text-gray-100' : 'text-gray-900';
+  const mutedClass = dark ? 'text-gray-500' : 'text-gray-400';
+  const barBgClass = dark ? 'bg-gray-900' : 'bg-gray-200';
+  const tipClass = dark ? 'text-gray-500' : 'text-gray-500';
   const successClass = 'text-emerald-500 font-bold';
 
   return (
     <div className={`border rounded-xl p-4 w-full mb-3 ${cardClass}`}>
       <div className="flex justify-between items-center mb-2">
         <h3 className={`text-[10px] uppercase tracking-wider font-semibold flex items-center gap-1.5 ${labelClass}`}>
-          <Target className="w-3 h-3 text-cyan-500" />
+          <Target className={`w-3 h-3 ${dark ? 'text-gray-400' : 'text-indigo-500'}`} />
           {type}ly Goal
         </h3>
         <span className={`text-xs font-mono font-medium ${valueClass}`}>
@@ -57,7 +61,7 @@ function TargetProgress({ type, target, current, hourlyRate, dark }) {
       </div>
       <div className={`h-1.5 w-full rounded-full overflow-hidden mb-2 ${barBgClass}`}>
         <div
-          className="h-full bg-gradient-to-r from-cyan-500 to-emerald-500 transition-all duration-500 ease-out"
+          className="h-full bg-gradient-to-r from-indigo-500 to-emerald-500 transition-all duration-500 ease-out"
           style={{ width: `${percentage}%` }}
         />
       </div>
@@ -88,7 +92,7 @@ function MotivationCard({ currentEarnings, hourlyRate, isWorking, quoteIndex, on
       <div className="mt-4 flex justify-center">
         <button
           onClick={() => setShowCard(true)}
-          className={`flex items-center gap-2 text-xs transition-colors ${dark ? 'text-slate-500 hover:text-cyan-400' : 'text-gray-500 hover:text-cyan-600'}`}
+          className={`flex items-center gap-2 text-xs transition-colors ${dark ? 'text-gray-500 hover:text-gray-300' : 'text-gray-500 hover:text-indigo-600'}`}
         >
           <Sparkles className="w-3 h-3" />
           <span>Get Motivation</span>
@@ -98,23 +102,23 @@ function MotivationCard({ currentEarnings, hourlyRate, isWorking, quoteIndex, on
   }
 
   const cardClass = dark
-    ? 'from-slate-800 to-slate-900 border-slate-700/50'
+    ? 'from-gray-800 to-gray-900 border-gray-700/50'
     : 'from-gray-100 to-gray-200 border-gray-200 shadow';
-  const textClass = dark ? 'text-slate-200' : 'text-gray-800';
-  const tipClass = 'text-cyan-600 font-bold';
+  const textClass = dark ? 'text-gray-200' : 'text-gray-800';
+  const tipAccent = 'text-indigo-500 font-bold';
 
   return (
     <div className={`mt-6 bg-gradient-to-br border rounded-xl p-4 relative overflow-hidden ${cardClass}`}>
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className={`text-sm font-medium italic mb-1 ${textClass}`}>"{quote.message}"</p>
-          <div className={`text-[10px] uppercase tracking-wide ${tipClass}`}>
+          <div className={`text-[10px] uppercase tracking-wide ${tipAccent}`}>
             Tip: {quote.tip}
           </div>
         </div>
         <button
           onClick={onNextQuote}
-          className={dark ? 'text-slate-500 hover:text-white transition-colors' : 'text-gray-500 hover:text-gray-900 transition-colors'}
+          className={dark ? 'text-gray-500 hover:text-gray-200 transition-colors' : 'text-gray-500 hover:text-gray-900 transition-colors'}
           title="Next quote"
         >
           <RefreshCw className="w-3 h-3" />
@@ -269,27 +273,28 @@ export default function EarnTrack() {
   const currentMonthEarnings = historyStats.month + (isWorking ? currentSessionEarnings : 0);
 
   const isDark = darkMode;
-  const bgBase = isDark ? 'bg-slate-900 text-slate-100' : 'bg-gray-50 text-gray-900';
+  const bgBase = isDark ? 'bg-gray-950 text-gray-100' : 'bg-gray-50 text-gray-900';
+  const inputBase = 'w-24 max-w-[7rem] border rounded py-1.5 text-xs focus:outline-none focus:ring-1 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none';
   const inputClass = isDark
-    ? 'bg-slate-800 border-slate-700 text-white focus:border-cyan-500'
-    : 'bg-white border-gray-300 text-gray-900 focus:border-indigo-500';
-  const headerIconBg = isWorking ? 'bg-emerald-500/20 text-emerald-500' : isDark ? 'bg-slate-800 text-slate-400' : 'bg-gray-200 text-gray-500';
-  const settingsPanelClass = isDark ? 'bg-slate-800/90 border-slate-700' : 'bg-white border-gray-200 shadow';
+    ? `${inputBase} bg-gray-800 border-gray-600 text-white focus:border-gray-500 pl-6`
+    : `${inputBase} bg-white border-gray-300 text-gray-900 focus:border-indigo-500 pl-6`;
+  const headerIconBg = isWorking ? 'bg-emerald-500/20 text-emerald-500' : isDark ? 'bg-gray-800 text-gray-400' : 'bg-gray-200 text-gray-500';
+  const settingsPanelClass = isDark ? 'bg-gray-800/95 border-gray-700' : 'bg-white border-gray-200 shadow';
 
   return (
     <div className={`flex flex-col min-h-full rounded-lg overflow-hidden ${bgBase}`}>
-      <div className="flex flex-col flex-1 p-6 relative">
-        {/* Ambient blurs */}
+      <div className="flex flex-col flex-1 p-6 relative max-w-md mx-auto w-full">
+        {/* Subtle grey ambient (no blue) */}
         <div className="fixed inset-0 pointer-events-none overflow-hidden -z-10">
           <div
-            className={`absolute top-[-10%] left-[-10%] w-[200px] h-[200px] rounded-full blur-[60px] transition-opacity duration-700 ${
-              isWorking ? 'opacity-100' : 'opacity-40'
-            } ${isDark ? 'bg-blue-500/10' : 'bg-blue-400/20'}`}
+            className={`absolute top-[-10%] left-[-10%] w-[180px] h-[180px] rounded-full blur-[80px] transition-opacity duration-700 ${
+              isWorking ? 'opacity-30' : 'opacity-15'
+            } ${isDark ? 'bg-gray-600' : 'bg-gray-300'}`}
           />
           <div
-            className={`absolute bottom-[-10%] right-[-10%] w-[200px] h-[200px] rounded-full blur-[60px] transition-opacity duration-700 ${
-              isWorking ? 'opacity-100' : 'opacity-20'
-            } ${isDark ? 'bg-emerald-500/10' : 'bg-emerald-400/20'}`}
+            className={`absolute bottom-[-10%] right-[-10%] w-[180px] h-[180px] rounded-full blur-[80px] transition-opacity duration-700 ${
+              isWorking ? 'opacity-25' : 'opacity-10'
+            } ${isDark ? 'bg-gray-600' : 'bg-gray-300'}`}
           />
         </div>
 
@@ -299,74 +304,77 @@ export default function EarnTrack() {
             <div className={`p-1.5 rounded-md ${headerIconBg}`}>
               <Wallet className="w-4 h-4" />
             </div>
-            <h1 className={`text-sm font-bold tracking-wide ${isDark ? 'text-slate-200' : 'text-gray-800'}`}>
+            <h1 className={`text-sm font-bold tracking-wide ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>
               EarnTrack Pro
             </h1>
           </div>
           <div className="flex items-center gap-2">
             <button
               onClick={() => setDarkMode(!darkMode)}
-              className={`p-2 rounded-lg transition-colors ${isDark ? 'text-slate-400 hover:text-white hover:bg-slate-800' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-200'}`}
+              className={`p-2 rounded-lg transition-colors ${isDark ? 'text-gray-400 hover:text-gray-100 hover:bg-gray-800' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-200'}`}
               title={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
             >
               {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
             </button>
             <button
               onClick={() => setShowSettings(!showSettings)}
-              className={isDark ? 'text-slate-500 hover:text-white transition-colors' : 'text-gray-500 hover:text-gray-900 transition-colors'}
+              className={isDark ? 'text-gray-500 hover:text-gray-200 transition-colors' : 'text-gray-500 hover:text-gray-900 transition-colors'}
             >
               <Settings className="w-4 h-4" />
             </button>
           </div>
         </div>
 
-        {/* Settings panel */}
+        {/* Settings panel - centered, compact inputs */}
         {showSettings && (
           <div className={`mb-6 border rounded-lg p-4 relative z-20 ${settingsPanelClass}`}>
-            <div className="space-y-3">
-              <div>
-                <label className={`text-[10px] uppercase font-bold tracking-wider ${isDark ? 'text-slate-400' : 'text-gray-500'}`}>
+            <div className="space-y-3 flex flex-col items-center">
+              <div className="w-full flex flex-col items-center">
+                <label className={`text-[10px] uppercase font-bold tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
                   Hourly Rate
                 </label>
-                <div className="relative mt-1">
-                  <span className={`absolute left-2.5 top-1/2 -translate-y-1/2 text-xs ${isDark ? 'text-slate-500' : 'text-gray-400'}`}>$</span>
+                <div className="relative mt-1 flex justify-center">
+                  <span className={`absolute left-2 top-1/2 -translate-y-1/2 text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>$</span>
                   <input
                     type="number"
+                    min={0}
                     value={hourlyRate}
                     onChange={(e) => setHourlyRate(Number(e.target.value) || 0)}
-                    className={`w-full border rounded py-1.5 pl-5 pr-2 text-xs focus:outline-none focus:ring-1 ${inputClass}`}
+                    className={inputClass}
                   />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className={`text-[10px] uppercase font-bold tracking-wider ${isDark ? 'text-slate-400' : 'text-gray-500'}`}>
+              <div className="grid grid-cols-2 gap-3 w-full max-w-[14rem] mx-auto">
+                <div className="flex flex-col items-center">
+                  <label className={`text-[10px] uppercase font-bold tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
                     Weekly Goal
                   </label>
                   <input
                     type="number"
+                    min={0}
                     value={weeklyTarget || ''}
                     onChange={(e) => setWeeklyTarget(Number(e.target.value) || 0)}
                     placeholder="0"
-                    className={`w-full mt-1 border rounded py-1.5 px-2 text-xs focus:outline-none focus:ring-1 ${inputClass}`}
+                    className={`mt-1 text-center ${inputClass} w-full`}
                   />
                 </div>
-                <div>
-                  <label className={`text-[10px] uppercase font-bold tracking-wider ${isDark ? 'text-slate-400' : 'text-gray-500'}`}>
+                <div className="flex flex-col items-center">
+                  <label className={`text-[10px] uppercase font-bold tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
                     Monthly Goal
                   </label>
                   <input
                     type="number"
+                    min={0}
                     value={monthlyTarget || ''}
                     onChange={(e) => setMonthlyTarget(Number(e.target.value) || 0)}
                     placeholder="0"
-                    className={`w-full mt-1 border rounded py-1.5 px-2 text-xs focus:outline-none focus:ring-1 ${inputClass}`}
+                    className={`mt-1 text-center ${inputClass} w-full`}
                   />
                 </div>
               </div>
               <button
                 onClick={handleReset}
-                className="w-full flex items-center justify-center gap-1.5 text-[10px] text-red-500 hover:bg-red-500/10 py-2 rounded mt-2 transition-colors"
+                className="w-full max-w-[10rem] flex items-center justify-center gap-1.5 text-[10px] text-red-500 hover:bg-red-500/10 py-2 rounded mt-2 transition-colors"
               >
                 <RefreshCw className="w-3 h-3" /> Reset History
               </button>
@@ -374,15 +382,15 @@ export default function EarnTrack() {
           </div>
         )}
 
-        {/* Main content */}
+        {/* Main content - centered */}
         <div className="flex-1 flex flex-col items-center justify-center relative z-10">
           <div className="text-center mb-8">
-            <span className={`text-[10px] uppercase tracking-[0.2em] font-medium ${isDark ? 'text-slate-500' : 'text-gray-500'}`}>
+            <span className={`text-[10px] uppercase tracking-[0.2em] font-medium ${isDark ? 'text-gray-500' : 'text-gray-500'}`}>
               Total Earnings
             </span>
             <div className="relative mt-2 mb-6">
-              <span className={`text-4xl sm:text-5xl font-bold font-mono tracking-tight ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                <span className={isDark ? 'text-slate-600 mr-1' : 'text-gray-400 mr-1'}>$</span>
+              <span className={`text-4xl sm:text-5xl font-bold font-mono tracking-tight ${isDark ? 'text-gray-100' : 'text-gray-900'}`}>
+                <span className={isDark ? 'text-gray-500 mr-1' : 'text-gray-400 mr-1'}>$</span>
                 {formatMoney(displayAmount)}
               </span>
               {isWorking && (
@@ -399,8 +407,8 @@ export default function EarnTrack() {
                 group relative overflow-hidden rounded-full px-8 py-3 transition-all duration-300 transform active:scale-95 shadow-xl
                 ${
                   isWorking
-                    ? 'bg-slate-800 border border-rose-500/30 text-rose-400 hover:bg-rose-500/10'
-                    : 'bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white shadow-lg shadow-cyan-500/20'
+                    ? 'bg-gray-800 border border-rose-500/30 text-rose-400 hover:bg-rose-500/10'
+                    : 'bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-400 hover:to-indigo-500 text-white shadow-lg'
                 }
               `}
             >
@@ -416,7 +424,7 @@ export default function EarnTrack() {
                 )}
               </div>
             </button>
-            <div className={`mt-4 text-[10px] font-mono ${isDark ? 'text-slate-600' : 'text-gray-400'}`}>
+            <div className={`mt-4 text-[10px] font-mono ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
               ${hourlyRate} / hour
             </div>
           </div>
@@ -439,7 +447,7 @@ export default function EarnTrack() {
           </div>
         </div>
 
-        <div className="relative z-10">
+        <div className="relative z-10 w-full max-w-[280px] mx-auto">
           <MotivationCard
             currentEarnings={displayAmount}
             hourlyRate={hourlyRate}
