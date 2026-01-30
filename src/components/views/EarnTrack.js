@@ -255,7 +255,7 @@ export default function EarnTrack() {
 
   return (
     <div className={`flex flex-col min-h-full rounded-lg overflow-hidden ${bgBase}`}>
-      <div className="flex flex-col flex-1 p-6 relative w-full max-w-4xl mx-auto">
+      <div className="flex flex-col flex-1 p-6 relative w-full max-w-5xl mx-auto">
         {/* Subtle grey ambient */}
         <div className="fixed inset-0 pointer-events-none overflow-hidden -z-10">
           <div
@@ -270,7 +270,7 @@ export default function EarnTrack() {
           />
         </div>
 
-        {/* Header - logo, name, dark/light, settings (unchanged) */}
+        {/* Header - logo, name, theme + settings */}
         <div className="flex justify-between items-center mb-6 relative z-10">
           <div className="flex items-center gap-2">
             <div className={`p-1.5 rounded-md ${headerIconBg}`}>
@@ -290,135 +290,183 @@ export default function EarnTrack() {
             </button>
             <button
               onClick={() => setShowSettings(!showSettings)}
-              className={isDark ? 'text-gray-500 hover:text-gray-200 transition-colors' : 'text-gray-500 hover:text-gray-900 transition-colors'}
+              className={`p-2 rounded-lg transition-colors ${isDark ? 'text-gray-500 hover:text-gray-200 hover:bg-gray-800' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-200'} ${showSettings ? (isDark ? 'bg-gray-800' : 'bg-gray-200') : ''}`}
+              title={showSettings ? 'Close settings' : 'Open settings'}
             >
               <Settings className="w-4 h-4" />
             </button>
           </div>
         </div>
 
-        {/* Settings panel - centered, compact */}
-        {showSettings && (
-          <div className={`mb-6 border rounded-lg p-4 relative z-20 ${settingsPanelClass}`}>
-            <div className="space-y-3 flex flex-col items-center">
-              <div className="w-full flex flex-col items-center">
+        {/* Main + Right settings: two-column layout */}
+        <div className="flex-1 flex flex-row gap-8 lg:gap-10 relative z-10 min-h-0">
+          {/* Left: main content (Total + Start/Stop + goals) */}
+          <div className="flex-1 flex flex-col lg:flex-row items-center justify-center gap-10 lg:gap-14 min-w-0">
+            <div className="flex flex-col items-center shrink-0">
+              <span className={`text-[10px] uppercase tracking-[0.2em] font-medium ${isDark ? 'text-gray-500' : 'text-gray-500'}`}>
+                Total Earnings
+              </span>
+              <div className="relative mt-2 mb-4">
+                <span className={`text-4xl sm:text-5xl font-bold font-mono tracking-tight ${isDark ? 'text-gray-100' : 'text-gray-900'}`}>
+                  <span className={isDark ? 'text-gray-500 mr-1' : 'text-gray-400 mr-1'}>$</span>
+                  {formatMoney(displayAmount)}
+                </span>
+                {isWorking && (
+                  <span className="absolute -top-3 -right-6 flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-600 opacity-60" />
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-green-700" />
+                  </span>
+                )}
+              </div>
+
+              <button
+                onClick={handleToggleWork}
+                className={`
+                  rounded-full px-8 py-3 transition-all duration-300 transform active:scale-95
+                  ${
+                    isWorking
+                      ? 'bg-gray-700 border border-gray-500 text-gray-300 hover:bg-gray-600'
+                      : 'bg-gray-600 hover:bg-gray-500 text-white'
+                  }
+                `}
+              >
+                <div className="flex items-center gap-2 font-semibold text-sm">
+                  {isWorking ? (
+                    <>
+                      <Pause className="w-4 h-4" /> Stop Tracking
+                    </>
+                  ) : (
+                    <>
+                      <Play className="w-4 h-4 fill-current" /> Start Tracking
+                    </>
+                  )}
+                </div>
+              </button>
+              <div className={`mt-3 text-[10px] font-mono ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                ${hourlyRate} / hour
+              </div>
+            </div>
+
+            <div className="flex flex-row gap-4 flex-1 max-w-[480px] min-w-0">
+              <TargetProgress
+                type="Week"
+                target={weeklyTarget}
+                current={currentWeekEarnings}
+                hourlyRate={hourlyRate}
+                dark={isDark}
+              />
+              <TargetProgress
+                type="Month"
+                target={monthlyTarget}
+                current={currentMonthEarnings}
+                hourlyRate={hourlyRate}
+                dark={isDark}
+              />
+            </div>
+          </div>
+
+          {/* Right: settings stacked vertically — visible when settings button is toggled on; on lg+ inline, on mobile as drawer */}
+          <div
+            className={`hidden flex-col w-52 shrink-0 border rounded-xl p-4 gap-5 self-start ${settingsPanelClass} ${showSettings ? 'lg:flex' : ''}`}
+          >
+            <div className="flex items-center gap-2 shrink-0">
+              <Settings className={`w-4 h-4 ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
+              <span className={`text-[10px] uppercase font-bold tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                Settings
+              </span>
+            </div>
+            <div className="flex flex-col gap-4 flex-1 min-h-0">
+              <div className="flex flex-col gap-1">
                 <label className={`text-[10px] uppercase font-bold tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
                   Hourly Rate
                 </label>
-                <div className="relative mt-1 flex justify-center">
+                <div className="relative">
                   <span className={`absolute left-2 top-1/2 -translate-y-1/2 text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>$</span>
                   <input
                     type="number"
                     min={0}
                     value={hourlyRate}
                     onChange={(e) => setHourlyRate(Number(e.target.value) || 0)}
-                    className={inputClass}
+                    className={`${inputClass} w-full`}
                   />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-3 w-full max-w-[14rem] mx-auto">
-                <div className="flex flex-col items-center">
-                  <label className={`text-[10px] uppercase font-bold tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                    Weekly Goal
-                  </label>
-                  <input
-                    type="number"
-                    min={0}
-                    value={weeklyTarget || ''}
-                    onChange={(e) => setWeeklyTarget(Number(e.target.value) || 0)}
-                    placeholder="0"
-                    className={`mt-1 text-center ${inputClass} w-full`}
-                  />
-                </div>
-                <div className="flex flex-col items-center">
-                  <label className={`text-[10px] uppercase font-bold tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                    Monthly Goal
-                  </label>
-                  <input
-                    type="number"
-                    min={0}
-                    value={monthlyTarget || ''}
-                    onChange={(e) => setMonthlyTarget(Number(e.target.value) || 0)}
-                    placeholder="0"
-                    className={`mt-1 text-center ${inputClass} w-full`}
-                  />
-                </div>
+              <div className="flex flex-col gap-1">
+                <label className={`text-[10px] uppercase font-bold tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                  Weekly Goal
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  value={weeklyTarget || ''}
+                  onChange={(e) => setWeeklyTarget(Number(e.target.value) || 0)}
+                  placeholder="0"
+                  className={`${inputClass} w-full`}
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className={`text-[10px] uppercase font-bold tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                  Monthly Goal
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  value={monthlyTarget || ''}
+                  onChange={(e) => setMonthlyTarget(Number(e.target.value) || 0)}
+                  placeholder="0"
+                  className={`${inputClass} w-full`}
+                />
               </div>
               <button
                 onClick={handleReset}
-                className="w-full max-w-[10rem] flex items-center justify-center gap-1.5 text-[10px] text-red-600 hover:bg-red-500/10 py-2 rounded mt-2 transition-colors"
+                className="flex items-center justify-center gap-1.5 text-[10px] text-red-600 hover:bg-red-500/10 py-2 rounded-lg mt-1 transition-colors"
               >
                 <RefreshCw className="w-3 h-3" /> Reset History
               </button>
             </div>
           </div>
-        )}
 
-        {/* Main content - horizontal PC layout */}
-        <div className="flex-1 flex flex-row items-center justify-center gap-10 lg:gap-14 relative z-10">
-          {/* Left: Total + Start/Stop + rate */}
-          <div className="flex flex-col items-center shrink-0">
-            <span className={`text-[10px] uppercase tracking-[0.2em] font-medium ${isDark ? 'text-gray-500' : 'text-gray-500'}`}>
-              Total Earnings
-            </span>
-            <div className="relative mt-2 mb-4">
-              <span className={`text-4xl sm:text-5xl font-bold font-mono tracking-tight ${isDark ? 'text-gray-100' : 'text-gray-900'}`}>
-                <span className={isDark ? 'text-gray-500 mr-1' : 'text-gray-400 mr-1'}>$</span>
-                {formatMoney(displayAmount)}
-              </span>
-              {isWorking && (
-                <span className="absolute -top-3 -right-6 flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-600 opacity-60" />
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-green-700" />
-                </span>
-              )}
-            </div>
-
-            <button
-              onClick={handleToggleWork}
-              className={`
-                rounded-full px-8 py-3 transition-all duration-300 transform active:scale-95
-                ${
-                  isWorking
-                    ? 'bg-gray-700 border border-gray-500 text-gray-300 hover:bg-gray-600'
-                    : 'bg-gray-600 hover:bg-gray-500 text-white'
-                }
-              `}
-            >
-              <div className="flex items-center gap-2 font-semibold text-sm">
-                {isWorking ? (
-                  <>
-                    <Pause className="w-4 h-4" /> Stop Tracking
-                  </>
-                ) : (
-                  <>
-                    <Play className="w-4 h-4 fill-current" /> Start Tracking
-                  </>
-                )}
+          {/* Mobile: toggle settings visibility */}
+          <button
+            onClick={() => setShowSettings(!showSettings)}
+            className="lg:hidden fixed bottom-20 right-4 p-2 rounded-full border shadow-lg z-20 bg-gray-800 text-gray-300 border-gray-600 hover:bg-gray-700"
+            title="Settings"
+          >
+            <Settings className="w-5 h-5" />
+          </button>
+          {showSettings && (
+            <div className="lg:hidden fixed inset-0 z-30 bg-black/50 flex items-end justify-end" onClick={() => setShowSettings(false)}>
+              <div
+                className={`w-full max-w-sm rounded-t-xl p-4 pb-8 ${settingsPanelClass}`}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center justify-between mb-4">
+                  <span className={`text-xs font-bold uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Settings</span>
+                  <button onClick={() => setShowSettings(false)} className="p-1 text-gray-500 hover:text-gray-300">×</button>
+                </div>
+                <div className="space-y-4">
+                  <div>
+                    <label className={`text-[10px] uppercase font-bold tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Hourly Rate</label>
+                    <div className="relative mt-1">
+                      <span className={`absolute left-2 top-1/2 -translate-y-1/2 text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>$</span>
+                      <input type="number" min={0} value={hourlyRate} onChange={(e) => setHourlyRate(Number(e.target.value) || 0)} className={`${inputClass} w-full`} />
+                    </div>
+                  </div>
+                  <div>
+                    <label className={`text-[10px] uppercase font-bold tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Weekly Goal</label>
+                    <input type="number" min={0} value={weeklyTarget || ''} onChange={(e) => setWeeklyTarget(Number(e.target.value) || 0)} placeholder="0" className={`mt-1 ${inputClass} w-full`} />
+                  </div>
+                  <div>
+                    <label className={`text-[10px] uppercase font-bold tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Monthly Goal</label>
+                    <input type="number" min={0} value={monthlyTarget || ''} onChange={(e) => setMonthlyTarget(Number(e.target.value) || 0)} placeholder="0" className={`mt-1 ${inputClass} w-full`} />
+                  </div>
+                  <button onClick={handleReset} className="flex items-center justify-center gap-1.5 text-[10px] text-red-600 hover:bg-red-500/10 py-2 rounded-lg w-full">
+                    <RefreshCw className="w-3 h-3" /> Reset History
+                  </button>
+                </div>
               </div>
-            </button>
-            <div className={`mt-3 text-[10px] font-mono ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
-              ${hourlyRate} / hour
             </div>
-          </div>
-
-          {/* Right: Week + Month goals side by side */}
-          <div className="flex flex-row gap-4 flex-1 max-w-[480px] min-w-0">
-            <TargetProgress
-              type="Week"
-              target={weeklyTarget}
-              current={currentWeekEarnings}
-              hourlyRate={hourlyRate}
-              dark={isDark}
-            />
-            <TargetProgress
-              type="Month"
-              target={monthlyTarget}
-              current={currentMonthEarnings}
-              hourlyRate={hourlyRate}
-              dark={isDark}
-            />
-          </div>
+          )}
         </div>
 
         {/* Bottom bar - quotes always visible */}

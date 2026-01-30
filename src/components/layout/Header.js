@@ -8,6 +8,7 @@ import CLETNotificationPanel from '../ui/CLETNotificationPanel';
 import MissedTaskNotificationPanel from '../ui/MissedTaskNotificationPanel';
 import LessTrainedEmployeeNotificationPanel from '../ui/LessTrainedEmployeeNotificationPanel';
 import LowHoursNotificationPanel from '../ui/LowHoursNotificationPanel';
+import LowIdleNotificationPanel from '../ui/LowIdleNotificationPanel';
 import NotificationBell from '../ui/NotificationBell';
 import ChangePasswordModal from '../ui/ChangePasswordModal';
 import { useNotifications } from '../../hooks/useNotifications';
@@ -16,6 +17,7 @@ import { useCLETNotifications } from '../../hooks/useCLETNotifications';
 import { useMissedTaskNotifications } from '../../hooks/useMissedTaskNotifications';
 import { useLessTrainedEmployeeNotifications } from '../../hooks/useLessTrainedEmployeeNotifications';
 import { useLowHoursNotifications } from '../../hooks/useLowHoursNotifications';
+import { useLowIdleNotifications } from '../../hooks/useLowIdleNotifications';
 
 const Header = ({ onSearch, onLogout, tasks, employees, onStartTimer, onStopTimer, onOpenTask }) => {
   const { user } = useAuth();
@@ -26,6 +28,7 @@ const Header = ({ onSearch, onLogout, tasks, employees, onStartTimer, onStopTime
   const [showCLETNotificationPanel, setShowCLETNotificationPanel] = useState(false);
   const [showLessTrainedEmployeeNotificationPanel, setShowLessTrainedEmployeeNotificationPanel] = useState(false);
   const [showLowHoursNotificationPanel, setShowLowHoursNotificationPanel] = useState(false);
+  const [showLowIdleNotificationPanel, setShowLowIdleNotificationPanel] = useState(false);
   const [showMissedTaskNotificationPanel, setShowMissedTaskNotificationPanel] = useState(false);
   const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
   const userMenuRef = useRef(null);
@@ -52,6 +55,9 @@ const Header = ({ onSearch, onLogout, tasks, employees, onStartTimer, onStopTime
   
   // LHE (Low Hours Employees) notification system for admin users
   const { lowHoursNotifications, hasLowHoursNotifications, loading: lowHoursNotificationsLoading, minHoursThreshold, selectedDate: lowHoursSelectedDate, updateMinHoursThreshold, updateSelectedDate: updateLowHoursDate, updateSettings: updateLowHoursSettings } = useLowHoursNotifications();
+  
+  // Low Idle (Team Logger API) notification system for admin users
+  const { lowIdleNotifications, hasLowIdleNotifications, loading: lowIdleNotificationsLoading, error: lowIdleError, maxIdleHours, selectedDate: lowIdleSelectedDate, updateMaxIdleHours, updateSelectedDate: updateLowIdleDate, updateSettings: updateLowIdleSettings } = useLowIdleNotifications();
   
   // MTW notification system for admin users
   const { missedTaskNotifications, hasMissedTaskNotifications, loading: missedTaskNotificationsLoading, daysThreshold, updateDaysThreshold } = useMissedTaskNotifications();
@@ -428,6 +434,28 @@ const Header = ({ onSearch, onLogout, tasks, employees, onStartTimer, onStopTime
               </button>
             )}
 
+            {/* Low Idle (Team Logger) - Only show if user has low_idle_view permission */}
+            {(user?.permissions?.includes('low_idle_view') || user?.permissions?.includes('all') || user?.role === 'admin' || user?.role === 'Admin') && (
+              <button 
+                className="p-2 rounded-lg hover:bg-gray-100 relative transition-colors"
+                onClick={() => setShowLowIdleNotificationPanel(true)}
+                title="Low Idle Employees (from tracking app)"
+                disabled={lowIdleNotificationsLoading}
+              >
+                <span className={`text-sm font-medium ${lowIdleNotificationsLoading ? 'text-gray-400' : 'text-teal-600'}`}>Idle</span>
+                {hasLowIdleNotifications && !lowIdleNotificationsLoading && (
+                  <span className="absolute -top-1 -right-1 bg-teal-500 text-white text-xs rounded-full h-4 min-w-[1rem] px-1 flex items-center justify-center">
+                    {lowIdleNotifications.length}
+                  </span>
+                )}
+                {lowIdleNotificationsLoading && (
+                  <span className="absolute -top-1 -right-1 bg-gray-400 text-white text-xs rounded-full h-4 w-4 flex items-center justify-center">
+                    <div className="w-2 h-2 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  </span>
+                )}
+              </button>
+            )}
+
             {/* MTW Notifications - Only show if user has mtw_view permission */}
             {(user?.permissions?.includes('mtw_view') || user?.permissions?.includes('all') || user?.role === 'admin' || user?.role === 'Admin') && (
               <button 
@@ -602,6 +630,19 @@ const Header = ({ onSearch, onLogout, tasks, employees, onStartTimer, onStopTime
         selectedDate={lowHoursSelectedDate}
         onUpdateSelectedDate={updateLowHoursDate}
         onUpdateSettings={updateLowHoursSettings}
+      />
+
+      <LowIdleNotificationPanel
+        isOpen={showLowIdleNotificationPanel}
+        onClose={() => setShowLowIdleNotificationPanel(false)}
+        lowIdleNotifications={lowIdleNotifications}
+        maxIdleHours={maxIdleHours}
+        selectedDate={lowIdleSelectedDate}
+        onUpdateSettings={updateLowIdleSettings}
+        onUpdateMaxIdleHours={updateMaxIdleHours}
+        onUpdateSelectedDate={updateLowIdleDate}
+        loading={lowIdleNotificationsLoading}
+        error={lowIdleError}
       />
 
       {/* MTW Notification Panel */}

@@ -5,6 +5,7 @@ const xlsx = require('xlsx');
 const path = require('path');
 const fs = require('fs');
 const mysql = require('mysql2/promise');
+const axios = require('axios');
 
 // Simple in-memory cache for frequently accessed data
 const cache = new Map();
@@ -8451,6 +8452,107 @@ app.get('/api/notifications/low-hours-employees', async (req, res) => {
   } finally {
     if (connection) {
       connection.release();
+    }
+  }
+});
+
+// Low Idle Employees Notifications API - fetches from Team Logger API; employees with less than maxIdleHours idle time for the date
+const TEAMLOGGER_API_BASE = 'https://api2.teamlogger.com/api';
+// Start/end of day in PKT (UTC+5:30) as epoch ms, for Team Logger employee_summary_report
+function getEpochMsForDay(dateStr, timezoneOffsetMinutes = 330) {
+  const midnightUtc = new Date(dateStr + 'T00:00:00.000Z').getTime();
+  const startMs = midnightUtc - timezoneOffsetMinutes * 60 * 1000;
+  const endMs = startMs + 24 * 60 * 60 * 1000 - 1;
+  return { startMs, endMs };
+}
+
+app.get('/api/notifications/low-idle-employees', async (req, res) => {
+  const userRole = req.headers['x-user-role'];
+  const userPermissions = req.headers['x-user-permissions'];
+  const { date, maxIdleHours = 3 } = req.query;
+
+  if (!userRole || !userPermissions) {
+    return res.status(401).json({ error: 'User role and permissions required' });
+  }
+
+  let permissions;
+  try {
+    permissions = JSON.parse(userPermissions);
+  } catch (e) {
+    return res.status(400).json({ error: 'Invalid permissions format' });
+  }
+
+  if (!permissions.includes('low_idle_view') && !permissions.includes('all') && userRole !== 'admin' && userRole !== 'Admin') {
+    return res.status(403).json({
+      error: 'Access denied. You do not have permission to view Low Idle notifications.',
+      requiredPermission: 'low_idle_view'
+    });
+  }
+
+  const apiKey = process.env.TEAMLOGGER_API_KEY;
+  if (!apiKey) {
+    console.error('Low Idle: TEAMLOGGER_API_KEY is not set');
+    return res.status(503).json({ error: 'Team Logger API is not configured. Set TEAMLOGGER_API_KEY.' });
+  }
+
+  const targetDate = date || new Date().toISOString().split('T')[0];
+  const maxIdle = parseFloat(maxIdleHours);
+  if (isNaN(maxIdle) || maxIdle < 0) {
+    return res.status(400).json({ error: 'maxIdleHours must be a non-negative number' });
+  }
+
+  const { startMs, endMs } = getEpochMsForDay(targetDate);
+
+  let connection;
+  try {
+    const response = await axios.get(`${TEAMLOGGER_API_BASE}/employee_summary_report`, {
+      params: { startTime: startMs, endTime: endMs },
+      headers: { Authorization: `Bearer ${apiKey}` },
+      timeout: 30000
+    });
+
+    const rows = Array.isArray(response.data) ? response.data : (response.data?.data || []);
+    let list = rows
+      .filter((row) => {
+        const idle = row.idleHours ?? row.idle_hours;
+        return typeof idle === 'number' && idle < maxIdle;
+      })
+      .map((row) => ({
+        employeeName: row.title ?? row.name ?? row.employeeName ?? '',
+        email: (row.email ?? '').toString().trim(),
+        employeeCode: row.code ?? row.employeeCode ?? '',
+        idleHours: Number((row.idleHours ?? row.idle_hours ?? 0).toFixed(2)),
+        date: targetDate
+      }))
+      .sort((a, b) => a.idleHours - b.idleHours);
+
+    // Enrich with EMS department (email -> department)
+    connection = await mysqlPool.getConnection();
+    const [empRows] = await connection.execute(
+      'SELECT LOWER(TRIM(email)) AS email, department FROM employees WHERE status = ?',
+      ['Active']
+    );
+    connection.release();
+    connection = null;
+    const emailToDept = {};
+    for (const r of empRows) {
+      if (r.email) emailToDept[r.email] = r.department || 'Unassigned';
+    }
+    list = list.map((item) => ({
+      ...item,
+      department: emailToDept[(item.email || '').toString().trim().toLowerCase()] || 'Unassigned'
+    }));
+
+    res.json(list);
+  } catch (err) {
+    console.error('Error fetching Low Idle (Team Logger):', err.response?.status, err.response?.data || err.message);
+    res.status(err.response?.status === 401 ? 502 : 500).json({
+      error: 'Failed to fetch idle data from tracking app',
+      message: err.response?.data?.message || err.message
+    });
+  } finally {
+    if (connection) {
+      try { connection.release(); } catch (e) { /* ignore */ }
     }
   }
 });
