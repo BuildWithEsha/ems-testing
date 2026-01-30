@@ -246,10 +246,13 @@ export default function EarnTrack() {
 
   const isDark = darkMode;
   const bgBase = isDark ? 'bg-gray-950 text-gray-100' : 'bg-gray-50 text-gray-900';
-  const inputBase = 'w-24 max-w-[7rem] border rounded py-1.5 text-xs focus:outline-none focus:ring-1 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none';
+  const inputBase = 'w-[5.5rem] max-w-[6rem] border rounded py-1.5 px-2 text-xs focus:outline-none focus:ring-1 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none';
   const inputClass = isDark
-    ? `${inputBase} bg-gray-800 border-gray-600 text-white focus:border-gray-500 pl-6`
-    : `${inputBase} bg-white border-gray-300 text-gray-900 focus:border-gray-500 pl-6`;
+    ? `${inputBase} bg-gray-800 border-gray-600 text-white focus:border-gray-500`
+    : `${inputBase} bg-white border-gray-300 text-gray-900 focus:border-gray-500`;
+  const inputWithPrefix = isDark
+    ? `${inputBase} bg-gray-800 border-gray-600 text-white focus:border-gray-500 pl-5`
+    : `${inputBase} bg-white border-gray-300 text-gray-900 focus:border-gray-500 pl-5`;
   const headerIconBg = isWorking ? 'bg-green-700/30 text-green-600' : isDark ? 'bg-gray-800 text-gray-400' : 'bg-gray-200 text-gray-500';
   const settingsPanelClass = isDark ? 'bg-gray-800/95 border-gray-700' : 'bg-white border-gray-200 shadow';
 
@@ -297,27 +300,27 @@ export default function EarnTrack() {
           </div>
         </div>
 
-        {/* Settings panel - centered, compact */}
+        {/* Settings panel - compact width, aligned inputs */}
         {showSettings && (
-          <div className={`mb-6 border rounded-lg p-4 relative z-20 ${settingsPanelClass}`}>
-            <div className="space-y-3 flex flex-col items-center">
-              <div className="w-full flex flex-col items-center">
+          <div className={`mb-6 border rounded-lg p-4 relative z-20 max-w-[280px] mx-auto ${settingsPanelClass}`}>
+            <div className="flex flex-col items-center gap-3">
+              <div className="flex flex-col items-center w-[5.5rem]">
                 <label className={`text-[10px] uppercase font-bold tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
                   Hourly Rate
                 </label>
-                <div className="relative mt-1 flex justify-center">
-                  <span className={`absolute left-2 top-1/2 -translate-y-1/2 text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>$</span>
+                <div className="relative mt-1 w-full">
+                  <span className={`absolute left-2 top-1/2 -translate-y-1/2 text-xs pointer-events-none ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>$</span>
                   <input
                     type="number"
                     min={0}
                     value={hourlyRate}
                     onChange={(e) => setHourlyRate(Number(e.target.value) || 0)}
-                    className={inputClass}
+                    className={`w-full ${inputWithPrefix}`}
                   />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-3 w-full max-w-[14rem] mx-auto">
-                <div className="flex flex-col items-center">
+              <div className="grid grid-cols-2 gap-4 w-[12rem]">
+                <div className="flex flex-col items-center w-[5.5rem]">
                   <label className={`text-[10px] uppercase font-bold tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
                     Weekly Goal
                   </label>
@@ -327,10 +330,10 @@ export default function EarnTrack() {
                     value={weeklyTarget || ''}
                     onChange={(e) => setWeeklyTarget(Number(e.target.value) || 0)}
                     placeholder="0"
-                    className={`mt-1 text-center ${inputClass} w-full`}
+                    className={`mt-1 text-center w-full ${inputClass}`}
                   />
                 </div>
-                <div className="flex flex-col items-center">
+                <div className="flex flex-col items-center w-[5.5rem]">
                   <label className={`text-[10px] uppercase font-bold tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
                     Monthly Goal
                   </label>
@@ -340,13 +343,13 @@ export default function EarnTrack() {
                     value={monthlyTarget || ''}
                     onChange={(e) => setMonthlyTarget(Number(e.target.value) || 0)}
                     placeholder="0"
-                    className={`mt-1 text-center ${inputClass} w-full`}
+                    className={`mt-1 text-center w-full ${inputClass}`}
                   />
                 </div>
               </div>
               <button
                 onClick={handleReset}
-                className="w-full max-w-[10rem] flex items-center justify-center gap-1.5 text-[10px] text-red-600 hover:bg-red-500/10 py-2 rounded mt-2 transition-colors"
+                className="flex items-center justify-center gap-1.5 text-[10px] text-red-600 hover:bg-red-500/10 py-2 px-3 rounded transition-colors"
               >
                 <RefreshCw className="w-3 h-3" /> Reset History
               </button>
