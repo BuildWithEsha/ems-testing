@@ -8393,6 +8393,9 @@ app.get('/api/notifications/low-hours-employees', async (req, res) => {
     // Use provided date or default to today
     const targetDate = date || new Date().toISOString().split('T')[0];
     const minSeconds = parseFloat(minHours) * 3600; // Convert hours to seconds
+    // Same date range as consolidated timelog report: start 00:00:00 to end 23:59:59
+    const startDate = `${targetDate} 00:00:00`;
+    const endDate = `${targetDate} 23:59:59`;
 
     console.log(`🔔 Low Hours Notifications: Fetching employees who logged less than ${minHours} hours on ${targetDate}`);
 
@@ -8416,15 +8419,15 @@ app.get('/api/notifications/low-hours-employees', async (req, res) => {
         ), 0) as total_seconds
       FROM employees e
       LEFT JOIN task_timesheet tt ON tt.employee_name = e.name
-        AND DATE(tt.start_time) = ?
+        AND tt.start_time >= ? AND tt.start_time <= ?
       WHERE e.status = 'Active'
       GROUP BY e.id, e.name, e.employee_id, e.department, e.working_hours
       HAVING total_seconds < ?
       ORDER BY total_seconds ASC, e.department, e.name
     `;
 
-    console.log('🔔 Low Hours Debug: Executing query with date and minSeconds:', targetDate, minSeconds);
-    const [rows] = await connection.execute(query, [targetDate, minSeconds]);
+    console.log('🔔 Low Hours Debug: Executing query with date range and minSeconds:', startDate, endDate, minSeconds);
+    const [rows] = await connection.execute(query, [startDate, endDate, minSeconds]);
     console.log(`🔔 Low Hours Debug: Query result rows: ${rows.length}`);
 
     const formattedNotifications = rows.map(row => ({

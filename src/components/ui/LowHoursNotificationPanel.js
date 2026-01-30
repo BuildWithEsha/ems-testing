@@ -279,25 +279,25 @@ const LowHoursNotificationPanel = ({
                               </div>
                             </div>
                             <div className="flex items-center space-x-4">
-                              {/* Logged Hours */}
+                              {/* Logged Hours - same format as consolidated log report (HH:MM:SS) */}
                               <div className="text-right">
                                 <span className={`px-3 py-1 text-sm font-medium rounded-full ${getHoursColor(notification.loggedHours, notification.requiredHours)}`}>
-                                  {formatHours(notification.loggedHours)} logged
+                                  {formatTime(notification.loggedSeconds || 0)} logged
                                 </span>
                               </div>
                               {/* Shortfall */}
                               <div className="text-right">
                                 <span className="px-3 py-1 text-sm font-medium rounded-full bg-red-100 text-red-800">
-                                  -{formatHours(notification.shortfallHours)} short
+                                  -{formatTime(notification.shortfallSeconds || 0)} short
                                 </span>
                               </div>
                             </div>
                           </div>
-                          {/* Progress Bar */}
+                          {/* Progress Bar - show total in same format as consolidated report */}
                           <div className="mt-3">
                             <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
                               <span>Progress</span>
-                              <span>{notification.loggedHours} / {notification.requiredHours} hours</span>
+                              <span>{formatTime(notification.loggedSeconds || 0)} / {notification.requiredHours} hours</span>
                             </div>
                             <div className="w-full bg-gray-200 rounded-full h-2">
                               <div
