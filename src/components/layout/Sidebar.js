@@ -15,7 +15,8 @@ import {
   ChevronDown,
   MessageSquare,
   Heart,
-  Megaphone
+  Megaphone,
+  Wallet
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import TicketMenuItem from './TicketMenuItem';
@@ -86,6 +87,7 @@ const Sidebar = ({ currentView, onViewChange }) => {
       },
       { id: 'healthDashboard', label: 'Health Dashboard', icon: AlertTriangle, permission: 'view_health_dashboard_menu' },
       { id: 'reports', label: 'Reports', icon: BarChart2, permission: 'view_reports_menu' },
+      { id: 'earntrack', label: 'EarnTrack', icon: Wallet, permission: null },
       { id: 'noticeBoard', label: 'Notice Board', icon: Megaphone, permission: 'view_notice_board_menu', isSpecial: true },
       { id: 'tickets', label: 'Tickets', icon: MessageSquare, permission: 'view_tickets_menu', isSpecial: true },
       { id: 'calendar', label: 'Calendar', icon: Calendar, permission: 'view_calendar_menu' },
