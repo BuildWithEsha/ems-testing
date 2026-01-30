@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Bell, X, Clock, User, Building, Filter, Search, Download, ChevronDown, ChevronRight, Settings, Calendar } from 'lucide-react';
 
 const LowHoursNotificationPanel = ({ 
@@ -8,7 +8,8 @@ const LowHoursNotificationPanel = ({
   minHoursThreshold, 
   onUpdateMinHoursThreshold,
   selectedDate,
-  onUpdateSelectedDate 
+  onUpdateSelectedDate,
+  onUpdateSettings
 }) => {
   // Filter states
   const [filters, setFilters] = useState({
@@ -21,6 +22,14 @@ const LowHoursNotificationPanel = ({
   const [showSettings, setShowSettings] = useState(false);
   const [tempMinHoursThreshold, setTempMinHoursThreshold] = useState(minHoursThreshold);
   const [tempSelectedDate, setTempSelectedDate] = useState(selectedDate);
+
+  // Sync temp values when opening settings so form shows current threshold and date
+  useEffect(() => {
+    if (showSettings) {
+      setTempMinHoursThreshold(minHoursThreshold);
+      setTempSelectedDate(selectedDate);
+    }
+  }, [showSettings, minHoursThreshold, selectedDate]);
 
   // Format seconds to HH:MM:SS
   const formatTime = (seconds) => {
@@ -82,8 +91,13 @@ const LowHoursNotificationPanel = ({
 
   const handleSettingsUpdate = () => {
     if (tempMinHoursThreshold >= 1 && tempMinHoursThreshold <= 24) {
-      onUpdateMinHoursThreshold(tempMinHoursThreshold);
-      onUpdateSelectedDate(tempSelectedDate);
+      // Single update so fetch uses both new values (avoids race where second fetch used stale threshold)
+      if (onUpdateSettings) {
+        onUpdateSettings(tempMinHoursThreshold, tempSelectedDate);
+      } else {
+        onUpdateMinHoursThreshold(tempMinHoursThreshold);
+        onUpdateSelectedDate(tempSelectedDate);
+      }
       setShowSettings(false);
     }
   };

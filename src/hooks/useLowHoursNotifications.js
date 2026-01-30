@@ -73,6 +73,13 @@ export const useLowHoursNotifications = () => {
     fetchLowHoursNotifications(minHoursThreshold, newDate);
   };
 
+  /** Update both threshold and date in one go (used when user clicks Update in settings). Prevents race where second fetch used stale threshold. */
+  const updateSettings = (newMinHours, newDate) => {
+    setMinHoursThreshold(newMinHours);
+    setSelectedDate(newDate);
+    fetchLowHoursNotifications(newMinHours, newDate);
+  };
+
   useEffect(() => {
     fetchLowHoursNotifications();
     
@@ -95,6 +102,7 @@ export const useLowHoursNotifications = () => {
     selectedDate,
     refreshLowHoursNotifications,
     updateMinHoursThreshold,
-    updateSelectedDate
+    updateSelectedDate,
+    updateSettings
   };
 };

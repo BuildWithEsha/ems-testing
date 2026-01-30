@@ -51,7 +51,7 @@ const Header = ({ onSearch, onLogout, tasks, employees, onStartTimer, onStopTime
   const { lessTrainedEmployeeNotifications, hasLessTrainedEmployeeNotifications, loading: lessTrainedEmployeeNotificationsLoading, minTrainedThreshold, updateMinTrainedThreshold } = useLessTrainedEmployeeNotifications();
   
   // LHE (Low Hours Employees) notification system for admin users
-  const { lowHoursNotifications, hasLowHoursNotifications, loading: lowHoursNotificationsLoading, minHoursThreshold, selectedDate: lowHoursSelectedDate, updateMinHoursThreshold, updateSelectedDate: updateLowHoursDate } = useLowHoursNotifications();
+  const { lowHoursNotifications, hasLowHoursNotifications, loading: lowHoursNotificationsLoading, minHoursThreshold, selectedDate: lowHoursSelectedDate, updateMinHoursThreshold, updateSelectedDate: updateLowHoursDate, updateSettings: updateLowHoursSettings } = useLowHoursNotifications();
   
   // MTW notification system for admin users
   const { missedTaskNotifications, hasMissedTaskNotifications, loading: missedTaskNotificationsLoading, daysThreshold, updateDaysThreshold } = useMissedTaskNotifications();
@@ -601,6 +601,7 @@ const Header = ({ onSearch, onLogout, tasks, employees, onStartTimer, onStopTime
         onUpdateMinHoursThreshold={updateMinHoursThreshold}
         selectedDate={lowHoursSelectedDate}
         onUpdateSelectedDate={updateLowHoursDate}
+        onUpdateSettings={updateLowHoursSettings}
       />
 
       {/* MTW Notification Panel */}
