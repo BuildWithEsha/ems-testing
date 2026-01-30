@@ -273,8 +273,8 @@ export default function EarnTrack() {
           />
         </div>
 
-        {/* Header - logo, name, dark/light, settings (unchanged) */}
-        <div className="flex justify-between items-center mb-6 relative z-10">
+        {/* Header row: logo + title | theme + settings */}
+        <div className="flex justify-between items-center mb-4 relative z-10">
           <div className="flex items-center gap-2">
             <div className={`p-1.5 rounded-md ${headerIconBg}`}>
               <Wallet className="w-4 h-4" />
@@ -300,65 +300,57 @@ export default function EarnTrack() {
           </div>
         </div>
 
-        {/* Settings panel - compact width, aligned inputs */}
-        {showSettings && (
-          <div className={`mb-6 border rounded-lg p-4 relative z-20 max-w-[280px] mx-auto ${settingsPanelClass}`}>
-            <div className="flex flex-col items-center gap-3">
-              <div className="flex flex-col items-center w-[5.5rem]">
-                <label className={`text-[10px] uppercase font-bold tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                  Hourly Rate
-                </label>
-                <div className="relative mt-1 w-full">
+        {/* Settings strip: single row, right-aligned under header; compact height */}
+        <div className={`flex items-center justify-end mb-5 relative z-10 ${showSettings ? 'min-h-[3.25rem]' : 'min-h-0 overflow-hidden'}`}>
+          {showSettings && (
+            <div className={`flex flex-wrap items-end gap-3 border rounded-lg py-2.5 px-3 ${settingsPanelClass}`}>
+              <div className="flex flex-col gap-0.5">
+                <label className={`text-[10px] uppercase font-semibold tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Hourly Rate</label>
+                <div className="relative">
                   <span className={`absolute left-2 top-1/2 -translate-y-1/2 text-xs pointer-events-none ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>$</span>
                   <input
                     type="number"
                     min={0}
                     value={hourlyRate}
                     onChange={(e) => setHourlyRate(Number(e.target.value) || 0)}
-                    className={`w-full ${inputWithPrefix}`}
+                    className={`w-[4.5rem] ${inputWithPrefix}`}
                   />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-4 w-[12rem]">
-                <div className="flex flex-col items-center w-[5.5rem]">
-                  <label className={`text-[10px] uppercase font-bold tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                    Weekly Goal
-                  </label>
-                  <input
-                    type="number"
-                    min={0}
-                    value={weeklyTarget || ''}
-                    onChange={(e) => setWeeklyTarget(Number(e.target.value) || 0)}
-                    placeholder="0"
-                    className={`mt-1 text-center w-full ${inputClass}`}
-                  />
-                </div>
-                <div className="flex flex-col items-center w-[5.5rem]">
-                  <label className={`text-[10px] uppercase font-bold tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                    Monthly Goal
-                  </label>
-                  <input
-                    type="number"
-                    min={0}
-                    value={monthlyTarget || ''}
-                    onChange={(e) => setMonthlyTarget(Number(e.target.value) || 0)}
-                    placeholder="0"
-                    className={`mt-1 text-center w-full ${inputClass}`}
-                  />
-                </div>
+              <div className="flex flex-col gap-0.5">
+                <label className={`text-[10px] uppercase font-semibold tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Weekly Goal</label>
+                <input
+                  type="number"
+                  min={0}
+                  value={weeklyTarget || ''}
+                  onChange={(e) => setWeeklyTarget(Number(e.target.value) || 0)}
+                  placeholder="0"
+                  className={`w-[4.5rem] text-center ${inputClass}`}
+                />
+              </div>
+              <div className="flex flex-col gap-0.5">
+                <label className={`text-[10px] uppercase font-semibold tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Monthly Goal</label>
+                <input
+                  type="number"
+                  min={0}
+                  value={monthlyTarget || ''}
+                  onChange={(e) => setMonthlyTarget(Number(e.target.value) || 0)}
+                  placeholder="0"
+                  className={`w-[4.5rem] text-center ${inputClass}`}
+                />
               </div>
               <button
                 onClick={handleReset}
-                className="flex items-center justify-center gap-1.5 text-[10px] text-red-600 hover:bg-red-500/10 py-2 px-3 rounded transition-colors"
+                className="flex items-center gap-1 text-[10px] text-red-600 hover:bg-red-500/10 py-1.5 px-2 rounded self-end mb-0.5 transition-colors"
               >
-                <RefreshCw className="w-3 h-3" /> Reset History
+                <RefreshCw className="w-3 h-3" /> Reset
               </button>
             </div>
-          </div>
-        )}
+          )}
+        </div>
 
-        {/* Main content - horizontal PC layout */}
-        <div className="flex-1 flex flex-row items-center justify-center gap-10 lg:gap-14 relative z-10">
+        {/* Main content - horizontal layout, consistent spacing */}
+        <div className="flex-1 flex flex-row items-center justify-center gap-10 lg:gap-14 relative z-10 min-h-0">
           {/* Left: Total + Start/Stop + rate */}
           <div className="flex flex-col items-center shrink-0">
             <span className={`text-[10px] uppercase tracking-[0.2em] font-medium ${isDark ? 'text-gray-500' : 'text-gray-500'}`}>
