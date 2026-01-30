@@ -8463,11 +8463,6 @@ app.get('/api/notifications/low-hours-employees', async (req, res) => {
 // endTime (long): End time in milliseconds since UNIX epoch.
 // Auth: Authorization: Bearer YOUR_API_KEY_VALUE_HERE
 const TEAMLOGGER_EMPLOYEE_SUMMARY_REPORT_URL = 'https://api2.teamlogger.com/api/employee_summary_report';
-// Hardcoded API keys for Team Logger (idle time fetch); env TEAMLOGGER_API_KEY overrides.
-const TEAMLOGGER_API_KEYS = [
-  '4a5e27d60fe748acb050e99e04511dfc',
-  '3ed7193955d9414fa15eb34b1b03b4d0'
-];
 
 function getEpochMsForDay(dateStr, timezoneOffsetMinutes = 330) {
   const midnightUtc = new Date(dateStr + 'T00:00:00.000Z').getTime();
