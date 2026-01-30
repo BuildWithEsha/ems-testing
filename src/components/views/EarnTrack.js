@@ -300,8 +300,8 @@ export default function EarnTrack() {
           </div>
         </div>
 
-        {/* Settings strip: single row, right-aligned under header; compact height */}
-        <div className={`flex flex-row items-center justify-center mb-2 mt-4 relative z-10 ${showSettings ? 'min-h-[3.25rem]' : 'min-h-0 overflow-hidden'}`}>
+        {/* Settings strip: single row, right-aligned; more space from top (row 2) */}
+        <div className={`flex flex-row items-center justify-end mb-5 mt-8 relative z-10 ${showSettings ? 'min-h-[3.25rem]' : 'min-h-0 overflow-hidden'}`}>
           {showSettings && (
             <div className={`flex flex-wrap items-end gap-3 border rounded-lg py-2.5 px-3 ${settingsPanelClass}`}>
               <div className="flex flex-col gap-0.5">

@@ -8463,6 +8463,11 @@ app.get('/api/notifications/low-hours-employees', async (req, res) => {
 // endTime (long): End time in milliseconds since UNIX epoch.
 // Auth: Authorization: Bearer YOUR_API_KEY_VALUE_HERE
 const TEAMLOGGER_EMPLOYEE_SUMMARY_REPORT_URL = 'https://api2.teamlogger.com/api/employee_summary_report';
+// Hardcoded API keys for Team Logger (idle time fetch); env TEAMLOGGER_API_KEY overrides.
+const TEAMLOGGER_API_KEYS = [
+  '4a5e27d60fe748acb050e99e04511dfc',
+  '3ed7193955d9414fa15eb34b1b03b4d0'
+];
 
 function getEpochMsForDay(dateStr, timezoneOffsetMinutes = 330) {
   const midnightUtc = new Date(dateStr + 'T00:00:00.000Z').getTime();
@@ -8494,9 +8499,9 @@ app.get('/api/notifications/low-idle-employees', async (req, res) => {
     });
   }
 
-  const apiKey = process.env.TEAMLOGGER_API_KEY;
+  const apiKey = process.env.TEAMLOGGER_API_KEY || TEAMLOGGER_API_KEYS[0];
   if (!apiKey) {
-    console.error('Low Idle: TEAMLOGGER_API_KEY is not set');
+    console.error('Low Idle: No Team Logger API key (env or hardcoded)');
     return res.status(503).json({ error: 'Team Logger API is not configured. Set TEAMLOGGER_API_KEY.' });
   }
 
@@ -8509,13 +8514,27 @@ app.get('/api/notifications/low-idle-employees', async (req, res) => {
   const { startMs, endMs } = getEpochMsForDay(targetDate);
 
   let connection;
-  try {
-    // GET only - no POST/PUT; params: startTime, endTime (epoch ms) per API doc
-    const response = await axios.get(TEAMLOGGER_EMPLOYEE_SUMMARY_REPORT_URL, {
+  const tryFetch = async (key) => {
+    const { data } = await axios.get(TEAMLOGGER_EMPLOYEE_SUMMARY_REPORT_URL, {
       params: { startTime: startMs, endTime: endMs },
-      headers: { Authorization: `Bearer ${apiKey}` },
+      headers: { Authorization: `Bearer ${key}` },
       timeout: 30000
     });
+    return data;
+  };
+
+  try {
+    let responseData;
+    try {
+      responseData = await tryFetch(apiKey);
+    } catch (firstErr) {
+      if (firstErr.response?.status === 401 && !process.env.TEAMLOGGER_API_KEY && TEAMLOGGER_API_KEYS[1]) {
+        responseData = await tryFetch(TEAMLOGGER_API_KEYS[1]);
+      } else {
+        throw firstErr;
+      }
+    }
+    const response = { data: responseData };
 
     // Employee summary report returns idle time as idleHours (decimal hours) and/or inactiveSecondsCount (seconds). Same metric.
     const rows = Array.isArray(response.data) ? response.data : (response.data?.data || []);
