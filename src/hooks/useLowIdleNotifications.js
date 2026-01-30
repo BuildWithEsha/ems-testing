@@ -37,7 +37,8 @@ export const useLowIdleNotifications = () => {
         setHasLowIdleNotifications(Array.isArray(data) ? data.length > 0 : false);
       } else {
         const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.message || 'Failed to fetch low idle notifications');
+        const msg = errData.error || errData.message || `Request failed (${response.status})`;
+        throw new Error(msg);
       }
     } catch (err) {
       setError(err.message);

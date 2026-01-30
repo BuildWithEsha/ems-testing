@@ -8456,9 +8456,14 @@ app.get('/api/notifications/low-hours-employees', async (req, res) => {
   }
 });
 
-// Low Idle Employees Notifications API - fetches from Team Logger API; employees with less than maxIdleHours idle time for the date
-const TEAMLOGGER_API_BASE = 'https://api2.teamlogger.com/api';
-// Start/end of day in PKT (UTC+5:30) as epoch ms, for Team Logger employee_summary_report
+// Low Idle Employees Notifications API - fetches from Team Logger API (GET only).
+// Team Logger API doc: Employee Summary Report
+// [GET] https://api2.teamlogger.com/api/employee_summary_report?startTime=start_time_epoch_ms&endTime=end_time_epoch_ms
+// startTime (long): Start time in milliseconds since UNIX epoch.
+// endTime (long): End time in milliseconds since UNIX epoch.
+// Auth: Authorization: Bearer YOUR_API_KEY_VALUE_HERE
+const TEAMLOGGER_EMPLOYEE_SUMMARY_REPORT_URL = 'https://api2.teamlogger.com/api/employee_summary_report';
+
 function getEpochMsForDay(dateStr, timezoneOffsetMinutes = 330) {
   const midnightUtc = new Date(dateStr + 'T00:00:00.000Z').getTime();
   const startMs = midnightUtc - timezoneOffsetMinutes * 60 * 1000;
@@ -8505,25 +8510,36 @@ app.get('/api/notifications/low-idle-employees', async (req, res) => {
 
   let connection;
   try {
-    const response = await axios.get(`${TEAMLOGGER_API_BASE}/employee_summary_report`, {
+    // GET only - no POST/PUT; params: startTime, endTime (epoch ms) per API doc
+    const response = await axios.get(TEAMLOGGER_EMPLOYEE_SUMMARY_REPORT_URL, {
       params: { startTime: startMs, endTime: endMs },
       headers: { Authorization: `Bearer ${apiKey}` },
       timeout: 30000
     });
 
+    // Employee summary report returns idle time as idleHours (decimal hours) and/or inactiveSecondsCount (seconds). Same metric.
     const rows = Array.isArray(response.data) ? response.data : (response.data?.data || []);
+    const getIdleHours = (row) => {
+      const h = row.idleHours ?? row.idle_hours;
+      if (typeof h === 'number') return h;
+      const sec = row.inactiveSecondsCount ?? row.inactive_seconds_count;
+      return typeof sec === 'number' ? sec / 3600 : 0;
+    };
     let list = rows
       .filter((row) => {
-        const idle = row.idleHours ?? row.idle_hours;
-        return typeof idle === 'number' && idle < maxIdle;
+        const idleH = getIdleHours(row);
+        return idleH < maxIdle;
       })
-      .map((row) => ({
-        employeeName: row.title ?? row.name ?? row.employeeName ?? '',
-        email: (row.email ?? '').toString().trim(),
-        employeeCode: row.code ?? row.employeeCode ?? '',
-        idleHours: Number((row.idleHours ?? row.idle_hours ?? 0).toFixed(2)),
-        date: targetDate
-      }))
+      .map((row) => {
+        const idleH = getIdleHours(row);
+        return {
+          employeeName: row.title ?? row.name ?? row.employeeName ?? '',
+          email: (row.email ?? '').toString().trim(),
+          employeeCode: row.code ?? row.employeeCode ?? '',
+          idleHours: Number(idleH.toFixed(2)),
+          date: targetDate
+        };
+      })
       .sort((a, b) => a.idleHours - b.idleHours);
 
     // Enrich with EMS department (email -> department)
