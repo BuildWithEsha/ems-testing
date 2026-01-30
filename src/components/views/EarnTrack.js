@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { Play, Pause, RefreshCw, Settings, Wallet, Sparkles, Target, Sun, Moon } from 'lucide-react';
+import { Play, Pause, RefreshCw, Settings, Wallet, Target, Sun, Moon } from 'lucide-react';
 
 const STORAGE_KEY = 'ems_earnTrackState';
 const THEME_KEY = 'ems_earnTrackTheme';
@@ -40,19 +40,19 @@ function TargetProgress({ type, target, current, hourlyRate, dark }) {
 
   const cardClass = dark
     ? 'bg-gray-800/60 border-gray-700/50'
-    : 'bg-white/80 border-gray-200 shadow-sm';
+    : 'bg-white/90 border-gray-200 shadow-sm';
   const labelClass = dark ? 'text-gray-400' : 'text-gray-500';
   const valueClass = dark ? 'text-gray-100' : 'text-gray-900';
   const mutedClass = dark ? 'text-gray-500' : 'text-gray-400';
   const barBgClass = dark ? 'bg-gray-900' : 'bg-gray-200';
   const tipClass = dark ? 'text-gray-500' : 'text-gray-500';
-  const successClass = 'text-emerald-500 font-bold';
+  const successClass = dark ? 'text-green-600 font-bold' : 'text-green-700 font-bold';
 
   return (
-    <div className={`border rounded-xl p-4 w-full mb-3 ${cardClass}`}>
+    <div className={`border rounded-xl p-4 flex-1 min-w-[200px] ${cardClass}`}>
       <div className="flex justify-between items-center mb-2">
         <h3 className={`text-[10px] uppercase tracking-wider font-semibold flex items-center gap-1.5 ${labelClass}`}>
-          <Target className={`w-3 h-3 ${dark ? 'text-gray-400' : 'text-indigo-500'}`} />
+          <Target className={`w-3 h-3 ${dark ? 'text-gray-400' : 'text-gray-500'}`} />
           {type}ly Goal
         </h3>
         <span className={`text-xs font-mono font-medium ${valueClass}`}>
@@ -61,7 +61,7 @@ function TargetProgress({ type, target, current, hourlyRate, dark }) {
       </div>
       <div className={`h-1.5 w-full rounded-full overflow-hidden mb-2 ${barBgClass}`}>
         <div
-          className="h-full bg-gradient-to-r from-indigo-500 to-emerald-500 transition-all duration-500 ease-out"
+          className="h-full bg-gradient-to-r from-gray-600 to-green-700 transition-all duration-500 ease-out"
           style={{ width: `${percentage}%` }}
         />
       </div>
@@ -77,53 +77,25 @@ function TargetProgress({ type, target, current, hourlyRate, dark }) {
   );
 }
 
-function MotivationCard({ currentEarnings, hourlyRate, isWorking, quoteIndex, onNextQuote, dark }) {
+/** Bottom bar: always shows current quote; refresh cycles to next. No button to show. */
+function QuoteBar({ quoteIndex, onNextQuote, dark }) {
   const quote = MOTIVATION_QUOTES[quoteIndex % MOTIVATION_QUOTES.length];
-  const [showCard, setShowCard] = useState(false);
-
-  useEffect(() => {
-    if (isWorking && currentEarnings === 0 && !showCard) {
-      setShowCard(true);
-    }
-  }, [isWorking, currentEarnings, showCard]);
-
-  if (!showCard) {
-    return (
-      <div className="mt-4 flex justify-center">
-        <button
-          onClick={() => setShowCard(true)}
-          className={`flex items-center gap-2 text-xs transition-colors ${dark ? 'text-gray-500 hover:text-gray-300' : 'text-gray-500 hover:text-indigo-600'}`}
-        >
-          <Sparkles className="w-3 h-3" />
-          <span>Get Motivation</span>
-        </button>
-      </div>
-    );
-  }
-
-  const cardClass = dark
-    ? 'from-gray-800 to-gray-900 border-gray-700/50'
-    : 'from-gray-100 to-gray-200 border-gray-200 shadow';
-  const textClass = dark ? 'text-gray-200' : 'text-gray-800';
-  const tipAccent = 'text-indigo-500 font-bold';
+  const barClass = dark ? 'bg-gray-800 border-t border-gray-700' : 'bg-gray-100 border-t border-gray-200';
+  const textClass = dark ? 'text-gray-300' : 'text-gray-700';
+  const tipClass = dark ? 'text-gray-500' : 'text-gray-600';
 
   return (
-    <div className={`mt-6 bg-gradient-to-br border rounded-xl p-4 relative overflow-hidden ${cardClass}`}>
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className={`text-sm font-medium italic mb-1 ${textClass}`}>"{quote.message}"</p>
-          <div className={`text-[10px] uppercase tracking-wide ${tipAccent}`}>
-            Tip: {quote.tip}
-          </div>
-        </div>
-        <button
-          onClick={onNextQuote}
-          className={dark ? 'text-gray-500 hover:text-gray-200 transition-colors' : 'text-gray-500 hover:text-gray-900 transition-colors'}
-          title="Next quote"
-        >
-          <RefreshCw className="w-3 h-3" />
-        </button>
-      </div>
+    <div className={`flex items-center justify-center gap-4 py-3 px-4 ${barClass}`}>
+      <p className={`text-sm italic ${textClass}`}>"{quote.message}"</p>
+      <span className={tipClass}>—</span>
+      <span className={`text-xs font-medium ${tipClass}`}>Tip: {quote.tip}</span>
+      <button
+        onClick={onNextQuote}
+        className={`p-1.5 rounded transition-colors ${dark ? 'text-gray-500 hover:text-gray-200 hover:bg-gray-700' : 'text-gray-400 hover:text-gray-800 hover:bg-gray-200'}`}
+        title="Next quote"
+      >
+        <RefreshCw className="w-3.5 h-3.5" />
+      </button>
     </div>
   );
 }
@@ -277,29 +249,29 @@ export default function EarnTrack() {
   const inputBase = 'w-24 max-w-[7rem] border rounded py-1.5 text-xs focus:outline-none focus:ring-1 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none';
   const inputClass = isDark
     ? `${inputBase} bg-gray-800 border-gray-600 text-white focus:border-gray-500 pl-6`
-    : `${inputBase} bg-white border-gray-300 text-gray-900 focus:border-indigo-500 pl-6`;
-  const headerIconBg = isWorking ? 'bg-emerald-500/20 text-emerald-500' : isDark ? 'bg-gray-800 text-gray-400' : 'bg-gray-200 text-gray-500';
+    : `${inputBase} bg-white border-gray-300 text-gray-900 focus:border-gray-500 pl-6`;
+  const headerIconBg = isWorking ? 'bg-green-700/30 text-green-600' : isDark ? 'bg-gray-800 text-gray-400' : 'bg-gray-200 text-gray-500';
   const settingsPanelClass = isDark ? 'bg-gray-800/95 border-gray-700' : 'bg-white border-gray-200 shadow';
 
   return (
     <div className={`flex flex-col min-h-full rounded-lg overflow-hidden ${bgBase}`}>
-      <div className="flex flex-col flex-1 p-6 relative max-w-md mx-auto w-full">
-        {/* Subtle grey ambient (no blue) */}
+      <div className="flex flex-col flex-1 p-6 relative w-full max-w-4xl mx-auto">
+        {/* Subtle grey ambient */}
         <div className="fixed inset-0 pointer-events-none overflow-hidden -z-10">
           <div
             className={`absolute top-[-10%] left-[-10%] w-[180px] h-[180px] rounded-full blur-[80px] transition-opacity duration-700 ${
-              isWorking ? 'opacity-30' : 'opacity-15'
+              isWorking ? 'opacity-20' : 'opacity-10'
             } ${isDark ? 'bg-gray-600' : 'bg-gray-300'}`}
           />
           <div
             className={`absolute bottom-[-10%] right-[-10%] w-[180px] h-[180px] rounded-full blur-[80px] transition-opacity duration-700 ${
-              isWorking ? 'opacity-25' : 'opacity-10'
+              isWorking ? 'opacity-15' : 'opacity-10'
             } ${isDark ? 'bg-gray-600' : 'bg-gray-300'}`}
           />
         </div>
 
-        {/* Header */}
-        <div className="flex justify-between items-center mb-8 relative z-10">
+        {/* Header - logo, name, dark/light, settings (unchanged) */}
+        <div className="flex justify-between items-center mb-6 relative z-10">
           <div className="flex items-center gap-2">
             <div className={`p-1.5 rounded-md ${headerIconBg}`}>
               <Wallet className="w-4 h-4" />
@@ -325,7 +297,7 @@ export default function EarnTrack() {
           </div>
         </div>
 
-        {/* Settings panel - centered, compact inputs */}
+        {/* Settings panel - centered, compact */}
         {showSettings && (
           <div className={`mb-6 border rounded-lg p-4 relative z-20 ${settingsPanelClass}`}>
             <div className="space-y-3 flex flex-col items-center">
@@ -374,7 +346,7 @@ export default function EarnTrack() {
               </div>
               <button
                 onClick={handleReset}
-                className="w-full max-w-[10rem] flex items-center justify-center gap-1.5 text-[10px] text-red-500 hover:bg-red-500/10 py-2 rounded mt-2 transition-colors"
+                className="w-full max-w-[10rem] flex items-center justify-center gap-1.5 text-[10px] text-red-600 hover:bg-red-500/10 py-2 rounded mt-2 transition-colors"
               >
                 <RefreshCw className="w-3 h-3" /> Reset History
               </button>
@@ -382,21 +354,22 @@ export default function EarnTrack() {
           </div>
         )}
 
-        {/* Main content - centered */}
-        <div className="flex-1 flex flex-col items-center justify-center relative z-10">
-          <div className="text-center mb-8">
+        {/* Main content - horizontal PC layout */}
+        <div className="flex-1 flex flex-row items-center justify-center gap-10 lg:gap-14 relative z-10">
+          {/* Left: Total + Start/Stop + rate */}
+          <div className="flex flex-col items-center shrink-0">
             <span className={`text-[10px] uppercase tracking-[0.2em] font-medium ${isDark ? 'text-gray-500' : 'text-gray-500'}`}>
               Total Earnings
             </span>
-            <div className="relative mt-2 mb-6">
+            <div className="relative mt-2 mb-4">
               <span className={`text-4xl sm:text-5xl font-bold font-mono tracking-tight ${isDark ? 'text-gray-100' : 'text-gray-900'}`}>
                 <span className={isDark ? 'text-gray-500 mr-1' : 'text-gray-400 mr-1'}>$</span>
                 {formatMoney(displayAmount)}
               </span>
               {isWorking && (
                 <span className="absolute -top-3 -right-6 flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-600 opacity-60" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-green-700" />
                 </span>
               )}
             </div>
@@ -404,11 +377,11 @@ export default function EarnTrack() {
             <button
               onClick={handleToggleWork}
               className={`
-                group relative overflow-hidden rounded-full px-8 py-3 transition-all duration-300 transform active:scale-95 shadow-xl
+                rounded-full px-8 py-3 transition-all duration-300 transform active:scale-95
                 ${
                   isWorking
-                    ? 'bg-gray-800 border border-rose-500/30 text-rose-400 hover:bg-rose-500/10'
-                    : 'bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-400 hover:to-indigo-500 text-white shadow-lg'
+                    ? 'bg-gray-700 border border-gray-500 text-gray-300 hover:bg-gray-600'
+                    : 'bg-gray-600 hover:bg-gray-500 text-white'
                 }
               `}
             >
@@ -424,12 +397,13 @@ export default function EarnTrack() {
                 )}
               </div>
             </button>
-            <div className={`mt-4 text-[10px] font-mono ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+            <div className={`mt-3 text-[10px] font-mono ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
               ${hourlyRate} / hour
             </div>
           </div>
 
-          <div className="w-full max-w-[280px]">
+          {/* Right: Week + Month goals side by side */}
+          <div className="flex flex-row gap-4 flex-1 max-w-[480px] min-w-0">
             <TargetProgress
               type="Week"
               target={weeklyTarget}
@@ -447,11 +421,9 @@ export default function EarnTrack() {
           </div>
         </div>
 
-        <div className="relative z-10 w-full max-w-[280px] mx-auto">
-          <MotivationCard
-            currentEarnings={displayAmount}
-            hourlyRate={hourlyRate}
-            isWorking={isWorking}
+        {/* Bottom bar - quotes always visible */}
+        <div className="mt-auto relative z-10 shrink-0">
+          <QuoteBar
             quoteIndex={motivationIndex}
             onNextQuote={() => setMotivationIndex((i) => i + 1)}
             dark={isDark}
