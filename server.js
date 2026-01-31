@@ -8501,7 +8501,12 @@ app.get('/api/notifications/low-idle-employees', async (req, res) => {
     return res.status(503).json({ error: 'Team Logger API is not configured. Set TEAMLOGGER_API_KEY.' });
   }
 
-  const targetDate = date || new Date().toISOString().split('T')[0];
+  // Normalize date to YYYY-MM-DD (handle ISO strings or date-only)
+  const rawDate = date || new Date().toISOString().split('T')[0];
+  const targetDate = typeof rawDate === 'string' && rawDate.includes('T')
+    ? rawDate.split('T')[0]
+    : rawDate;
+
   const maxIdle = parseFloat(maxIdleHours);
   if (isNaN(maxIdle) || maxIdle < 0) {
     return res.status(400).json({ error: 'maxIdleHours must be a non-negative number' });
@@ -8553,6 +8558,7 @@ app.get('/api/notifications/low-idle-employees', async (req, res) => {
       }
       return 0;
     };
+    // Filter: show only employees with idle time *below* threshold (low idle = active)
     let list = rows
       .filter((row) => {
         const idleH = getIdleHours(row);
@@ -8569,6 +8575,9 @@ app.get('/api/notifications/low-idle-employees', async (req, res) => {
         };
       })
       .sort((a, b) => a.idleHours - b.idleHours);
+
+    // Log applied params so you can verify date/threshold in server logs (e.g. "why only 37 entries")
+    console.log('Low Idle: date=%s maxIdleHours=%s rowsFromApi=%d afterFilter=%d', targetDate, maxIdle, rows.length, list.length);
 
     // Enrich with EMS department: match by email first, then by name (so department filter has real options)
     let connection;
@@ -8599,6 +8608,10 @@ app.get('/api/notifications/low-idle-employees', async (req, res) => {
       if (connection) try { connection.release(); } catch (e) { /* ignore */ }
     }
 
+    // Response headers so client/Network tab can verify applied date and threshold
+    res.set('X-Low-Idle-Date', targetDate);
+    res.set('X-Low-Idle-MaxHours', String(maxIdle));
+    res.set('X-Low-Idle-Count', String(list.length));
     res.json(list);
   } catch (err) {
     console.error('Error fetching Low Idle (Team Logger):', err.response?.status, err.response?.data || err.message);
