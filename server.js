@@ -8570,22 +8570,31 @@ app.get('/api/notifications/low-idle-employees', async (req, res) => {
       })
       .sort((a, b) => a.idleHours - b.idleHours);
 
-    // Enrich with EMS department (email -> department) so department filter has options
+    // Enrich with EMS department: match by email first, then by name (so department filter has real options)
     let connection;
     try {
       connection = await mysqlPool.getConnection();
       const [empRows] = await connection.execute(
-        'SELECT LOWER(TRIM(email)) AS email, department FROM employees WHERE status = ?',
+        'SELECT LOWER(TRIM(email)) AS email, LOWER(TRIM(name)) AS name_key, department, name FROM employees WHERE status = ?',
         ['Active']
       );
       const emailToDept = {};
+      const nameToDept = {};
       for (const r of empRows) {
-        if (r.email) emailToDept[r.email] = r.department || 'Unassigned';
+        const dept = r.department || 'Unassigned';
+        if (r.email) emailToDept[r.email] = dept;
+        if (r.name_key) nameToDept[r.name_key] = dept;
       }
-      list = list.map((item) => ({
-        ...item,
-        department: emailToDept[(item.email || '').toString().trim().toLowerCase()] || 'Unassigned'
-      }));
+      list = list.map((item) => {
+        const emailKey = (item.email || '').toString().trim().toLowerCase();
+        const nameKey = (item.employeeName || '').toString().trim().toLowerCase();
+        const department = emailToDept[emailKey] || nameToDept[nameKey] || 'Unassigned';
+        return {
+          ...item,
+          department,
+          idleSeconds: Math.round(Number(item.idleHours) * 3600)
+        };
+      });
     } finally {
       if (connection) try { connection.release(); } catch (e) { /* ignore */ }
     }

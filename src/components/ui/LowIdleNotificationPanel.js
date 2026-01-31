@@ -27,7 +27,7 @@ const LowIdleNotificationPanel = ({
   }, [showSettings, maxIdleHours, selectedDate]);
 
   const getUniqueDepartments = () => {
-    const depts = (lowIdleNotifications || []).map((n) => n.department).filter(Boolean);
+    const depts = (lowIdleNotifications || []).map((n) => n.department || 'Unassigned');
     return [...new Set(depts)].sort();
   };
 
@@ -36,8 +36,17 @@ const LowIdleNotificationPanel = ({
       (!searchTerm ||
         (n.employeeName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
         (n.email || '').toLowerCase().includes(searchTerm.toLowerCase())) &&
-      (!departmentFilter || (n.department || '') === departmentFilter)
+      (!departmentFilter || (n.department || 'Unassigned') === departmentFilter)
   );
+
+  // Format decimal hours as H:MM:SS or HH:MM:SS (per report style)
+  const formatIdleHMS = (idleHours) => {
+    const totalSec = Math.round(Number(idleHours) * 3600);
+    const h = Math.floor(totalSec / 3600);
+    const m = Math.floor((totalSec % 3600) / 60);
+    const s = totalSec % 60;
+    return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  };
 
   const handleSettingsUpdate = () => {
     if (tempMaxIdleHours >= 0 && tempMaxIdleHours <= 24) {
@@ -53,13 +62,13 @@ const LowIdleNotificationPanel = ({
 
   const exportCsv = () => {
     const rows = [
-      ['Employee Name', 'Email', 'Employee Code', 'Department', 'Idle Hours', 'Date'],
+      ['Employee Name', 'Email', 'Employee Code', 'Department', 'Idle (H:MM:SS)', 'Date'],
       ...filtered.map((n) => [
         n.employeeName || 'N/A',
         n.email || 'N/A',
         n.employeeCode || 'N/A',
-        n.department || 'N/A',
-        n.idleHours ?? 'N/A',
+        n.department || 'Unassigned',
+        formatIdleHMS(n.idleHours),
         n.date || 'N/A'
       ])
     ];
@@ -160,7 +169,7 @@ const LowIdleNotificationPanel = ({
           >
             <option value="">All Departments</option>
             {getUniqueDepartments().map((dept) => (
-              <option key={dept} value={dept}>{dept}</option>
+              <option key={dept} value={dept}>{dept || 'Unassigned'}</option>
             ))}
           </select>
           <button
@@ -202,7 +211,7 @@ const LowIdleNotificationPanel = ({
                   </div>
                   <div className="text-right">
                     <span className="inline-block px-3 py-1 text-sm font-medium rounded-full bg-teal-100 text-teal-800">
-                      {Number(n.idleHours).toFixed(2)}h idle
+                      {formatIdleHMS(n.idleHours)} idle
                     </span>
                     <p className="text-xs text-gray-500 mt-1">{n.date}</p>
                   </div>
