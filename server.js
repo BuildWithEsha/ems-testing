@@ -8518,14 +8518,42 @@ app.get('/api/notifications/low-idle-employees', async (req, res) => {
     });
 
     // Employee summary report returns idle time as idleHours (decimal hours) and/or inactiveSecondsCount (seconds)
+    // API may return camelCase or other variants; coerce strings to number
     const rows = Array.isArray(responseData) ? responseData : (responseData?.data || []);
     const getIdleHours = (row) => {
-      const h = row.idleHours ?? row.idle_hours;
-      if (typeof h === 'number') return h;
-      const sec = row.inactiveSecondsCount ?? row.inactive_seconds_count;
-      return typeof sec === 'number' ? sec / 3600 : 0;
+      if (!row || typeof row !== 'object') return 0;
+      const h = row.idleHours ?? row.idle_hours ?? row.IdleHours;
+      if (h != null && h !== '') {
+        const num = typeof h === 'number' ? h : parseFloat(h);
+        if (!Number.isNaN(num)) return num;
+      }
+      const sec = row.inactiveSecondsCount ?? row.inactive_seconds_count ?? row.InactiveSecondsCount;
+      if (sec != null && sec !== '') {
+        const num = typeof sec === 'number' ? sec : parseFloat(sec);
+        if (!Number.isNaN(num)) return num / 3600;
+      }
+      // Fallback: find any key containing 'idle' (hours) or 'inactive' (seconds)
+      const keys = Object.keys(row);
+      for (const k of keys) {
+        const lower = k.toLowerCase();
+        if (lower.includes('idle') && !lower.includes('inactive') && !lower.includes('second')) {
+          const v = row[k];
+          if (v != null && v !== '') {
+            const num = typeof v === 'number' ? v : parseFloat(v);
+            if (!Number.isNaN(num)) return num;
+          }
+        }
+        if (lower.includes('inactive') && (lower.includes('second') || lower.includes('count'))) {
+          const v = row[k];
+          if (v != null && v !== '') {
+            const num = typeof v === 'number' ? v : parseFloat(v);
+            if (!Number.isNaN(num)) return num / 3600;
+          }
+        }
+      }
+      return 0;
     };
-    const list = rows
+    let list = rows
       .filter((row) => {
         const idleH = getIdleHours(row);
         return idleH < maxIdle;
@@ -8533,15 +8561,34 @@ app.get('/api/notifications/low-idle-employees', async (req, res) => {
       .map((row) => {
         const idleH = getIdleHours(row);
         return {
-          employeeName: row.title ?? row.name ?? row.employeeName ?? '',
+          employeeName: (row.title ?? row.name ?? row.employeeName ?? '').toString().trim(),
           email: (row.email ?? '').toString().trim(),
-          employeeCode: row.code ?? row.employeeCode ?? '',
-          idleHours: Number(idleH.toFixed(2)),
-          date: targetDate,
-          department: '' // No database; filter by date/name only. Department from API if present later.
+          employeeCode: (row.code ?? row.employeeCode ?? '').toString().trim(),
+          idleHours: Number(Number(idleH).toFixed(2)),
+          date: targetDate
         };
       })
       .sort((a, b) => a.idleHours - b.idleHours);
+
+    // Enrich with EMS department (email -> department) so department filter has options
+    let connection;
+    try {
+      connection = await mysqlPool.getConnection();
+      const [empRows] = await connection.execute(
+        'SELECT LOWER(TRIM(email)) AS email, department FROM employees WHERE status = ?',
+        ['Active']
+      );
+      const emailToDept = {};
+      for (const r of empRows) {
+        if (r.email) emailToDept[r.email] = r.department || 'Unassigned';
+      }
+      list = list.map((item) => ({
+        ...item,
+        department: emailToDept[(item.email || '').toString().trim().toLowerCase()] || 'Unassigned'
+      }));
+    } finally {
+      if (connection) try { connection.release(); } catch (e) { /* ignore */ }
+    }
 
     res.json(list);
   } catch (err) {
