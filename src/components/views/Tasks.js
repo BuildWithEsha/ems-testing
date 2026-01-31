@@ -3216,14 +3216,14 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
       });
 
       if (response.ok) {
-        // Update local state
-        updateDataState({
-          tasks: tasks.map(task => 
-            task.id === taskId 
-              ? { ...task, status: newStatus }
-              : task
-          )
-        });
+        // Update local state from current state so we don't overwrite timer stop updates
+        updateDataState((prev) => ({
+          ...prev,
+          tasks: prev.tasks.map((task) =>
+            task.id === taskId ? { ...task, status: newStatus } : task
+          ),
+        }));
+        updateTimerState((prev) => ({ ...prev, tick: Date.now() }));
 
         // If the task detail modal is open, update the selected task
         if (selectedTask && selectedTask.id === taskId) {
