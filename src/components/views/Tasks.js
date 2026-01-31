@@ -2927,12 +2927,8 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
   };
 
   const canCreateTask = () => {
-    if (!user || !user.permissions) return false;
-    
-    // Check for create tasks permission or admin access
-    return user.permissions.includes('all') || 
-           user.permissions.includes('create_tasks') || 
-           user.role === 'admin';
+    // All employees can add tasks (any logged-in user)
+    return !!user;
   };
 
   // Validate status change before updating

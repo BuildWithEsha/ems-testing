@@ -14,7 +14,8 @@ const LowHoursNotificationPanel = ({
   // Filter states
   const [filters, setFilters] = useState({
     searchTerm: '',
-    department: ''
+    department: '',
+    designation: ''
   });
 
   const [showFilters, setShowFilters] = useState(false);
@@ -50,6 +51,9 @@ const LowHoursNotificationPanel = ({
       return false;
     }
     if (filters.department && notification.department !== filters.department) {
+      return false;
+    }
+    if (filters.designation && (notification.designation || '') !== filters.designation) {
       return false;
     }
     return true;
@@ -104,11 +108,12 @@ const LowHoursNotificationPanel = ({
 
   const exportNotifications = () => {
     const csvContent = [
-      ['Employee Name', 'Employee ID', 'Department', 'Logged Hours', 'Required Hours', 'Shortfall', 'Date'],
+      ['Employee Name', 'Employee ID', 'Department', 'Designation', 'Logged Hours', 'Required Hours', 'Shortfall', 'Date'],
       ...filteredNotifications.map(n => [
         n.employeeName || 'N/A',
         n.employeeCode || 'N/A',
         n.department || 'N/A',
+        n.designation || 'N/A',
         n.loggedHours || '0',
         n.requiredHours || 'N/A',
         n.shortfallHours || 'N/A',
@@ -231,6 +236,17 @@ const LowHoursNotificationPanel = ({
                   <option key={dept} value={dept}>{dept}</option>
                 ))}
               </select>
+              {/* Designation Filter */}
+              <select
+                value={filters.designation}
+                onChange={(e) => setFilters({ ...filters, designation: e.target.value })}
+                className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+              >
+                <option value="">All Designations</option>
+                {getUniqueValues('designation').map(des => (
+                  <option key={des} value={des}>{des}</option>
+                ))}
+              </select>
             </div>
 
             <div className="flex items-center space-x-2">
@@ -289,7 +305,10 @@ const LowHoursNotificationPanel = ({
                               <User className="w-5 h-5 text-gray-400 mt-1" />
                               <div>
                                 <h4 className="font-medium text-gray-900">{notification.employeeName}</h4>
-                                <p className="text-sm text-gray-500">ID: {notification.employeeCode}</p>
+                                <p className="text-sm text-gray-500">
+                                  ID: {notification.employeeCode}
+                                  {notification.designation ? ` · ${notification.designation}` : ''}
+                                </p>
                               </div>
                             </div>
                             <div className="flex items-center space-x-4">

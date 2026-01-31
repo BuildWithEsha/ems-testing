@@ -5502,13 +5502,9 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
               const userPermissions = req.headers['user-permissions'] ? JSON.parse(req.headers['user-permissions']) : [];
               const userRole = req.headers['user-role'] || 'employee';
               
-              // Check if user has create_tasks permission or is admin
-              if (!userPermissions.includes('create_tasks') && !userPermissions.includes('all') && userRole !== 'admin') {
-                console.log(`Access denied: User role ${userRole} attempted to create task without permission`);
-                return res.status(403).json({ 
-                  error: 'Access denied. You do not have permission to create tasks.',
-                  requiredPermission: 'create_tasks'
-                });
+              // Allow all authenticated users to create tasks (add task usable by all employees)
+              if (!userRole && !req.headers['x-user-id']) {
+                return res.status(401).json({ error: 'Authentication required to create tasks.' });
               }
               
               const taskData = req.body;
@@ -8406,6 +8402,7 @@ app.get('/api/notifications/low-hours-employees', async (req, res) => {
         e.name,
         e.employee_id,
         e.department,
+        e.designation,
         e.working_hours,
         COALESCE(SUM(
           CASE 
@@ -8422,7 +8419,7 @@ app.get('/api/notifications/low-hours-employees', async (req, res) => {
       LEFT JOIN task_timesheet tt ON tt.employee_name = e.name
         AND tt.start_time >= ? AND tt.start_time <= ?
       WHERE e.status = 'Active'
-      GROUP BY e.id, e.name, e.employee_id, e.department, e.working_hours
+      GROUP BY e.id, e.name, e.employee_id, e.department, e.designation, e.working_hours
       HAVING total_seconds < ?
       ORDER BY total_seconds ASC, e.department, e.name
     `;
@@ -8436,6 +8433,7 @@ app.get('/api/notifications/low-hours-employees', async (req, res) => {
       employeeName: row.name,
       employeeCode: row.employee_id,
       department: row.department || 'Unassigned',
+      designation: row.designation || '',
       shiftHours: row.working_hours || 8,
       loggedSeconds: parseInt(row.total_seconds) || 0,
       loggedHours: ((parseInt(row.total_seconds) || 0) / 3600).toFixed(2),
