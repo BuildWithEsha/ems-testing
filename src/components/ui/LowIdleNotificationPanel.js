@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, User, Settings, Download, Clock } from 'lucide-react';
+import { X, User, Settings, Download, Clock, Building, Search, ChevronDown, ChevronRight } from 'lucide-react';
 
 const LowIdleNotificationPanel = ({
   isOpen,
@@ -18,6 +18,7 @@ const LowIdleNotificationPanel = ({
   const [tempSelectedDate, setTempSelectedDate] = useState(selectedDate);
   const [searchTerm, setSearchTerm] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('');
+  const [expandedDepartments, setExpandedDepartments] = useState(new Set());
 
   useEffect(() => {
     if (showSettings) {
@@ -38,6 +39,21 @@ const LowIdleNotificationPanel = ({
         (n.email || '').toLowerCase().includes(searchTerm.toLowerCase())) &&
       (!departmentFilter || (n.department || 'Unassigned') === departmentFilter)
   );
+
+  // Group filtered list by department (same as LHE)
+  const groupedByDepartment = filtered.reduce((acc, n) => {
+    const dept = n.department || 'Unassigned';
+    if (!acc[dept]) acc[dept] = [];
+    acc[dept].push(n);
+    return acc;
+  }, {});
+
+  const handleDepartmentToggle = (dept) => {
+    const next = new Set(expandedDepartments);
+    if (next.has(dept)) next.delete(dept);
+    else next.add(dept);
+    setExpandedDepartments(next);
+  };
 
   // Format decimal hours as H:MM:SS or HH:MM:SS (per report style)
   const formatIdleHMS = (idleHours) => {
@@ -86,7 +102,7 @@ const LowIdleNotificationPanel = ({
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden">
         <div className="flex items-center justify-between p-6 border-b border-gray-200">
           <div className="flex items-center space-x-3">
             <Clock className="w-6 h-6 text-teal-500" />
@@ -154,36 +170,47 @@ const LowIdleNotificationPanel = ({
           </div>
         )}
 
-        <div className="p-4 border-b border-gray-200 flex flex-wrap items-center gap-4">
-          <input
-            type="text"
-            placeholder="Search by name or email..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="flex-1 max-w-xs px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500"
-          />
-          <select
-            value={departmentFilter}
-            onChange={(e) => setDepartmentFilter(e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500"
-          >
-            <option value="">All Departments</option>
-            {getUniqueDepartments().map((dept) => (
-              <option key={dept} value={dept}>{dept || 'Unassigned'}</option>
-            ))}
-          </select>
-          <button
-            onClick={exportCsv}
-            className="flex items-center gap-2 px-3 py-2 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
-          >
-            <Download className="w-4 h-4" /> Export CSV
-          </button>
-          <span className="text-sm text-gray-600">
-            {filtered.length} employee{filtered.length !== 1 ? 's' : ''} with &lt; {maxIdleHours}h idle
-          </span>
+        {/* Filters & Actions (same layout as LHE) */}
+        <div className="p-4 border-b border-gray-200">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="flex items-center space-x-4">
+              <div className="relative">
+                <Search className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Search employees..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 w-64"
+                />
+              </div>
+              <select
+                value={departmentFilter}
+                onChange={(e) => setDepartmentFilter(e.target.value)}
+                className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500"
+              >
+                <option value="">All Departments</option>
+                {getUniqueDepartments().map((dept) => (
+                  <option key={dept} value={dept}>{dept}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex items-center space-x-2">
+              <span className="text-sm text-gray-600">
+                {filtered.length} employee{filtered.length !== 1 ? 's' : ''} below threshold
+              </span>
+              <button
+                onClick={exportCsv}
+                className="flex items-center gap-2 px-3 py-2 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+              >
+                <Download className="w-4 h-4" /> Export CSV
+              </button>
+            </div>
+          </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4">
+        {/* Content: department-wise groups (same as LHE) */}
+        <div className="flex-1 overflow-auto p-6">
           {error && (
             <div className="mb-4 p-4 bg-red-50 text-red-700 rounded-lg">
               {error}
@@ -192,37 +219,74 @@ const LowIdleNotificationPanel = ({
           {loading ? (
             <div className="flex items-center justify-center py-12 text-gray-500">Loading...</div>
           ) : filtered.length === 0 ? (
-            <div className="text-center py-12 text-gray-500">
-              No employees with less than {maxIdleHours} hours idle on {selectedDate}.
+            <div className="flex flex-col items-center justify-center h-64 text-gray-500">
+              <Clock className="w-16 h-16 text-gray-300 mb-4" />
+              <p className="text-lg font-medium">No Low Idle Employees</p>
+              <p className="text-sm">No employees with less than {maxIdleHours} hours idle on {selectedDate}</p>
             </div>
           ) : (
-            <ul className="divide-y divide-gray-200">
-              {filtered.map((n, idx) => (
-                <li key={`${n.email}-${n.date}-${idx}`} className="py-3 flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <User className="w-5 h-5 text-gray-400" />
-                    <div>
-                      <p className="font-medium text-gray-900">{n.employeeName || 'N/A'}</p>
-                      <p className="text-sm text-gray-500">
-                        {n.email || ''} {n.employeeCode ? ` · ${n.employeeCode}` : ''}
-                        {n.department ? ` · ${n.department}` : ''}
-                      </p>
+            <div className="space-y-4">
+              {Object.entries(groupedByDepartment).map(([department, notifications]) => (
+                <div key={department} className="border border-gray-200 rounded-lg overflow-hidden">
+                  <button
+                    onClick={() => handleDepartmentToggle(department)}
+                    className="w-full flex items-center justify-between p-4 bg-gray-50 hover:bg-gray-100 transition-colors"
+                  >
+                    <div className="flex items-center space-x-3">
+                      {expandedDepartments.has(department) ? (
+                        <ChevronDown className="w-5 h-5 text-gray-500" />
+                      ) : (
+                        <ChevronRight className="w-5 h-5 text-gray-500" />
+                      )}
+                      <Building className="w-5 h-5 text-gray-500" />
+                      <span className="font-medium text-gray-900">{department}</span>
+                      <span className="px-2 py-1 text-xs bg-teal-100 text-teal-700 rounded-full">
+                        {notifications.length} employee{notifications.length !== 1 ? 's' : ''}
+                      </span>
                     </div>
-                  </div>
-                  <div className="text-right">
-                    <span className="inline-block px-3 py-1 text-sm font-medium rounded-full bg-teal-100 text-teal-800">
-                      {formatIdleHMS(n.idleHours)} idle
-                    </span>
-                    <p className="text-xs text-gray-500 mt-1">{n.date}</p>
-                  </div>
-                </li>
+                  </button>
+                  {expandedDepartments.has(department) && (
+                    <div className="divide-y divide-gray-100">
+                      {notifications.map((n, idx) => (
+                        <div key={`${n.email}-${n.date}-${idx}`} className="p-4 hover:bg-gray-50">
+                          <div className="flex items-start justify-between">
+                            <div className="flex items-start space-x-3">
+                              <User className="w-5 h-5 text-gray-400 mt-1" />
+                              <div>
+                                <h4 className="font-medium text-gray-900">{n.employeeName || 'N/A'}</h4>
+                                <p className="text-sm text-gray-500">
+                                  {n.email || ''}
+                                  {n.employeeCode ? ` · ID: ${n.employeeCode}` : ''}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <span className="px-3 py-1 text-sm font-medium rounded-full bg-teal-100 text-teal-800">
+                                {formatIdleHMS(n.idleHours)} idle
+                              </span>
+                              <p className="text-xs text-gray-500 mt-1">{n.date}</p>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               ))}
-            </ul>
+            </div>
           )}
         </div>
 
-        <div className="p-4 border-t border-gray-200 text-sm text-gray-600">
-          Data fetched from Team Logger API (employee_summary_report) for the selected date.
+        {/* Footer (same style as LHE) */}
+        <div className="p-4 border-t border-gray-200 bg-gray-50">
+          <div className="flex items-center justify-between text-sm text-gray-600">
+            <span>
+              Showing {filtered.length} of {(lowIdleNotifications || []).length} employees below {maxIdleHours}h idle threshold
+            </span>
+            <span>
+              Date: {selectedDate}
+            </span>
+          </div>
         </div>
       </div>
     </div>
