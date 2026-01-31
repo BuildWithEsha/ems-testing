@@ -140,6 +140,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
   const tasksRef = useRef([]);
   const activeTimersRef = useRef({}); // taskId -> { startTime, intervalId }
   const userRef = useRef(null);
+  const refreshTasksOnlyRef = useRef(null);
 
   // Consolidated modal state
   const [modalState, setModalState] = useState({
@@ -1090,6 +1091,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
       console.error('Error refreshing tasks:', error);
     }
   };
+  refreshTasksOnlyRef.current = refreshTasksOnly;
 
   // Load more tasks function for pagination
   const loadMoreTasks = async () => {
@@ -1156,35 +1158,38 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
   useEffect(() => { userRef.current = user; }, [user]);
 
   // Restore activeTimers state from database when tasks are loaded (optimized)
+  // Skip restoring timers for tasks that have a pending offline stop (not yet synced)
   useEffect(() => {
     if (tasks.length > 0) {
-      const restoredTimers = {};
-      const restoredIntervals = {};
-      
-      // Only create intervals for tasks with active timers
-      (tasks || []).forEach(task => {
-        if (task.timer_started_at) {
-          // Check if interval already exists to avoid duplicates
-          if (!timerIntervals[task.id]) {
-            const interval = setInterval(() => {
-              updateTimerState(prev => ({ ...prev, tick: Date.now() })); // Update tick to force re-render
-            }, 1000);
-            
-            restoredIntervals[task.id] = interval;
-            // Keep activeTimersRef in sync for offline detection (startTime from server)
-            activeTimersRef.current[task.id] = {
-              startTime: new Date(task.timer_started_at).getTime(),
-              intervalId: interval
-            };
-          }
+      let pendingTaskIds = new Set();
+      try {
+        const raw = localStorage.getItem('pendingStopTimers');
+        if (raw) {
+          const pending = JSON.parse(raw);
+          if (Array.isArray(pending)) pending.forEach((p) => pendingTaskIds.add(Number(p.taskId)));
         }
+      } catch (e) { /* ignore */ }
+
+      const restoredIntervals = {};
+      (tasks || []).forEach(task => {
+        if (!task.timer_started_at) return;
+        if (pendingTaskIds.has(task.id)) return; // Don't restore — we have a pending stop for this task
+        if (timerIntervals[task.id]) return;
+
+        const interval = setInterval(() => {
+          updateTimerState(prev => ({ ...prev, tick: Date.now() }));
+        }, 1000);
+        restoredIntervals[task.id] = interval;
+        activeTimersRef.current[task.id] = {
+          startTime: new Date(task.timer_started_at).getTime(),
+          intervalId: interval
+        };
       });
-      
-      // Only update state if there are new intervals
+
       if (Object.keys(restoredIntervals).length > 0) {
-        updateTimerState(prev => ({ 
-          ...prev, 
-          intervals: { ...prev.intervals, ...restoredIntervals } 
+        updateTimerState(prev => ({
+          ...prev,
+          intervals: { ...prev.intervals, ...restoredIntervals }
         }));
       }
     }
@@ -1260,22 +1265,22 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
     }
   }, []);
 
-  // Online: sync any pending stop-timer requests to the backend
+  // Online: sync any pending stop-timer requests to the backend. Returns true if any were synced.
   const handleOnline = useCallback(async () => {
     let raw;
     try {
       raw = localStorage.getItem('pendingStopTimers');
     } catch (e) {
-      return;
+      return false;
     }
-    if (!raw) return;
+    if (!raw) return false;
     let pending;
     try {
       pending = JSON.parse(raw);
     } catch (e) {
-      return;
+      return false;
     }
-    if (!Array.isArray(pending) || pending.length === 0) return;
+    if (!Array.isArray(pending) || pending.length === 0) return false;
 
     const remaining = [];
     for (const item of pending) {
@@ -1306,24 +1311,33 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
     } catch (e) {
       console.error('Failed to update pendingStopTimers', e);
     }
+    const syncedCount = pending.length - remaining.length;
+    return syncedCount > 0;
   }, []);
+
+  // Wrapper: sync pending stops then refresh tasks so UI shows timer stopped (used on mount and on 'online' event)
+  const runOnlineSyncAndRefresh = useCallback(() => {
+    handleOnline().then((synced) => {
+      if (synced && refreshTasksOnlyRef.current) refreshTasksOnlyRef.current();
+    });
+  }, [handleOnline]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
     window.addEventListener('offline', handleOffline);
-    window.addEventListener('online', handleOnline);
+    window.addEventListener('online', runOnlineSyncAndRefresh);
     return () => {
       window.removeEventListener('offline', handleOffline);
-      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('online', runOnlineSyncAndRefresh);
     };
-  }, [handleOffline, handleOnline]);
+  }, [handleOffline, runOnlineSyncAndRefresh]);
 
-  // On mount: sync any pending stops if we're already online
+  // On mount: sync any pending stops if online, then refresh tasks so UI shows timer stopped
   useEffect(() => {
     if (typeof navigator !== 'undefined' && navigator.onLine) {
-      handleOnline();
+      runOnlineSyncAndRefresh();
     }
-  }, [handleOnline]);
+  }, [runOnlineSyncAndRefresh]);
 
   // Optimized load task details function with parallel API calls
   const loadTaskDetails = async (taskId) => {
