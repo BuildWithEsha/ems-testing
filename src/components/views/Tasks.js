@@ -1223,7 +1223,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
       pending.push({
         taskId: Number(taskId),
         loggedSeconds,
-        memo: 'no internet',
+        memo: 'No Internet(Timer auto stopped)',
         user_name: user?.name || 'Admin',
         user_id: user?.id || 1,
       });
@@ -3123,6 +3123,52 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
       if (!validation.isValid) {
         alert(validation.message);
         return;
+      }
+
+      // When marking as complete, auto-stop the timer if it is running
+      if (newStatus === 'Completed') {
+        const hasActiveTimer = timerState.activeTimers[taskId] || currentTask.timer_started_at;
+        if (hasActiveTimer) {
+          const startTime = timerState.activeTimers[taskId]
+            ? (typeof timerState.activeTimers[taskId] === 'number' ? timerState.activeTimers[taskId] : new Date(timerState.activeTimers[taskId]).getTime())
+            : new Date(currentTask.timer_started_at).getTime();
+          const loggedSeconds = Math.floor((Date.now() - startTime) / 1000);
+          const currentLogged = currentTask.logged_seconds || 0;
+          const newLoggedSeconds = currentLogged + loggedSeconds;
+
+          if (timerState.intervals[taskId]) {
+            clearInterval(timerState.intervals[taskId]);
+          }
+          delete activeTimersRef.current[taskId];
+          updateTimerState((prev) => {
+            const newTimers = { ...prev.activeTimers };
+            const newIntervals = { ...prev.intervals };
+            delete newTimers[taskId];
+            delete newIntervals[taskId];
+            return { ...prev, activeTimers: newTimers, intervals: newIntervals, tick: Date.now() };
+          });
+          updateDataState((prev) => ({
+            ...prev,
+            tasks: prev.tasks.map((t) =>
+              t.id === taskId ? { ...t, timer_started_at: null, logged_seconds: newLoggedSeconds } : t
+            ),
+          }));
+
+          try {
+            await fetch(`/api/tasks/${taskId}/stop-timer`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                loggedSeconds,
+                user_name: user?.name || 'Admin',
+                user_id: user?.id || 1,
+                memo: 'Task marked as completed (Timer auto stopped)',
+              }),
+            });
+          } catch (stopErr) {
+            console.error('Error auto-stopping timer on mark complete:', stopErr);
+          }
+        }
       }
 
       // Update task status on server
