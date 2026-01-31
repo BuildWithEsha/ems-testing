@@ -5516,13 +5516,15 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                   validation_by, effort_label, checklist, workflow_guide, file_links, video_links
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
               `;
+              // Coerce undefined/empty to null so MySQL accepts optional fields (e.g. department)
+              const opt = (v) => sanitizeForMySQL(v === undefined || v === null || (typeof v === 'string' && v.trim() === '') ? null : v);
               const values = [
                 sanitizeForMySQL(taskData.title), 
-                sanitizeForMySQL(taskData.department), 
-                sanitizeForMySQL(taskData.taskCategory !== undefined ? taskData.taskCategory : null), 
-                sanitizeForMySQL(taskData.project !== undefined ? taskData.project : null),
-                sanitizeForMySQL(taskData.startDate !== undefined ? taskData.startDate : null), 
-                sanitizeForMySQL(taskData.dueDate !== undefined ? taskData.dueDate : null), 
+                opt(taskData.department), 
+                opt(taskData.taskCategory), 
+                opt(taskData.project),
+                opt(taskData.startDate), 
+                opt(taskData.dueDate), 
                 taskData.withoutDueDate ? 1 : 0,
                 toAssignedToString(taskData) || null, 
                 sanitizeForMySQL(taskData.status) || 'Pending', 
