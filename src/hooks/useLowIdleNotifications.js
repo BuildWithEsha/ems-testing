@@ -11,8 +11,8 @@ export const useLowIdleNotifications = () => {
   const [error, setError] = useState(null);
   const [startDate, setStartDate] = useState(today());
   const [endDate, setEndDate] = useState(today());
-  const [minIdleHours, setMinIdleHours] = useState(3);
-  const [minIdleMinutes, setMinIdleMinutes] = useState(0);
+  const [minIdleHours, setMinIdleHours] = useState(0);
+  const [minIdleMinutes, setMinIdleMinutes] = useState(30);
 
   const fetchLowIdleNotifications = async (opts = {}) => {
     const s = opts.startDate ?? startDate;

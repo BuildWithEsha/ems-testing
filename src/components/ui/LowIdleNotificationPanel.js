@@ -254,10 +254,11 @@ const LowIdleNotificationPanel = ({
           {loading ? (
             <div className="flex items-center justify-center py-12 text-gray-500">Loading...</div>
           ) : filtered.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-64 text-gray-500">
+            <div className="flex flex-col items-center justify-center h-64 text-gray-500 text-center px-4">
               <Clock className="w-16 h-16 text-gray-300 mb-4" />
-              <p className="text-lg font-medium">No High Idle Employees</p>
-              <p className="text-sm">No employees with more than {minIdleHours}h {minIdleMinutes}m idle from {displayStart} to {displayEnd}</p>
+              <p className="text-lg font-medium">No employees above threshold</p>
+              <p className="text-sm mb-2">No employees with more than {minIdleHours}h {minIdleMinutes}m idle from {displayStart} to {displayEnd}.</p>
+              <p className="text-xs text-gray-400">Try lowering the minimum idle (e.g. 0h 30m) or pick a different date range. If the range is in the future, Team Logger may have no data yet.</p>
             </div>
           ) : (
             <div className="space-y-4">
