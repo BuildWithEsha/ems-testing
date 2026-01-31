@@ -3127,35 +3127,54 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
 
       // When marking as complete, auto-stop the timer if it is running
       if (newStatus === 'Completed') {
-        const hasActiveTimer = timerState.activeTimers[taskId] || currentTask.timer_started_at;
+        // Use ref first (always current); fallback to state and task for restored timers
+        const refEntry = activeTimersRef.current[taskId] || activeTimersRef.current[String(taskId)];
+        const hasActiveTimer = refEntry || timerState.activeTimers[taskId] || currentTask.timer_started_at;
         if (hasActiveTimer) {
-          const startTime = timerState.activeTimers[taskId]
-            ? (typeof timerState.activeTimers[taskId] === 'number' ? timerState.activeTimers[taskId] : new Date(timerState.activeTimers[taskId]).getTime())
-            : new Date(currentTask.timer_started_at).getTime();
-          const loggedSeconds = Math.floor((Date.now() - startTime) / 1000);
+          const startTimeMs = refEntry
+            ? refEntry.startTime
+            : (timerState.activeTimers[taskId]
+                ? (typeof timerState.activeTimers[taskId] === 'number' ? timerState.activeTimers[taskId] : new Date(timerState.activeTimers[taskId]).getTime())
+                : new Date(currentTask.timer_started_at).getTime());
+          const loggedSeconds = Math.floor((Date.now() - startTimeMs) / 1000);
           const currentLogged = currentTask.logged_seconds || 0;
           const newLoggedSeconds = currentLogged + loggedSeconds;
 
-          if (timerState.intervals[taskId]) {
-            clearInterval(timerState.intervals[taskId]);
+          // Clear interval from ref (avoids stale timerState.intervals)
+          if (refEntry && typeof refEntry.intervalId === 'number') {
+            clearInterval(refEntry.intervalId);
+          } else {
+            const intervalId = timerState.intervals[taskId];
+            if (intervalId) clearInterval(intervalId);
           }
           delete activeTimersRef.current[taskId];
+          delete activeTimersRef.current[String(taskId)];
+
           updateTimerState((prev) => {
             const newTimers = { ...prev.activeTimers };
             const newIntervals = { ...prev.intervals };
             delete newTimers[taskId];
             delete newIntervals[taskId];
-            return { ...prev, activeTimers: newTimers, intervals: newIntervals, tick: Date.now() };
+            // Clear stop-timer modal state if it was open for this task
+            const clearStopModal = prev.stopTimerTaskId === taskId
+              ? { stopTimerTaskId: null, stopTimerMemo: '', stopTimerStartTime: '', stopTimerEndTime: '', stopTimerTotalTime: '' }
+              : {};
+            return { ...prev, ...clearStopModal, activeTimers: newTimers, intervals: newIntervals, tick: Date.now() };
           });
+          if (stopTimerTaskId === taskId) {
+            updateUiState({ showStopTimerModal: false });
+          }
+
           updateDataState((prev) => ({
             ...prev,
             tasks: prev.tasks.map((t) =>
               t.id === taskId ? { ...t, timer_started_at: null, logged_seconds: newLoggedSeconds } : t
             ),
           }));
+          updateTimerState((prev) => ({ ...prev, tick: Date.now() }));
 
           try {
-            await fetch(`/api/tasks/${taskId}/stop-timer`, {
+            const stopResponse = await fetch(`/api/tasks/${taskId}/stop-timer`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -3165,6 +3184,17 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
                 memo: 'Task marked as completed (Timer auto stopped)',
               }),
             });
+            if (stopResponse.ok) {
+              const responseData = await stopResponse.json();
+              const serverLoggedSeconds = responseData.logged_seconds ?? newLoggedSeconds;
+              updateDataState((prev) => ({
+                ...prev,
+                tasks: prev.tasks.map((t) =>
+                  t.id === taskId ? { ...t, timer_started_at: null, logged_seconds: serverLoggedSeconds } : t
+                ),
+              }));
+              updateTimerState((prev) => ({ ...prev, tick: Date.now() }));
+            }
           } catch (stopErr) {
             console.error('Error auto-stopping timer on mark complete:', stopErr);
           }
