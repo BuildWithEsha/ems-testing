@@ -22,6 +22,9 @@ const LowIdleNotificationPanel = ({
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [expandedDepartments, setExpandedDepartments] = useState(new Set());
 
+  const displayStart = typeof startDate === 'string' ? startDate : new Date().toISOString().split('T')[0];
+  const displayEnd = typeof endDate === 'string' ? endDate : new Date().toISOString().split('T')[0];
+
   useEffect(() => {
     if (showSettings) {
       setTempStartDate(startDate);
@@ -88,7 +91,7 @@ const LowIdleNotificationPanel = ({
         n.employeeCode || 'N/A',
         n.department || 'Unassigned',
         formatIdleHMS(n.idleHours),
-        n.dateRange || `${startDate} to ${endDate}`
+        n.dateRange || `${displayStart} to ${displayEnd}`
       ])
     ];
     const csv = rows.map((r) => r.join(',')).join('\n');
@@ -96,7 +99,7 @@ const LowIdleNotificationPanel = ({
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `idle-employees-${startDate}-${endDate}-min${minIdleHours}h${minIdleMinutes}m.csv`;
+    a.download = `idle-employees-${displayStart}-${displayEnd}-min${minIdleHours}h${minIdleMinutes}m.csv`;
     a.click();
     window.URL.revokeObjectURL(url);
   };
@@ -112,7 +115,7 @@ const LowIdleNotificationPanel = ({
             <div>
               <h2 className="text-xl font-semibold text-gray-900">High Idle Employees (Tracking App)</h2>
               <p className="text-sm text-gray-600">
-                Employees with more than {minIdleHours}h {minIdleMinutes}m idle from {startDate} to {endDate} (Team Logger API)
+                Employees with more than {minIdleHours}h {minIdleMinutes}m idle from {displayStart} to {displayEnd} (Team Logger API)
               </p>
             </div>
           </div>
@@ -120,10 +123,10 @@ const LowIdleNotificationPanel = ({
             <button
               onClick={() => setShowSettings(!showSettings)}
               className="flex items-center space-x-2 px-3 py-2 text-sm bg-teal-100 text-teal-700 rounded-lg hover:bg-teal-200 transition-colors"
-              title="Configure"
+              title="Configure date range and min idle"
             >
               <Settings className="w-4 h-4" />
-              <span>Min {minIdleHours}h {minIdleMinutes}m · {startDate} – {endDate}</span>
+              <span>Min {minIdleHours}h {minIdleMinutes}m · {displayStart} – {displayEnd}</span>
             </button>
             <button onClick={onClose} className="p-2 rounded-lg hover:bg-gray-100 transition-colors">
               <X className="w-5 h-5 text-gray-500" />
@@ -132,66 +135,73 @@ const LowIdleNotificationPanel = ({
         </div>
 
         {showSettings && (
-          <div className="p-4 bg-teal-50 border-b border-gray-200 flex flex-wrap items-center gap-4">
-            <div className="flex items-center gap-2">
-              <label className="text-sm font-medium text-gray-700">Start date:</label>
-              <input
-                type="date"
-                value={tempStartDate}
-                onChange={(e) => setTempStartDate(e.target.value)}
-                className="px-3 py-1 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-teal-500"
-              />
+          <div className="p-4 bg-teal-50 border-b border-gray-200">
+            <p className="text-sm font-medium text-gray-700 mb-3">Show employees with more than this idle time in the date range:</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Start date</label>
+                <input
+                  type="date"
+                  value={typeof tempStartDate === 'string' ? tempStartDate : ''}
+                  onChange={(e) => setTempStartDate(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">End date</label>
+                <input
+                  type="date"
+                  value={typeof tempEndDate === 'string' ? tempEndDate : ''}
+                  onChange={(e) => setTempEndDate(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Min idle (hours : minutes)</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min="0"
+                    max="24"
+                    value={tempMinIdleHours}
+                    onChange={(e) => setTempMinIdleHours(Number(e.target.value) || 0)}
+                    className="w-14 px-2 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm text-center"
+                    placeholder="0"
+                  />
+                  <span className="text-gray-500 font-medium">h</span>
+                  <input
+                    type="number"
+                    min="0"
+                    max="59"
+                    value={tempMinIdleMinutes}
+                    onChange={(e) => setTempMinIdleMinutes(Number(e.target.value) || 0)}
+                    className="w-14 px-2 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm text-center"
+                    placeholder="0"
+                  />
+                  <span className="text-gray-500 font-medium">m</span>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={handleSettingsUpdate}
+                  className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors text-sm font-medium"
+                >
+                  Update
+                </button>
+                <button
+                  onClick={() => {
+                    setTempStartDate(startDate);
+                    setTempEndDate(endDate);
+                    setTempMinIdleHours(minIdleHours);
+                    setTempMinIdleMinutes(minIdleMinutes);
+                    setShowSettings(false);
+                  }}
+                  className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors text-sm font-medium"
+                >
+                  Cancel
+                </button>
+              </div>
             </div>
-            <div className="flex items-center gap-2">
-              <label className="text-sm font-medium text-gray-700">End date:</label>
-              <input
-                type="date"
-                value={tempEndDate}
-                onChange={(e) => setTempEndDate(e.target.value)}
-                className="px-3 py-1 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-teal-500"
-              />
-            </div>
-            <div className="flex items-center gap-2">
-              <label className="text-sm font-medium text-gray-700">Min idle (more than):</label>
-              <input
-                type="number"
-                min="0"
-                max="24"
-                value={tempMinIdleHours}
-                onChange={(e) => setTempMinIdleHours(Number(e.target.value) || 0)}
-                className="w-16 px-2 py-1 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-teal-500"
-                placeholder="h"
-              />
-              <span className="text-sm text-gray-600">h</span>
-              <input
-                type="number"
-                min="0"
-                max="59"
-                value={tempMinIdleMinutes}
-                onChange={(e) => setTempMinIdleMinutes(Number(e.target.value) || 0)}
-                className="w-16 px-2 py-1 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-teal-500"
-                placeholder="m"
-              />
-              <span className="text-sm text-gray-600">m</span>
-            </div>
-            <button
-              onClick={handleSettingsUpdate}
-              className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors"
-            >
-              Update
-            </button>
-            <button
-              onClick={() => {
-                setTempStartDate(startDate);
-                setTempEndDate(endDate);
-                setTempMinIdleHours(minIdleHours);
-                setTempMinIdleMinutes(minIdleMinutes);
-                setShowSettings(false);
-              }}
-              className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
-            >
-              Cancel
-            </button>
           </div>
         )}
 
@@ -247,7 +257,7 @@ const LowIdleNotificationPanel = ({
             <div className="flex flex-col items-center justify-center h-64 text-gray-500">
               <Clock className="w-16 h-16 text-gray-300 mb-4" />
               <p className="text-lg font-medium">No High Idle Employees</p>
-              <p className="text-sm">No employees with more than {minIdleHours}h {minIdleMinutes}m idle from {startDate} to {endDate}</p>
+              <p className="text-sm">No employees with more than {minIdleHours}h {minIdleMinutes}m idle from {displayStart} to {displayEnd}</p>
             </div>
           ) : (
             <div className="space-y-4">
@@ -273,7 +283,7 @@ const LowIdleNotificationPanel = ({
                   {expandedDepartments.has(department) && (
                     <div className="divide-y divide-gray-100">
                       {notifications.map((n, idx) => (
-                        <div key={`${n.email}-${n.dateRange || startDate}-${idx}`} className="p-4 hover:bg-gray-50">
+                        <div key={`${n.email}-${n.dateRange || displayStart}-${idx}`} className="p-4 hover:bg-gray-50">
                           <div className="flex items-start justify-between">
                             <div className="flex items-start space-x-3">
                               <User className="w-5 h-5 text-gray-400 mt-1" />
@@ -309,7 +319,7 @@ const LowIdleNotificationPanel = ({
               Showing {filtered.length} of {(lowIdleNotifications || []).length} employees with more than {minIdleHours}h {minIdleMinutes}m idle
             </span>
             <span>
-              Range: {startDate} – {endDate}
+              Range: {displayStart} – {displayEnd}
             </span>
           </div>
         </div>

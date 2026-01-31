@@ -9,8 +9,8 @@ export const useLowIdleNotifications = () => {
   const [hasLowIdleNotifications, setHasLowIdleNotifications] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [startDate, setStartDate] = useState(today);
-  const [endDate, setEndDate] = useState(today);
+  const [startDate, setStartDate] = useState(today());
+  const [endDate, setEndDate] = useState(today());
   const [minIdleHours, setMinIdleHours] = useState(3);
   const [minIdleMinutes, setMinIdleMinutes] = useState(0);
 
