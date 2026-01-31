@@ -1223,7 +1223,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
       pending.push({
         taskId: Number(taskId),
         loggedSeconds,
-        memo: '',
+        memo: 'no internet',
         user_name: user?.name || 'Admin',
         user_id: user?.id || 1,
       });
