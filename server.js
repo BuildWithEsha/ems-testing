@@ -8454,13 +8454,16 @@ app.get('/api/notifications/low-hours-employees', async (req, res) => {
   }
 });
 
-// Low Idle Employees Notifications API - fetches from Team Logger API (GET only).
+// Low Idle Employees Notifications API - fetches from Team Logger API (GET only). No database.
 // Team Logger API doc: Employee Summary Report
 // [GET] https://api2.teamlogger.com/api/employee_summary_report?startTime=start_time_epoch_ms&endTime=end_time_epoch_ms
 // startTime (long): Start time in milliseconds since UNIX epoch.
 // endTime (long): End time in milliseconds since UNIX epoch.
 // Auth: Authorization: Bearer YOUR_API_KEY_VALUE_HERE
 const TEAMLOGGER_EMPLOYEE_SUMMARY_REPORT_URL = 'https://api2.teamlogger.com/api/employee_summary_report';
+// Hardcoded Team Logger credentials (env TEAMLOGGER_API_KEY overrides)
+const TEAMLOGGER_API_KEY_HARDCODED = 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwOi8vaGlwZXJyLmNvbSIsInN1YiI6IjNlZDcxOTM5NTVkOTQxNGZhMTVlYjM0YjFiMDNiNGQwIiwiYXVkIjoic2VydmVyIn0.E6dQfypd_CzlpNjSG2S3HQp0epBlezMk4770M_G_sxY';
+const TEAMLOGGER_KEY_ID = '3ed7193955d9414fa15eb34b1b03b4d0';
 
 function getEpochMsForDay(dateStr, timezoneOffsetMinutes = 330) {
   const midnightUtc = new Date(dateStr + 'T00:00:00.000Z').getTime();
@@ -8492,7 +8495,7 @@ app.get('/api/notifications/low-idle-employees', async (req, res) => {
     });
   }
 
-  const apiKey = process.env.TEAMLOGGER_API_KEY || TEAMLOGGER_API_KEYS[0];
+  const apiKey = process.env.TEAMLOGGER_API_KEY || TEAMLOGGER_API_KEY_HARDCODED;
   if (!apiKey) {
     console.error('Low Idle: No Team Logger API key (env or hardcoded)');
     return res.status(503).json({ error: 'Team Logger API is not configured. Set TEAMLOGGER_API_KEY.' });
@@ -8506,38 +8509,23 @@ app.get('/api/notifications/low-idle-employees', async (req, res) => {
 
   const { startMs, endMs } = getEpochMsForDay(targetDate);
 
-  let connection;
-  const tryFetch = async (key) => {
-    const { data } = await axios.get(TEAMLOGGER_EMPLOYEE_SUMMARY_REPORT_URL, {
+  try {
+    // GET only - Employee Summary Report per API doc; no database
+    const { data: responseData } = await axios.get(TEAMLOGGER_EMPLOYEE_SUMMARY_REPORT_URL, {
       params: { startTime: startMs, endTime: endMs },
-      headers: { Authorization: `Bearer ${key}` },
+      headers: { Authorization: `Bearer ${apiKey}` },
       timeout: 30000
     });
-    return data;
-  };
 
-  try {
-    let responseData;
-    try {
-      responseData = await tryFetch(apiKey);
-    } catch (firstErr) {
-      if (firstErr.response?.status === 401 && !process.env.TEAMLOGGER_API_KEY && TEAMLOGGER_API_KEYS[1]) {
-        responseData = await tryFetch(TEAMLOGGER_API_KEYS[1]);
-      } else {
-        throw firstErr;
-      }
-    }
-    const response = { data: responseData };
-
-    // Employee summary report returns idle time as idleHours (decimal hours) and/or inactiveSecondsCount (seconds). Same metric.
-    const rows = Array.isArray(response.data) ? response.data : (response.data?.data || []);
+    // Employee summary report returns idle time as idleHours (decimal hours) and/or inactiveSecondsCount (seconds)
+    const rows = Array.isArray(responseData) ? responseData : (responseData?.data || []);
     const getIdleHours = (row) => {
       const h = row.idleHours ?? row.idle_hours;
       if (typeof h === 'number') return h;
       const sec = row.inactiveSecondsCount ?? row.inactive_seconds_count;
       return typeof sec === 'number' ? sec / 3600 : 0;
     };
-    let list = rows
+    const list = rows
       .filter((row) => {
         const idleH = getIdleHours(row);
         return idleH < maxIdle;
@@ -8549,27 +8537,11 @@ app.get('/api/notifications/low-idle-employees', async (req, res) => {
           email: (row.email ?? '').toString().trim(),
           employeeCode: row.code ?? row.employeeCode ?? '',
           idleHours: Number(idleH.toFixed(2)),
-          date: targetDate
+          date: targetDate,
+          department: '' // No database; filter by date/name only. Department from API if present later.
         };
       })
       .sort((a, b) => a.idleHours - b.idleHours);
-
-    // Enrich with EMS department (email -> department)
-    connection = await mysqlPool.getConnection();
-    const [empRows] = await connection.execute(
-      'SELECT LOWER(TRIM(email)) AS email, department FROM employees WHERE status = ?',
-      ['Active']
-    );
-    connection.release();
-    connection = null;
-    const emailToDept = {};
-    for (const r of empRows) {
-      if (r.email) emailToDept[r.email] = r.department || 'Unassigned';
-    }
-    list = list.map((item) => ({
-      ...item,
-      department: emailToDept[(item.email || '').toString().trim().toLowerCase()] || 'Unassigned'
-    }));
 
     res.json(list);
   } catch (err) {
@@ -8578,10 +8550,6 @@ app.get('/api/notifications/low-idle-employees', async (req, res) => {
       error: 'Failed to fetch idle data from tracking app',
       message: err.response?.data?.message || err.message
     });
-  } finally {
-    if (connection) {
-      try { connection.release(); } catch (e) { /* ignore */ }
-    }
   }
 });
 
