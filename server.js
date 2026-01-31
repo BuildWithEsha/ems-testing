@@ -2253,6 +2253,8 @@ app.get('/api/reports/timelog/consolidated', async (req, res) => {
       t.title AS task_title,
       t.labels,
       t.priority,
+      MAX(COALESCE(t.time_estimate_hours, 0)) AS time_estimate_hours,
+      MAX(COALESCE(t.time_estimate_minutes, 0)) AS time_estimate_minutes,
       SUM(
         CASE 
           WHEN tt.hours_logged_seconds IS NOT NULL AND tt.hours_logged_seconds != 0 

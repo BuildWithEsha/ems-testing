@@ -756,6 +756,16 @@ const ConsolidatedTimeLogReport = () => {
     return `${h}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
   };
 
+  const formatEstimate = (hours, minutes) => {
+    const h = parseInt(hours, 10) || 0;
+    const m = parseInt(minutes, 10) || 0;
+    if (h === 0 && m === 0) return '-';
+    const parts = [];
+    if (h > 0) parts.push(`${h}h`);
+    if (m > 0) parts.push(`${m}m`);
+    return parts.join(' ') || '-';
+  };
+
   const fetchReport = async () => {
     if (!filters.startDate || !filters.endDate) return;
     const params = new URLSearchParams({ start: filters.startDate, end: filters.endDate });
@@ -812,6 +822,7 @@ const ConsolidatedTimeLogReport = () => {
               <th className="px-6 py-3 text-left">Task Name</th>
               <th className="px-6 py-3 text-left">Label</th>
               <th className="px-6 py-3 text-left">Priority</th>
+              <th className="px-6 py-3 text-right">Estimate Time</th>
               <th className="px-6 py-3 text-right">Total Time</th>
             </tr>
           </thead>
@@ -822,11 +833,12 @@ const ConsolidatedTimeLogReport = () => {
                 <td className="px-6 py-3">{r.task_title}</td>
                 <td className="px-6 py-3">{r.labels || '-'}</td>
                 <td className="px-6 py-3">{r.priority || '-'}</td>
+                <td className="px-6 py-3 text-right font-mono text-gray-600">{formatEstimate(r.time_estimate_hours, r.time_estimate_minutes)}</td>
                 <td className="px-6 py-3 text-right font-mono text-indigo-700">{formatHMS(r.seconds)}</td>
               </tr>
             ))}
             {rows.length === 0 && (
-              <tr><td colSpan="5" className="px-6 py-4 text-center text-gray-500">No data</td></tr>
+              <tr><td colSpan="6" className="px-6 py-4 text-center text-gray-500">No data</td></tr>
             )}
           </tbody>
         </table>
