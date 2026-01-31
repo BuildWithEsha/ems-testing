@@ -1,18 +1,24 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 
+const today = () => new Date().toISOString().split('T')[0];
+
 export const useLowIdleNotifications = () => {
   const { user } = useAuth();
   const [lowIdleNotifications, setLowIdleNotifications] = useState([]);
   const [hasLowIdleNotifications, setHasLowIdleNotifications] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [maxIdleHours, setMaxIdleHours] = useState(3);
-  const [selectedDate, setSelectedDate] = useState(() =>
-    new Date().toISOString().split('T')[0]
-  );
+  const [startDate, setStartDate] = useState(today);
+  const [endDate, setEndDate] = useState(today);
+  const [minIdleHours, setMinIdleHours] = useState(3);
+  const [minIdleMinutes, setMinIdleMinutes] = useState(0);
 
-  const fetchLowIdleNotifications = async (maxHours = maxIdleHours, date = selectedDate) => {
+  const fetchLowIdleNotifications = async (opts = {}) => {
+    const s = opts.startDate ?? startDate;
+    const e = opts.endDate ?? endDate;
+    const h = opts.minIdleHours ?? minIdleHours;
+    const m = opts.minIdleMinutes ?? minIdleMinutes;
     if (!user?.permissions?.includes('low_idle_view') && !user?.permissions?.includes('all') && user?.role !== 'admin' && user?.role !== 'Admin') {
       setLowIdleNotifications([]);
       setHasLowIdleNotifications(false);
@@ -22,8 +28,14 @@ export const useLowIdleNotifications = () => {
     try {
       setLoading(true);
       setError(null);
+      const params = new URLSearchParams({
+        startDate: s,
+        endDate: e,
+        minIdleHours: String(h),
+        minIdleMinutes: String(m)
+      });
       const response = await fetch(
-        `/api/notifications/low-idle-employees?maxIdleHours=${maxHours}&date=${date}`,
+        `/api/notifications/low-idle-employees?${params}`,
         {
           headers: {
             'x-user-role': user?.role || 'Admin',
@@ -49,20 +61,17 @@ export const useLowIdleNotifications = () => {
     }
   };
 
-  const updateMaxIdleHours = (newMax) => {
-    setMaxIdleHours(newMax);
-    fetchLowIdleNotifications(newMax, selectedDate);
-  };
-
-  const updateSelectedDate = (newDate) => {
-    setSelectedDate(newDate);
-    fetchLowIdleNotifications(maxIdleHours, newDate);
-  };
-
-  const updateSettings = (newMaxIdleHours, newDate) => {
-    setMaxIdleHours(newMaxIdleHours);
-    setSelectedDate(newDate);
-    fetchLowIdleNotifications(newMaxIdleHours, newDate);
+  const updateSettings = (newStartDate, newEndDate, newMinIdleHours, newMinIdleMinutes) => {
+    setStartDate(newStartDate);
+    setEndDate(newEndDate);
+    setMinIdleHours(newMinIdleHours);
+    setMinIdleMinutes(newMinIdleMinutes);
+    fetchLowIdleNotifications({
+      startDate: newStartDate,
+      endDate: newEndDate,
+      minIdleHours: newMinIdleHours,
+      minIdleMinutes: newMinIdleMinutes
+    });
   };
 
   useEffect(() => {
@@ -76,11 +85,11 @@ export const useLowIdleNotifications = () => {
     hasLowIdleNotifications,
     loading,
     error,
-    maxIdleHours,
-    selectedDate,
-    refreshLowIdleNotifications: () => fetchLowIdleNotifications(maxIdleHours, selectedDate),
-    updateMaxIdleHours,
-    updateSelectedDate,
+    startDate,
+    endDate,
+    minIdleHours,
+    minIdleMinutes,
+    refreshLowIdleNotifications: () => fetchLowIdleNotifications(),
     updateSettings
   };
 };

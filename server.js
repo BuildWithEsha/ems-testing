@@ -8472,10 +8472,20 @@ function getEpochMsForDay(dateStr, timezoneOffsetMinutes = 330) {
   return { startMs, endMs };
 }
 
+function getEpochMsForRange(startDateStr, endDateStr, timezoneOffsetMinutes = 330) {
+  const norm = (s) => (typeof s === 'string' && s.includes('T') ? s.split('T')[0] : s);
+  const start = norm(startDateStr);
+  const end = norm(endDateStr);
+  const { startMs } = getEpochMsForDay(start, timezoneOffsetMinutes);
+  const endDay = getEpochMsForDay(end, timezoneOffsetMinutes);
+  const endMs = endDay.startMs + 24 * 60 * 60 * 1000 - 1;
+  return { startMs, endMs };
+}
+
 app.get('/api/notifications/low-idle-employees', async (req, res) => {
   const userRole = req.headers['x-user-role'];
   const userPermissions = req.headers['x-user-permissions'];
-  const { date, maxIdleHours = 3 } = req.query;
+  const { date, startDate, endDate, maxIdleHours, minIdleHours = 3, minIdleMinutes = 0 } = req.query;
 
   if (!userRole || !userPermissions) {
     return res.status(401).json({ error: 'User role and permissions required' });
@@ -8501,18 +8511,22 @@ app.get('/api/notifications/low-idle-employees', async (req, res) => {
     return res.status(503).json({ error: 'Team Logger API is not configured. Set TEAMLOGGER_API_KEY.' });
   }
 
-  // Normalize date to YYYY-MM-DD (handle ISO strings or date-only)
-  const rawDate = date || new Date().toISOString().split('T')[0];
-  const targetDate = typeof rawDate === 'string' && rawDate.includes('T')
-    ? rawDate.split('T')[0]
-    : rawDate;
-
-  const maxIdle = parseFloat(maxIdleHours);
-  if (isNaN(maxIdle) || maxIdle < 0) {
-    return res.status(400).json({ error: 'maxIdleHours must be a non-negative number' });
+  const today = new Date().toISOString().split('T')[0];
+  const norm = (s) => (typeof s === 'string' && s.includes('T') ? s.split('T')[0] : s);
+  let start = norm(startDate || date || today);
+  let end = norm(endDate || date || today);
+  if (end < start) {
+    [start, end] = [end, start];
   }
 
-  const { startMs, endMs } = getEpochMsForDay(targetDate);
+  const minH = parseFloat(minIdleHours);
+  const minM = parseFloat(minIdleMinutes);
+  const thresholdHours = (Number.isNaN(minH) ? 3 : minH) + (Number.isNaN(minM) ? 0 : minM) / 60;
+  if (thresholdHours < 0) {
+    return res.status(400).json({ error: 'minIdleHours and minIdleMinutes must be non-negative' });
+  }
+
+  const { startMs, endMs } = getEpochMsForRange(start, end);
 
   try {
     // GET only - Employee Summary Report per API doc; no database
@@ -8558,11 +8572,11 @@ app.get('/api/notifications/low-idle-employees', async (req, res) => {
       }
       return 0;
     };
-    // Filter: show only employees with idle time *below* threshold (low idle = active)
+    // Filter: show only employees with idle time *more than* threshold (high idle in range)
     let list = rows
       .filter((row) => {
         const idleH = getIdleHours(row);
-        return idleH < maxIdle;
+        return idleH >= thresholdHours;
       })
       .map((row) => {
         const idleH = getIdleHours(row);
@@ -8571,13 +8585,12 @@ app.get('/api/notifications/low-idle-employees', async (req, res) => {
           email: (row.email ?? '').toString().trim(),
           employeeCode: (row.code ?? row.employeeCode ?? '').toString().trim(),
           idleHours: Number(Number(idleH).toFixed(2)),
-          date: targetDate
+          dateRange: `${start} to ${end}`
         };
       })
-      .sort((a, b) => a.idleHours - b.idleHours);
+      .sort((a, b) => b.idleHours - a.idleHours);
 
-    // Log applied params so you can verify date/threshold in server logs (e.g. "why only 37 entries")
-    console.log('Low Idle: date=%s maxIdleHours=%s rowsFromApi=%d afterFilter=%d', targetDate, maxIdle, rows.length, list.length);
+    console.log('Low Idle: start=%s end=%s minIdle=%sh %sm rowsFromApi=%d afterFilter=%d', start, end, minH, minM, rows.length, list.length);
 
     // Enrich with EMS department: match by email first, then by name (so department filter has real options)
     let connection;
@@ -8608,9 +8621,9 @@ app.get('/api/notifications/low-idle-employees', async (req, res) => {
       if (connection) try { connection.release(); } catch (e) { /* ignore */ }
     }
 
-    // Response headers so client/Network tab can verify applied date and threshold
-    res.set('X-Low-Idle-Date', targetDate);
-    res.set('X-Low-Idle-MaxHours', String(maxIdle));
+    res.set('X-Low-Idle-StartDate', start);
+    res.set('X-Low-Idle-EndDate', end);
+    res.set('X-Low-Idle-MinHours', String(thresholdHours));
     res.set('X-Low-Idle-Count', String(list.length));
     res.json(list);
   } catch (err) {

@@ -57,7 +57,7 @@ const Header = ({ onSearch, onLogout, tasks, employees, onStartTimer, onStopTime
   const { lowHoursNotifications, hasLowHoursNotifications, loading: lowHoursNotificationsLoading, minHoursThreshold, selectedDate: lowHoursSelectedDate, updateMinHoursThreshold, updateSelectedDate: updateLowHoursDate, updateSettings: updateLowHoursSettings } = useLowHoursNotifications();
   
   // Low Idle (Team Logger API) notification system for admin users
-  const { lowIdleNotifications, hasLowIdleNotifications, loading: lowIdleNotificationsLoading, error: lowIdleError, maxIdleHours, selectedDate: lowIdleSelectedDate, updateMaxIdleHours, updateSelectedDate: updateLowIdleDate, updateSettings: updateLowIdleSettings } = useLowIdleNotifications();
+  const { lowIdleNotifications, hasLowIdleNotifications, loading: lowIdleNotificationsLoading, error: lowIdleError, startDate: lowIdleStartDate, endDate: lowIdleEndDate, minIdleHours: lowIdleMinHours, minIdleMinutes: lowIdleMinMinutes, updateSettings: updateLowIdleSettings } = useLowIdleNotifications();
   
   // MTW notification system for admin users
   const { missedTaskNotifications, hasMissedTaskNotifications, loading: missedTaskNotificationsLoading, daysThreshold, updateDaysThreshold } = useMissedTaskNotifications();
@@ -636,11 +636,11 @@ const Header = ({ onSearch, onLogout, tasks, employees, onStartTimer, onStopTime
         isOpen={showLowIdleNotificationPanel}
         onClose={() => setShowLowIdleNotificationPanel(false)}
         lowIdleNotifications={lowIdleNotifications}
-        maxIdleHours={maxIdleHours}
-        selectedDate={lowIdleSelectedDate}
+        startDate={lowIdleStartDate}
+        endDate={lowIdleEndDate}
+        minIdleHours={lowIdleMinHours}
+        minIdleMinutes={lowIdleMinMinutes}
         onUpdateSettings={updateLowIdleSettings}
-        onUpdateMaxIdleHours={updateMaxIdleHours}
-        onUpdateSelectedDate={updateLowIdleDate}
         loading={lowIdleNotificationsLoading}
         error={lowIdleError}
       />

@@ -5,27 +5,31 @@ const LowIdleNotificationPanel = ({
   isOpen,
   onClose,
   lowIdleNotifications,
-  maxIdleHours,
-  selectedDate,
+  startDate,
+  endDate,
+  minIdleHours,
+  minIdleMinutes,
   onUpdateSettings,
-  onUpdateMaxIdleHours,
-  onUpdateSelectedDate,
   loading,
   error
 }) => {
   const [showSettings, setShowSettings] = useState(false);
-  const [tempMaxIdleHours, setTempMaxIdleHours] = useState(maxIdleHours);
-  const [tempSelectedDate, setTempSelectedDate] = useState(selectedDate);
+  const [tempStartDate, setTempStartDate] = useState(startDate);
+  const [tempEndDate, setTempEndDate] = useState(endDate);
+  const [tempMinIdleHours, setTempMinIdleHours] = useState(minIdleHours);
+  const [tempMinIdleMinutes, setTempMinIdleMinutes] = useState(minIdleMinutes);
   const [searchTerm, setSearchTerm] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [expandedDepartments, setExpandedDepartments] = useState(new Set());
 
   useEffect(() => {
     if (showSettings) {
-      setTempMaxIdleHours(maxIdleHours);
-      setTempSelectedDate(selectedDate);
+      setTempStartDate(startDate);
+      setTempEndDate(endDate);
+      setTempMinIdleHours(minIdleHours);
+      setTempMinIdleMinutes(minIdleMinutes);
     }
-  }, [showSettings, maxIdleHours, selectedDate]);
+  }, [showSettings, startDate, endDate, minIdleHours, minIdleMinutes]);
 
   const getUniqueDepartments = () => {
     const depts = (lowIdleNotifications || []).map((n) => n.department || 'Unassigned');
@@ -65,12 +69,11 @@ const LowIdleNotificationPanel = ({
   };
 
   const handleSettingsUpdate = () => {
-    if (tempMaxIdleHours >= 0 && tempMaxIdleHours <= 24) {
+    const h = Number(tempMinIdleHours) || 0;
+    const m = Number(tempMinIdleMinutes) || 0;
+    if (h >= 0 && h <= 24 && m >= 0 && m <= 59 && tempStartDate && tempEndDate) {
       if (onUpdateSettings) {
-        onUpdateSettings(tempMaxIdleHours, tempSelectedDate);
-      } else {
-        onUpdateMaxIdleHours(tempMaxIdleHours);
-        onUpdateSelectedDate(tempSelectedDate);
+        onUpdateSettings(tempStartDate, tempEndDate, h, m);
       }
       setShowSettings(false);
     }
@@ -78,14 +81,14 @@ const LowIdleNotificationPanel = ({
 
   const exportCsv = () => {
     const rows = [
-      ['Employee Name', 'Email', 'Employee Code', 'Department', 'Idle (H:MM:SS)', 'Date'],
+      ['Employee Name', 'Email', 'Employee Code', 'Department', 'Idle (H:MM:SS)', 'Date Range'],
       ...filtered.map((n) => [
         n.employeeName || 'N/A',
         n.email || 'N/A',
         n.employeeCode || 'N/A',
         n.department || 'Unassigned',
         formatIdleHMS(n.idleHours),
-        n.date || 'N/A'
+        n.dateRange || `${startDate} to ${endDate}`
       ])
     ];
     const csv = rows.map((r) => r.join(',')).join('\n');
@@ -93,7 +96,7 @@ const LowIdleNotificationPanel = ({
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `low-idle-employees-${selectedDate}-max${maxIdleHours}h.csv`;
+    a.download = `idle-employees-${startDate}-${endDate}-min${minIdleHours}h${minIdleMinutes}m.csv`;
     a.click();
     window.URL.revokeObjectURL(url);
   };
@@ -107,9 +110,9 @@ const LowIdleNotificationPanel = ({
           <div className="flex items-center space-x-3">
             <Clock className="w-6 h-6 text-teal-500" />
             <div>
-              <h2 className="text-xl font-semibold text-gray-900">Low Idle Employees (Tracking App)</h2>
+              <h2 className="text-xl font-semibold text-gray-900">High Idle Employees (Tracking App)</h2>
               <p className="text-sm text-gray-600">
-                Employees with less than {maxIdleHours} hours idle on {selectedDate} (from Team Logger API)
+                Employees with more than {minIdleHours}h {minIdleMinutes}m idle from {startDate} to {endDate} (Team Logger API)
               </p>
             </div>
           </div>
@@ -120,7 +123,7 @@ const LowIdleNotificationPanel = ({
               title="Configure"
             >
               <Settings className="w-4 h-4" />
-              <span>Max {maxIdleHours}h idle</span>
+              <span>Min {minIdleHours}h {minIdleMinutes}m · {startDate} – {endDate}</span>
             </button>
             <button onClick={onClose} className="p-2 rounded-lg hover:bg-gray-100 transition-colors">
               <X className="w-5 h-5 text-gray-500" />
@@ -131,25 +134,45 @@ const LowIdleNotificationPanel = ({
         {showSettings && (
           <div className="p-4 bg-teal-50 border-b border-gray-200 flex flex-wrap items-center gap-4">
             <div className="flex items-center gap-2">
-              <label className="text-sm font-medium text-gray-700">Show employees with less than (hours idle):</label>
+              <label className="text-sm font-medium text-gray-700">Start date:</label>
+              <input
+                type="date"
+                value={tempStartDate}
+                onChange={(e) => setTempStartDate(e.target.value)}
+                className="px-3 py-1 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-teal-500"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="text-sm font-medium text-gray-700">End date:</label>
+              <input
+                type="date"
+                value={tempEndDate}
+                onChange={(e) => setTempEndDate(e.target.value)}
+                className="px-3 py-1 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-teal-500"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="text-sm font-medium text-gray-700">Min idle (more than):</label>
               <input
                 type="number"
                 min="0"
                 max="24"
-                step="0.5"
-                value={tempMaxIdleHours}
-                onChange={(e) => setTempMaxIdleHours(parseFloat(e.target.value) ?? 3)}
-                className="w-20 px-3 py-1 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-teal-500"
+                value={tempMinIdleHours}
+                onChange={(e) => setTempMinIdleHours(Number(e.target.value) || 0)}
+                className="w-16 px-2 py-1 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-teal-500"
+                placeholder="h"
               />
-            </div>
-            <div className="flex items-center gap-2">
-              <label className="text-sm font-medium text-gray-700">Date:</label>
+              <span className="text-sm text-gray-600">h</span>
               <input
-                type="date"
-                value={tempSelectedDate}
-                onChange={(e) => setTempSelectedDate(e.target.value)}
-                className="px-3 py-1 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-teal-500"
+                type="number"
+                min="0"
+                max="59"
+                value={tempMinIdleMinutes}
+                onChange={(e) => setTempMinIdleMinutes(Number(e.target.value) || 0)}
+                className="w-16 px-2 py-1 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-teal-500"
+                placeholder="m"
               />
+              <span className="text-sm text-gray-600">m</span>
             </div>
             <button
               onClick={handleSettingsUpdate}
@@ -159,8 +182,10 @@ const LowIdleNotificationPanel = ({
             </button>
             <button
               onClick={() => {
-                setTempMaxIdleHours(maxIdleHours);
-                setTempSelectedDate(selectedDate);
+                setTempStartDate(startDate);
+                setTempEndDate(endDate);
+                setTempMinIdleHours(minIdleHours);
+                setTempMinIdleMinutes(minIdleMinutes);
                 setShowSettings(false);
               }}
               className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
@@ -197,7 +222,7 @@ const LowIdleNotificationPanel = ({
             </div>
             <div className="flex items-center space-x-2">
               <span className="text-sm text-gray-600">
-                {filtered.length} employee{filtered.length !== 1 ? 's' : ''} below threshold
+                {filtered.length} employee{filtered.length !== 1 ? 's' : ''} above threshold
               </span>
               <button
                 onClick={exportCsv}
@@ -221,8 +246,8 @@ const LowIdleNotificationPanel = ({
           ) : filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-64 text-gray-500">
               <Clock className="w-16 h-16 text-gray-300 mb-4" />
-              <p className="text-lg font-medium">No Low Idle Employees</p>
-              <p className="text-sm">No employees with less than {maxIdleHours} hours idle on {selectedDate}</p>
+              <p className="text-lg font-medium">No High Idle Employees</p>
+              <p className="text-sm">No employees with more than {minIdleHours}h {minIdleMinutes}m idle from {startDate} to {endDate}</p>
             </div>
           ) : (
             <div className="space-y-4">
@@ -248,7 +273,7 @@ const LowIdleNotificationPanel = ({
                   {expandedDepartments.has(department) && (
                     <div className="divide-y divide-gray-100">
                       {notifications.map((n, idx) => (
-                        <div key={`${n.email}-${n.date}-${idx}`} className="p-4 hover:bg-gray-50">
+                        <div key={`${n.email}-${n.dateRange || startDate}-${idx}`} className="p-4 hover:bg-gray-50">
                           <div className="flex items-start justify-between">
                             <div className="flex items-start space-x-3">
                               <User className="w-5 h-5 text-gray-400 mt-1" />
@@ -264,7 +289,7 @@ const LowIdleNotificationPanel = ({
                               <span className="px-3 py-1 text-sm font-medium rounded-full bg-teal-100 text-teal-800">
                                 {formatIdleHMS(n.idleHours)} idle
                               </span>
-                              <p className="text-xs text-gray-500 mt-1">{n.date}</p>
+                              <p className="text-xs text-gray-500 mt-1">{n.dateRange || `${startDate} to ${endDate}`}</p>
                             </div>
                           </div>
                         </div>
@@ -281,10 +306,10 @@ const LowIdleNotificationPanel = ({
         <div className="p-4 border-t border-gray-200 bg-gray-50">
           <div className="flex items-center justify-between text-sm text-gray-600">
             <span>
-              Showing {filtered.length} of {(lowIdleNotifications || []).length} employees below {maxIdleHours}h idle threshold
+              Showing {filtered.length} of {(lowIdleNotifications || []).length} employees with more than {minIdleHours}h {minIdleMinutes}m idle
             </span>
             <span>
-              Date: {selectedDate}
+              Range: {startDate} – {endDate}
             </span>
           </div>
         </div>
