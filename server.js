@@ -1497,15 +1497,17 @@ app.post('/api/attendance/clock-out', async (req, res) => {
         const [empRows] = await connection.execute('SELECT name FROM employees WHERE id = ?', [empIdInt]);
         const employeeName = empRows.length ? (empRows[0].name || '').trim() : null;
         if (employeeName) {
-          // Match assigned_to as comma-separated list (e.g. "Name1, Name2" or "Name1,Name2")
+          // Match assigned_to as comma-separated list; case-insensitive so "John Doe" matches "john doe"
+          const norm = (s) => (s || '').trim().toLowerCase().replace(/\s+/g, '');
+          const empNorm = norm(employeeName);
           const [tasksWithTimer] = await connection.execute(
             `SELECT id, timer_started_at FROM tasks 
              WHERE timer_started_at IS NOT NULL 
-             AND (CONCAT(',', TRIM(REPLACE(COALESCE(assigned_to,''), ' ', '')), ',') LIKE CONCAT('%,', TRIM(REPLACE(?,' ', '')), ',%') 
-                  OR assigned_to = ? 
-                  OR assigned_to LIKE CONCAT(?,'%') 
-                  OR assigned_to LIKE CONCAT('%,', ?))`,
-            [employeeName, employeeName, employeeName, employeeName]
+             AND (LOWER(CONCAT(',', TRIM(REPLACE(COALESCE(assigned_to,''), ' ', '')), ',')) LIKE CONCAT('%,', ?, ',%') 
+                  OR LOWER(TRIM(REPLACE(COALESCE(assigned_to,''), ' ', ''))) = ?
+                  OR LOWER(assigned_to) LIKE CONCAT(?, '%') 
+                  OR LOWER(assigned_to) LIKE CONCAT('%,', ?))`,
+            [empNorm, empNorm, empNorm, empNorm]
           );
           const formatForMySQL = (date) => {
             const pktString = date.toLocaleString('sv-SE', { timeZone: 'Asia/Karachi' });
@@ -6487,12 +6489,22 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
               try {
                 connection = await mysqlPool.getConnection();
                 await connection.ping();
-              // First get the task to get the timer start time
-              const getTaskQuery = 'SELECT timer_started_at FROM tasks WHERE id = ?';
+              // First get the task to get the timer start time and current logged_seconds
+              const getTaskQuery = 'SELECT timer_started_at, COALESCE(logged_seconds, 0) AS logged_seconds FROM tasks WHERE id = ?';
                 const [tasks] = await connection.execute(getTaskQuery, [taskId]);
                 
-                if (tasks.length === 0 || !tasks[0].timer_started_at) {
-                  res.status(400).json({ error: 'No active timer found' });
+                if (tasks.length === 0) {
+                  res.status(404).json({ error: 'Task not found' });
+                  return;
+                }
+                // Idempotent: if timer already stopped (e.g. by clock-out), return 200 with current logged_seconds so frontend can sync
+                if (!tasks[0].timer_started_at) {
+                  const currentLogged = Number(tasks[0].logged_seconds) || 0;
+                  res.status(200).json({
+                    message: 'Timer already stopped',
+                    logged_seconds: currentLogged,
+                    already_stopped: true
+                  });
                   return;
                 }
                 
@@ -6530,7 +6542,7 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                 const updateQuery = `
                   UPDATE tasks SET 
                     timer_started_at = NULL,
-                    logged_seconds = logged_seconds + ?,
+                    logged_seconds = COALESCE(logged_seconds, 0) + ?,
                     updated_at = CURRENT_TIMESTAMP
                   WHERE id = ?
                 `;

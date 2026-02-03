@@ -1308,7 +1308,8 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
             memo: (memo || '').trim(),
           }),
         });
-        if (!response.ok) remaining.push(item);
+        const isAlreadyStopped = response.status === 400;
+        if (!response.ok && !isAlreadyStopped) remaining.push(item);
       } catch (e) {
         console.error('Failed to sync stop timer for task', taskId, e);
         remaining.push(item);
@@ -2815,9 +2816,30 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
           tick: Date.now() // ✅ Force re-render to show updated state (same as modal)
         });
       } else {
-        // Rollback on error - restore timer state
-        const errorData = await response.json();
-        // ✅ FIX: Read directly from timerState, not destructured activeTimers
+        const errorData = await response.json().catch(() => ({}));
+        const isAlreadyStopped = response.status === 400 && (errorData.error === 'No active timer found' || (errorData.error && String(errorData.error).toLowerCase().includes('active timer')));
+        if (isAlreadyStopped) {
+          // Timer was already stopped (e.g. by clock-out). Clear local state and refresh task so logged_seconds is correct.
+          if (timerState.intervals[stopTimerTaskId]) {
+            clearInterval(timerState.intervals[stopTimerTaskId]);
+          }
+          delete activeTimersRef.current[stopTimerTaskId];
+          updateTimerState(prev => {
+            const newTimers = { ...prev.activeTimers };
+            const newIntervals = { ...prev.intervals };
+            delete newTimers[stopTimerTaskId];
+            delete newIntervals[stopTimerTaskId];
+            return { ...prev, activeTimers: newTimers, intervals: newIntervals, stopTimerTaskId: null, stopTimerMemo: '', stopTimerStartTime: '', stopTimerEndTime: '', stopTimerTotalTime: '', tick: Date.now() };
+          });
+          updateDataState(prev => ({
+            ...prev,
+            tasks: prev.tasks.map(t => t.id === stopTimerTaskId ? { ...t, timer_started_at: null } : t)
+          }));
+          updateUiState({ showStopTimerModal: false });
+          if (refreshTasksOnlyRef.current) refreshTasksOnlyRef.current();
+          return;
+        }
+        // Rollback on other errors - restore timer state
         const startTime = timerState.activeTimers[stopTimerTaskId] || Date.now() - (loggedSeconds * 1000);
         const interval = setInterval(() => {
           updateTimerState(prev => ({ ...prev, tick: Date.now() }));
