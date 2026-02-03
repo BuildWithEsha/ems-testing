@@ -2671,8 +2671,8 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
     
     updateTimerState({
       stopTimerTaskId: taskId,
-      stopTimerStartTime: startTime.toLocaleTimeString('en-US', { hour12: false }),
-      stopTimerEndTime: endTime.toLocaleTimeString('en-US', { hour12: false }),
+      stopTimerStartTime: startTime.toLocaleTimeString('en-US', { hour12: false, timeZone: 'Asia/Karachi' }),
+      stopTimerEndTime: endTime.toLocaleTimeString('en-US', { hour12: false, timeZone: 'Asia/Karachi' }),
       stopTimerTotalTime: `${Math.floor(totalSeconds / 3600)}h ${Math.floor((totalSeconds % 3600) / 60)}m`,
       stopTimerMemo: ''
     });
@@ -6517,10 +6517,10 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
                                   </div>
                                 </td>
                                 <td className="px-4 py-4 text-gray-900">
-                                  {entry.formatted_start_time || (entry.start_time ? new Date(entry.start_time).toLocaleString() : '-')}
+                                  {entry.formatted_start_time || (entry.start_time ? new Date(entry.start_time).toLocaleString(undefined, { timeZone: 'Asia/Karachi' }) : '-')}
                                 </td>
                                 <td className="px-4 py-4 text-gray-900">
-                                  {entry.formatted_end_time || (entry.end_time ? new Date(entry.end_time).toLocaleString() : '-')}
+                                  {entry.formatted_end_time || (entry.end_time ? new Date(entry.end_time).toLocaleString(undefined, { timeZone: 'Asia/Karachi' }) : '-')}
                                 </td>
                                 <td className="px-4 py-4">
                                   <div className="max-w-xs">

@@ -278,26 +278,28 @@ const TimerModal = ({ isOpen, onClose, onStartTimer, onStopTimer, onOpenTask }) 
     }
   };
 
+  const PAKISTAN_TZ = 'Asia/Karachi';
   const formatDateTime = (dateString) => {
     if (!dateString) return '';
     try {
-    // Display the time as stored (server now stores Pakistan time)
-    const date = new Date(dateString);
-      // If date is invalid, return empty string
+      // Server stores timer/timesheet in Pakistan time; display in Pakistan timezone
+      const date = new Date(dateString);
       if (isNaN(date.getTime())) {
         console.warn('Invalid date string:', dateString);
         return '';
       }
-    return date.toLocaleDateString('en-US', { 
-      weekday: 'short', 
-      day: '2-digit', 
-      month: 'short', 
-      year: 'numeric' 
-    }) + ' ' + date.toLocaleTimeString('en-US', { 
-      hour: '2-digit', 
-      minute: '2-digit',
-      hour12: false
-    });
+      return date.toLocaleDateString('en-US', {
+        timeZone: PAKISTAN_TZ,
+        weekday: 'short',
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric'
+      }) + ' ' + date.toLocaleTimeString('en-US', {
+        timeZone: PAKISTAN_TZ,
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+      });
     } catch (error) {
       console.error('Error formatting date:', error, 'dateString:', dateString);
       return '';

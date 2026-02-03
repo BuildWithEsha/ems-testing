@@ -1503,7 +1503,7 @@ app.post('/api/attendance/clock-out', async (req, res) => {
           const norm = (s) => (s || '').trim().toLowerCase().replace(/\s+/g, '');
           const empNorm = norm(employeeName);
           const [tasksWithTimer] = await connection.execute(
-            `SELECT id, timer_started_at, COALESCE(logged_seconds, 0) AS logged_seconds FROM tasks 
+            `SELECT id, CAST(timer_started_at AS CHAR) AS timer_started_at, COALESCE(logged_seconds, 0) AS logged_seconds FROM tasks 
              WHERE timer_started_at IS NOT NULL 
              AND (LOWER(CONCAT(',', TRIM(REPLACE(COALESCE(assigned_to,''), ' ', '')), ',')) LIKE CONCAT('%,', ?, ',%') 
                   OR LOWER(TRIM(REPLACE(COALESCE(assigned_to,''), ' ', ''))) = ?
@@ -1515,10 +1515,22 @@ app.post('/api/attendance/clock-out', async (req, res) => {
             const pktString = date.toLocaleString('sv-SE', { timeZone: 'Asia/Karachi' });
             return pktString;
           };
+          // Parse timer_started_at as Pakistan time (stored by start-timer in Asia/Karachi) so duration is correct on UTC servers (e.g. Docker/Portainer)
+          const parseTimerStartedAt = (val) => {
+            const str = String(val || '').trim().replace(' ', 'T');
+            if (!str) return new Date();
+            return new Date(str.includes('+') || str.endsWith('Z') ? str : str + '+05:00');
+          };
           for (const t of tasksWithTimer) {
-            let startTime = t.timer_started_at instanceof Date ? t.timer_started_at : new Date(String(t.timer_started_at).replace(' ', 'T'));
+            const startTime = parseTimerStartedAt(t.timer_started_at);
             const endTime = new Date();
-            const finalLoggedSeconds = Math.max(0, Math.floor((endTime - startTime) / 1000));
+            let finalLoggedSeconds = Math.floor((endTime - startTime) / 1000);
+            if (finalLoggedSeconds < 0) {
+              console.warn('Clock-out timer: negative duration for task', t.id, '- using server-local parse as fallback');
+              const fallbackStart = new Date(String(t.timer_started_at).replace(' ', 'T'));
+              finalLoggedSeconds = Math.max(0, Math.floor((endTime - fallbackStart) / 1000));
+            }
+            finalLoggedSeconds = Math.max(0, finalLoggedSeconds);
             const previousLogged = Number(t.logged_seconds) || 0;
             const newLoggedSeconds = previousLogged + finalLoggedSeconds;
             await connection.execute(
