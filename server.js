@@ -8534,12 +8534,26 @@ app.get('/api/notifications/low-idle-employees', async (req, res) => {
 
   try {
     // GET only - Employee Summary Report per API doc; no database
-    const { data: responseData } = await axios.get(TEAMLOGGER_EMPLOYEE_SUMMARY_REPORT_URL, {
+    // Use validateStatus so we handle 4xx/5xx without throwing and can return a clear error to the client
+    const response = await axios.get(TEAMLOGGER_EMPLOYEE_SUMMARY_REPORT_URL, {
       params: { startTime: startMs, endTime: endMs },
       headers: { Authorization: `Bearer ${apiKey}` },
-      timeout: 30000
+      timeout: 30000,
+      validateStatus: () => true
     });
 
+    if (response.status !== 200) {
+      const body = response.data;
+      const msg = body && (typeof body === 'object' ? (body.message || body.error || JSON.stringify(body).slice(0, 200)) : String(body).slice(0, 200));
+      console.error('Low Idle: Team Logger API returned', response.status, msg || response.statusText);
+      return res.status(502).json({
+        error: 'Idle data service returned an error',
+        message: msg || `HTTP ${response.status}`,
+        status: response.status
+      });
+    }
+
+    const responseData = response.data;
     // Employee summary report returns idle time as idleHours (decimal hours) and/or inactiveSecondsCount (seconds)
     // API may return camelCase or other variants; coerce strings to number
     const rows = Array.isArray(responseData) ? responseData : (responseData?.data || []);
@@ -8621,6 +8635,14 @@ app.get('/api/notifications/low-idle-employees', async (req, res) => {
           idleSeconds: Math.round(Number(item.idleHours) * 3600)
         };
       });
+    } catch (dbErr) {
+      console.error('Low Idle: DB enrichment failed (returning list without department):', dbErr.message || dbErr);
+      // Still return list with minimal enrichment so the UI shows idle data
+      list = list.map((item) => ({
+        ...item,
+        department: 'Unassigned',
+        idleSeconds: Math.round(Number(item.idleHours) * 3600)
+      }));
     } finally {
       if (connection) try { connection.release(); } catch (e) { /* ignore */ }
     }
@@ -8631,10 +8653,12 @@ app.get('/api/notifications/low-idle-employees', async (req, res) => {
     res.set('X-Low-Idle-Count', String(list.length));
     res.json(list);
   } catch (err) {
-    console.error('Error fetching Low Idle (Team Logger):', err.response?.status, err.response?.data || err.message);
-    res.status(err.response?.status === 401 ? 502 : 500).json({
+    const status = err.response?.status;
+    const msg = err.response?.data?.message || err.response?.data?.error || err.message;
+    console.error('Error fetching Low Idle (Team Logger):', status || 'no-status', msg, err.stack || '');
+    res.status(status === 401 ? 502 : 500).json({
       error: 'Failed to fetch idle data from tracking app',
-      message: err.response?.data?.message || err.message
+      message: msg || (err.response?.data ? JSON.stringify(err.response.data).slice(0, 200) : 'Unknown error')
     });
   }
 });
