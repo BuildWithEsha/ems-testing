@@ -375,6 +375,23 @@ const initializeDatabaseTables = async () => {
       }
     }
     
+    // Create errors table if it doesn't exist (schema matches existing DB: includes priority)
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS errors (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        employee_id INT NULL,
+        employee_name VARCHAR(100) NOT NULL,
+        task_id INT NULL,
+        error_date DATE NULL,
+        severity VARCHAR(20) NOT NULL,
+        priority VARCHAR(20) NOT NULL,
+        description TEXT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_employee_id (employee_id),
+        INDEX idx_task_id (task_id)
+      )
+    `);
+
     // Add indexes for tasks table to improve query performance
     try {
       // Single column indexes for filtering
@@ -2432,6 +2449,11 @@ app.post('/api/errors', async (req, res) => {
   if (!employee_id || !task_id || !severity) {
     return res.status(400).json({ error: 'employee_id, task_id and severity are required' });
   }
+  const employeeIdInt = parseInt(employee_id, 10);
+  const taskIdInt = parseInt(task_id, 10);
+  if (isNaN(employeeIdInt) || isNaN(taskIdInt)) {
+    return res.status(400).json({ error: 'employee_id and task_id must be valid numbers' });
+  }
   
   let connection;
   try {
@@ -2439,15 +2461,17 @@ app.post('/api/errors', async (req, res) => {
     await connection.ping();
     
     // Get employee name
-    const [employees] = await connection.execute('SELECT name FROM employees WHERE id = ?', [employee_id]);
+    const [employees] = await connection.execute('SELECT name FROM employees WHERE id = ?', [employeeIdInt]);
     if (employees.length === 0) {
       return res.status(400).json({ error: 'Employee not found' });
     }
     const employee_name = employees[0].name;
     
-    // Insert error record
-    const insert = `INSERT INTO errors (employee_id, employee_name, task_id, severity, description, error_date) VALUES (?, ?, ?, ?, ?, ?)`;
-    const [result] = await connection.execute(insert, [employee_id, employee_name, task_id, severity, sanitizeForMySQL(description) || '', sanitizeForMySQL(error_date) || null]);
+    // Insert error record (use integers for IDs). Table has required 'priority' column - use severity value when form only sends severity.
+    const insert = `INSERT INTO errors (employee_id, employee_name, task_id, severity, priority, description, error_date) VALUES (?, ?, ?, ?, ?, ?, ?)`;
+    const errorDateVal = error_date && String(error_date).trim() ? sanitizeForMySQL(String(error_date).trim()) : null;
+    const severityVal = severity || 'High';
+    const [result] = await connection.execute(insert, [employeeIdInt, employee_name, taskIdInt, severityVal, severityVal, sanitizeForMySQL(description) || '', errorDateVal]);
     
     // Get the created error record
       const select = `

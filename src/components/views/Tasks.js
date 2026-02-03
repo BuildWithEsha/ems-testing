@@ -4057,7 +4057,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
                 </tr>
               ) : (
                 filteredTasks.map((task) => (
-                  <tr key={`task-${task.id}`} className="hover:bg-gray-50">
+                  <tr key={`task-${task.id}-${tick}-${task.timer_started_at ? 'run' : 'stop'}-${task.logged_seconds ?? 0}`} className="hover:bg-gray-50">
                     {columnOrder.map(columnKey => 
                       visibleColumns[columnKey] && (
                         <td key={columnKey} className="px-6 py-4" style={{ width: `${columnWidths[columnKey]}px` }}>

@@ -1,57 +1,84 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Trash2 } from 'lucide-react';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
+import { Trash2, ChevronDown } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 
 export default function Errors() {
   const { user } = useAuth();
   const [employees, setEmployees] = useState([]);
-  const [tasks, setTasks] = useState([]);
+  const [tasksForEmployee, setTasksForEmployee] = useState([]);
+  const [tasksLoading, setTasksLoading] = useState(false);
   const [form, setForm] = useState({ employee_id: '', task_id: '', severity: 'High', description: '', error_date: '' });
   const [submitting, setSubmitting] = useState(false);
   const [errors, setErrors] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedErrors, setSelectedErrors] = useState([]);
   const [deleting, setDeleting] = useState(false);
+  const [employeeSearch, setEmployeeSearch] = useState('');
+  const [employeeDropdownOpen, setEmployeeDropdownOpen] = useState(false);
+  const employeeDropdownRef = useRef(null);
 
   useEffect(() => {
     const fetchInitial = async () => {
-      // Prepare headers with user permissions for the tasks request
-      const tasksHeaders = {};
-      if (user) {
-        tasksHeaders['user-role'] = user.role || 'employee';
-        tasksHeaders['user-permissions'] = JSON.stringify((user.role === 'admin' || user.role === 'Admin') ? ['all'] : (user.permissions || []));
-        tasksHeaders['user-name'] = user.name || '';
-      }
-      
-      const [empRes, taskRes] = await Promise.all([
-        fetch('/api/employees'),
-        fetch('/api/tasks', { headers: tasksHeaders })
-      ]);
+      const empRes = await fetch('/api/employees');
       if (empRes.ok) {
         const empData = await empRes.json();
-        // Handle both paginated and non-paginated responses
         setEmployees(Array.isArray(empData.data) ? empData.data : (Array.isArray(empData) ? empData : []));
       }
-      if (taskRes.ok) {
-        const taskData = await taskRes.json();
-        // Handle both paginated and non-paginated responses
-        setTasks(Array.isArray(taskData.data) ? taskData.data : (Array.isArray(taskData) ? taskData : []));
-      }
     };
-    
-    if (user) {
-      fetchInitial();
-    }
+    if (user) fetchInitial();
     fetch('/api/errors').then(r=>r.ok?r.json():[]).then(setErrors).catch(()=>{});
   }, [user]);
 
-  const filteredTasks = useMemo(() => {
-    if (!form.employee_id) return [];
+  // Fetch tasks for selected employee when employee changes
+  useEffect(() => {
+    if (!form.employee_id) {
+      setTasksForEmployee([]);
+      return;
+    }
     const employee = (employees || []).find(e => String(e.id) === String(form.employee_id));
-    if (!employee) return [];
-    const name = employee.name;
-    return (tasks || []).filter(t => t.assigned_to && t.assigned_to.includes(name));
-  }, [form.employee_id, employees, tasks]);
+    if (!employee || !employee.name) {
+      setTasksForEmployee([]);
+      return;
+    }
+    const tasksHeaders = {};
+    if (user) {
+      tasksHeaders['user-role'] = user.role || 'employee';
+      tasksHeaders['user-permissions'] = JSON.stringify((user.role === 'admin' || user.role === 'Admin') ? ['all'] : (user.permissions || []));
+      tasksHeaders['user-name'] = user.name || '';
+    }
+    setTasksLoading(true);
+    const params = new URLSearchParams({ employee: employee.name, limit: '500' });
+    fetch(`/api/tasks?${params}`, { headers: tasksHeaders })
+      .then(r => r.ok ? r.json() : { data: [] })
+      .then(taskData => {
+        const list = Array.isArray(taskData.data) ? taskData.data : (Array.isArray(taskData) ? taskData : []);
+        setTasksForEmployee(list);
+      })
+      .catch(() => setTasksForEmployee([]))
+      .finally(() => setTasksLoading(false));
+  }, [form.employee_id, employees, user]);
+
+  const filteredEmployees = useMemo(() => {
+    const q = (employeeSearch || '').trim().toLowerCase();
+    if (!q) return (employees || []).slice(0, 100);
+    return (employees || []).filter(e => (e.name || '').toLowerCase().includes(q));
+  }, [employees, employeeSearch]);
+
+  const selectedEmployeeName = useMemo(() => {
+    if (!form.employee_id) return '';
+    const e = (employees || []).find(emp => String(emp.id) === String(form.employee_id));
+    return e ? e.name : '';
+  }, [form.employee_id, employees]);
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (employeeDropdownRef.current && !employeeDropdownRef.current.contains(e.target)) {
+        setEmployeeDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const displayedErrors = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();
@@ -74,6 +101,8 @@ export default function Errors() {
       try { data = JSON.parse(text); } catch { data = { error: text }; }
       if (!res.ok) throw new Error(data.error || 'Failed to save');
       setForm({ employee_id: '', task_id: '', severity: 'High', description: '', error_date: '' });
+      setEmployeeSearch('');
+      setTasksForEmployee([]);
       setErrors(prev => [data.item, ...prev]);
       alert('Saved');
     } catch (err) {
@@ -174,17 +203,48 @@ export default function Errors() {
 
       <form onSubmit={submit} className="space-y-4 bg-white p-6 rounded-lg shadow-sm border">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div>
+          <div ref={employeeDropdownRef} className="relative">
             <label className="block text-sm font-medium text-gray-700 mb-2">Employee *</label>
-            <select 
-              value={form.employee_id} 
-              onChange={e=>setForm(f=>({...f, employee_id: e.target.value, task_id: ''}))} 
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-              required
-            >
-              <option value="">Select Employee...</option>
-              {(employees || []).map(emp => <option key={emp.id} value={emp.id}>{emp.name}</option>)}
-            </select>
+            <div className="relative">
+              <input
+                type="text"
+                value={employeeDropdownOpen ? employeeSearch : selectedEmployeeName}
+                onChange={(e) => {
+                  setEmployeeSearch(e.target.value);
+                  setEmployeeDropdownOpen(true);
+                  if (!e.target.value) setForm(f => ({ ...f, employee_id: '', task_id: '' }));
+                }}
+                onFocus={() => {
+                  setEmployeeDropdownOpen(true);
+                  setEmployeeSearch(selectedEmployeeName);
+                }}
+                placeholder="Type to search employee..."
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 pr-9 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                autoComplete="off"
+              />
+              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+            </div>
+            {employeeDropdownOpen && (
+              <ul className="absolute z-10 mt-1 w-full max-h-60 overflow-auto bg-white border border-gray-300 rounded-lg shadow-lg py-1">
+                {filteredEmployees.length === 0 ? (
+                  <li className="px-3 py-2 text-sm text-gray-500">No employees found</li>
+                ) : (
+                  filteredEmployees.map(emp => (
+                    <li
+                      key={emp.id}
+                      className="px-3 py-2 text-sm cursor-pointer hover:bg-indigo-50"
+                      onClick={() => {
+                        setForm(f => ({ ...f, employee_id: String(emp.id), task_id: '' }));
+                        setEmployeeSearch('');
+                        setEmployeeDropdownOpen(false);
+                      }}
+                    >
+                      {emp.name}
+                    </li>
+                  ))
+                )}
+              </ul>
+            )}
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Task *</label>
@@ -195,8 +255,8 @@ export default function Errors() {
               disabled={!form.employee_id}
               required
             >
-              <option value="">Select Task...</option>
-              {filteredTasks.map(task => <option key={task.id} value={task.id}>{task.title}</option>)}
+              <option value="">{tasksLoading ? 'Loading tasks...' : 'Select Task...'}</option>
+              {tasksForEmployee.map(task => <option key={task.id} value={task.id}>{task.title}</option>)}
             </select>
             {!form.employee_id && (
               <p className="text-xs text-gray-500 mt-1">Please select an employee first</p>
