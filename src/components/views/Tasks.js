@@ -1096,14 +1096,55 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
   };
   refreshTasksOnlyRef.current = refreshTasksOnly;
 
-  // When user clocks out, backend stops their timer; refresh tasks so UI updates
+  // When user clocks out, backend stops their timer: clear local timer state so UI stops immediately, then refresh
   useEffect(() => {
-    const handler = () => {
+    const handler = (e) => {
+      const taskIds = Array.isArray(e?.detail?.taskIds) ? e.detail.taskIds : [];
+      if (taskIds.length === 0) {
+        if (refreshTasksOnlyRef.current) refreshTasksOnlyRef.current();
+        return;
+      }
+      // Clear intervals and local timer state for stopped tasks so the timer stops counting in the UI
+      taskIds.forEach((taskId) => {
+        const id = Number(taskId);
+        const entry = activeTimersRef.current[id] || activeTimersRef.current[String(taskId)];
+        if (entry && entry.intervalId != null) clearInterval(entry.intervalId);
+        delete activeTimersRef.current[id];
+        delete activeTimersRef.current[String(taskId)];
+      });
+      const stoppedTimersMap = (e.detail?.stopped_timers || []).reduce((acc, { task_id, logged_seconds }) => {
+        acc[task_id] = logged_seconds;
+        return acc;
+      }, {});
+      updateTimerState((prev) => {
+        const newTimers = { ...prev.activeTimers };
+        const newIntervals = { ...prev.intervals };
+        taskIds.forEach((id) => {
+          delete newTimers[Number(id)];
+          delete newTimers[String(id)];
+          delete newIntervals[Number(id)];
+          delete newIntervals[String(id)];
+        });
+        return { ...prev, activeTimers: newTimers, intervals: newIntervals, tick: Date.now() };
+      });
+      // Clear timer_started_at and set logged_seconds from server so UI matches manual stop / offline sync behaviour
+      updateDataState((prev) => ({
+        ...prev,
+        tasks: prev.tasks.map((t) => {
+          if (!taskIds.includes(t.id)) return t;
+          const newLogged = stoppedTimersMap[t.id];
+          return {
+            ...t,
+            timer_started_at: null,
+            ...(typeof newLogged === 'number' && newLogged >= 0 ? { logged_seconds: newLogged } : {}),
+          };
+        }),
+      }));
       if (refreshTasksOnlyRef.current) refreshTasksOnlyRef.current();
     };
     window.addEventListener('app:timer-stopped-on-clockout', handler);
     return () => window.removeEventListener('app:timer-stopped-on-clockout', handler);
-  }, []);
+  }, [updateTimerState, updateDataState]);
 
   // Load more tasks function for pagination
   const loadMoreTasks = async () => {

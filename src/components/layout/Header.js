@@ -235,7 +235,9 @@ const Header = ({ onSearch, onLogout, tasks, employees, onStartTimer, onStopTime
           console.log('✅ Clocked out successfully');
         }
         if (data.stopped_timer_task_ids && data.stopped_timer_task_ids.length > 0) {
-          window.dispatchEvent(new CustomEvent('app:timer-stopped-on-clockout', { detail: { taskIds: data.stopped_timer_task_ids } }));
+          window.dispatchEvent(new CustomEvent('app:timer-stopped-on-clockout', {
+            detail: { taskIds: data.stopped_timer_task_ids, stopped_timers: data.stopped_timers || [] }
+          }));
         }
       } else {
         const errorData = await res.json();

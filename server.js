@@ -1490,7 +1490,9 @@ app.post('/api/attendance/clock-out', async (req, res) => {
     );
 
     // Auto-stop any running task timer for this employee with memo "Employee clocked out"
+    // Time is added to logged_seconds and a task_timesheet row is created (same as manual stop / offline sync).
     const stoppedTimerTaskIds = [];
+    const stoppedTimers = []; // { task_id, logged_seconds } for frontend to update UI without waiting for refresh
     try {
       const empIdInt = parseInt(employee_id, 10);
       if (!isNaN(empIdInt)) {
@@ -1501,7 +1503,7 @@ app.post('/api/attendance/clock-out', async (req, res) => {
           const norm = (s) => (s || '').trim().toLowerCase().replace(/\s+/g, '');
           const empNorm = norm(employeeName);
           const [tasksWithTimer] = await connection.execute(
-            `SELECT id, timer_started_at FROM tasks 
+            `SELECT id, timer_started_at, COALESCE(logged_seconds, 0) AS logged_seconds FROM tasks 
              WHERE timer_started_at IS NOT NULL 
              AND (LOWER(CONCAT(',', TRIM(REPLACE(COALESCE(assigned_to,''), ' ', '')), ',')) LIKE CONCAT('%,', ?, ',%') 
                   OR LOWER(TRIM(REPLACE(COALESCE(assigned_to,''), ' ', ''))) = ?
@@ -1517,6 +1519,8 @@ app.post('/api/attendance/clock-out', async (req, res) => {
             let startTime = t.timer_started_at instanceof Date ? t.timer_started_at : new Date(String(t.timer_started_at).replace(' ', 'T'));
             const endTime = new Date();
             const finalLoggedSeconds = Math.max(0, Math.floor((endTime - startTime) / 1000));
+            const previousLogged = Number(t.logged_seconds) || 0;
+            const newLoggedSeconds = previousLogged + finalLoggedSeconds;
             await connection.execute(
               'UPDATE tasks SET timer_started_at = NULL, logged_seconds = COALESCE(logged_seconds,0) + ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
               [finalLoggedSeconds, t.id]
@@ -1527,6 +1531,7 @@ app.post('/api/attendance/clock-out', async (req, res) => {
             );
             await logTaskHistory(t.id, 'Timer stopped', `Timer stopped (Employee clocked out). Logged ${Math.floor(finalLoggedSeconds / 3600)}h ${Math.floor((finalLoggedSeconds % 3600) / 60)}m. Memo: Employee clocked out`, employeeName, empIdInt);
             stoppedTimerTaskIds.push(t.id);
+            stoppedTimers.push({ task_id: t.id, logged_seconds: newLoggedSeconds });
           }
         }
       }
@@ -1542,7 +1547,8 @@ app.post('/api/attendance/clock-out', async (req, res) => {
       duration_seconds: totalDurationSeconds,
       hours_worked: totalHoursWorked,
       session_count: row.session_count || 1,
-      stopped_timer_task_ids: stoppedTimerTaskIds
+      stopped_timer_task_ids: stoppedTimerTaskIds,
+      stopped_timers: stoppedTimers
     });
   } catch (err) {
     console.error('Error clocking out:', err);
