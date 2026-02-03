@@ -1490,46 +1490,57 @@ app.post('/api/attendance/clock-out', async (req, res) => {
     );
 
     // Auto-stop any running task timer for this employee with memo "Employee clocked out"
+    const stoppedTimerTaskIds = [];
     try {
-      const [empRows] = await connection.execute('SELECT name FROM employees WHERE id = ?', [employee_id]);
-      const employeeName = empRows.length ? (empRows[0].name || '').trim() : null;
-      if (employeeName) {
-        const [tasksWithTimer] = await connection.execute(
-          'SELECT id, timer_started_at FROM tasks WHERE assigned_to LIKE ? AND timer_started_at IS NOT NULL',
-          ['%' + employeeName + '%']
-        );
-        const formatForMySQL = (date) => {
-          const pktString = date.toLocaleString('sv-SE', { timeZone: 'Asia/Karachi' });
-          return pktString;
-        };
-        for (const t of tasksWithTimer) {
-          let startTime = t.timer_started_at instanceof Date ? t.timer_started_at : new Date(String(t.timer_started_at).replace(' ', 'T'));
-          const endTime = new Date();
-          const finalLoggedSeconds = Math.max(0, Math.floor((endTime - startTime) / 1000));
-          await connection.execute(
-            'UPDATE tasks SET timer_started_at = NULL, logged_seconds = logged_seconds + ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-            [finalLoggedSeconds, t.id]
+      const empIdInt = parseInt(employee_id, 10);
+      if (!isNaN(empIdInt)) {
+        const [empRows] = await connection.execute('SELECT name FROM employees WHERE id = ?', [empIdInt]);
+        const employeeName = empRows.length ? (empRows[0].name || '').trim() : null;
+        if (employeeName) {
+          // Match assigned_to as comma-separated list (e.g. "Name1, Name2" or "Name1,Name2")
+          const [tasksWithTimer] = await connection.execute(
+            `SELECT id, timer_started_at FROM tasks 
+             WHERE timer_started_at IS NOT NULL 
+             AND (CONCAT(',', TRIM(REPLACE(COALESCE(assigned_to,''), ' ', '')), ',') LIKE CONCAT('%,', TRIM(REPLACE(?,' ', '')), ',%') 
+                  OR assigned_to = ? 
+                  OR assigned_to LIKE CONCAT(?,'%') 
+                  OR assigned_to LIKE CONCAT('%,', ?))`,
+            [employeeName, employeeName, employeeName, employeeName]
           );
-          await connection.execute(
-            `INSERT INTO task_timesheet (task_id, employee_name, employee_id, start_time, end_time, memo, hours_logged, hours_logged_seconds) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-            [t.id, employeeName, employee_id, formatForMySQL(startTime), formatForMySQL(endTime), 'Employee clocked out', finalLoggedSeconds, finalLoggedSeconds]
-          );
-          await logTaskHistory(t.id, 'Timer stopped', `Timer stopped (Employee clocked out). Logged ${Math.floor(finalLoggedSeconds / 3600)}h ${Math.floor((finalLoggedSeconds % 3600) / 60)}m. Memo: Employee clocked out`, employeeName, employee_id);
+          const formatForMySQL = (date) => {
+            const pktString = date.toLocaleString('sv-SE', { timeZone: 'Asia/Karachi' });
+            return pktString;
+          };
+          for (const t of tasksWithTimer) {
+            let startTime = t.timer_started_at instanceof Date ? t.timer_started_at : new Date(String(t.timer_started_at).replace(' ', 'T'));
+            const endTime = new Date();
+            const finalLoggedSeconds = Math.max(0, Math.floor((endTime - startTime) / 1000));
+            await connection.execute(
+              'UPDATE tasks SET timer_started_at = NULL, logged_seconds = COALESCE(logged_seconds,0) + ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+              [finalLoggedSeconds, t.id]
+            );
+            await connection.execute(
+              `INSERT INTO task_timesheet (task_id, employee_name, employee_id, start_time, end_time, memo, hours_logged, hours_logged_seconds) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+              [t.id, employeeName, empIdInt, formatForMySQL(startTime), formatForMySQL(endTime), 'Employee clocked out', finalLoggedSeconds, finalLoggedSeconds]
+            );
+            await logTaskHistory(t.id, 'Timer stopped', `Timer stopped (Employee clocked out). Logged ${Math.floor(finalLoggedSeconds / 3600)}h ${Math.floor((finalLoggedSeconds % 3600) / 60)}m. Memo: Employee clocked out`, employeeName, empIdInt);
+            stoppedTimerTaskIds.push(t.id);
+          }
         }
       }
     } catch (timerErr) {
       console.error('Error auto-stopping task timer on clock-out:', timerErr);
-      // Do not fail the clock-out response
     }
     
     res.json({ 
       id: row.id, 
       employee_id, 
       clock_in: formatAttendanceDate(clockInTime || row.clock_in), 
-      clock_out: formatAttendanceDate(nowDate || nowISO), // Use ISO format for JavaScript
+      clock_out: formatAttendanceDate(nowDate || nowISO),
       duration_seconds: totalDurationSeconds,
       hours_worked: totalHoursWorked,
-      session_count: row.session_count || 1
+      session_count: row.session_count || 1,
+      stopped_timer_task_ids: stoppedTimerTaskIds
     });
   } catch (err) {
     console.error('Error clocking out:', err);

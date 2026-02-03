@@ -228,10 +228,14 @@ const Header = ({ onSearch, onLogout, tasks, employees, onStartTimer, onStopTime
       });
       
       if (res.ok) {
+        const data = await res.json().catch(() => ({}));
         const statusRes = await fetch(`/api/attendance/status?employee_id=${user.id}`);
         if (statusRes.ok) {
           setAttendance(await statusRes.json());
           console.log('✅ Clocked out successfully');
+        }
+        if (data.stopped_timer_task_ids && data.stopped_timer_task_ids.length > 0) {
+          window.dispatchEvent(new CustomEvent('app:timer-stopped-on-clockout', { detail: { taskIds: data.stopped_timer_task_ids } }));
         }
       } else {
         const errorData = await res.json();

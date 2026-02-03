@@ -1093,6 +1093,15 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
   };
   refreshTasksOnlyRef.current = refreshTasksOnly;
 
+  // When user clocks out, backend stops their timer; refresh tasks so UI updates
+  useEffect(() => {
+    const handler = () => {
+      if (refreshTasksOnlyRef.current) refreshTasksOnlyRef.current();
+    };
+    window.addEventListener('app:timer-stopped-on-clockout', handler);
+    return () => window.removeEventListener('app:timer-stopped-on-clockout', handler);
+  }, []);
+
   // Load more tasks function for pagination
   const loadMoreTasks = async () => {
     if (loadingMore || !hasMoreTasks || user?.role === 'admin' || user?.role === 'Admin') return;

@@ -15,7 +15,10 @@ export default function Errors() {
   const [deleting, setDeleting] = useState(false);
   const [employeeSearch, setEmployeeSearch] = useState('');
   const [employeeDropdownOpen, setEmployeeDropdownOpen] = useState(false);
+  const [taskDropdownOpen, setTaskDropdownOpen] = useState(false);
+  const [taskSearch, setTaskSearch] = useState('');
   const employeeDropdownRef = useRef(null);
+  const taskDropdownRef = useRef(null);
 
   useEffect(() => {
     const fetchInitial = async () => {
@@ -75,10 +78,25 @@ export default function Errors() {
       if (employeeDropdownRef.current && !employeeDropdownRef.current.contains(e.target)) {
         setEmployeeDropdownOpen(false);
       }
+      if (taskDropdownRef.current && !taskDropdownRef.current.contains(e.target)) {
+        setTaskDropdownOpen(false);
+      }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  const filteredTasksForDropdown = useMemo(() => {
+    const q = (taskSearch || '').trim().toLowerCase();
+    if (!q) return tasksForEmployee;
+    return tasksForEmployee.filter(t => (t.title || '').toLowerCase().includes(q));
+  }, [tasksForEmployee, taskSearch]);
+
+  const selectedTaskTitle = useMemo(() => {
+    if (!form.task_id) return '';
+    const t = tasksForEmployee.find(tk => String(tk.id) === String(form.task_id));
+    return t ? t.title : '';
+  }, [form.task_id, tasksForEmployee]);
 
   const displayedErrors = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();
@@ -246,21 +264,70 @@ export default function Errors() {
               </ul>
             )}
           </div>
-          <div>
+          <div ref={taskDropdownRef} className="relative">
             <label className="block text-sm font-medium text-gray-700 mb-2">Task *</label>
-            <select 
-              value={form.task_id} 
-              onChange={e=>setForm(f=>({...f, task_id: e.target.value}))} 
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 disabled:bg-gray-100" 
-              disabled={!form.employee_id}
-              required
+            <div
+              className={`w-full min-h-[42px] border rounded-lg px-3 py-2.5 flex items-center justify-between cursor-pointer transition-colors ${
+                !form.employee_id
+                  ? 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed'
+                  : taskDropdownOpen
+                    ? 'border-indigo-500 ring-2 ring-indigo-200 bg-white'
+                    : 'border-gray-300 bg-white hover:border-gray-400'
+              }`}
+              onClick={() => form.employee_id && !tasksLoading && setTaskDropdownOpen(open => !open)}
             >
-              <option value="">{tasksLoading ? 'Loading tasks...' : 'Select Task...'}</option>
-              {tasksForEmployee.map(task => <option key={task.id} value={task.id}>{task.title}</option>)}
-            </select>
+              <span className="text-sm text-gray-900 truncate pr-2">
+                {tasksLoading ? 'Loading tasks...' : selectedTaskTitle || 'Select task...'}
+              </span>
+              <ChevronDown className={`w-4 h-4 text-gray-500 flex-shrink-0 transition-transform ${taskDropdownOpen ? 'rotate-180' : ''}`} />
+            </div>
+            {taskDropdownOpen && form.employee_id && !tasksLoading && (
+              <div className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
+                <div className="p-2 border-b border-gray-100 bg-gray-50">
+                  <input
+                    type="text"
+                    value={taskSearch}
+                    onChange={(e) => setTaskSearch(e.target.value)}
+                    placeholder="Search tasks..."
+                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    autoFocus
+                  />
+                </div>
+                <ul className="max-h-56 overflow-auto py-1">
+                  {filteredTasksForDropdown.length === 0 ? (
+                    <li className="px-4 py-3 text-sm text-gray-500 text-center">No tasks found</li>
+                  ) : (
+                    filteredTasksForDropdown.map(task => (
+                      <li
+                        key={task.id}
+                        className={`px-4 py-3 text-sm cursor-pointer transition-colors ${
+                          String(task.id) === String(form.task_id)
+                            ? 'bg-indigo-50 text-indigo-800 font-medium'
+                            : 'text-gray-700 hover:bg-indigo-50/70'
+                        }`}
+                        onClick={() => {
+                          setForm(f => ({ ...f, task_id: String(task.id) }));
+                          setTaskSearch('');
+                          setTaskDropdownOpen(false);
+                        }}
+                      >
+                        <div className="font-medium truncate">{task.title || 'Untitled'}</div>
+                        {(task.status || task.due_date) && (
+                          <div className="text-xs text-gray-500 mt-0.5 flex gap-2">
+                            {task.status && <span>{task.status}</span>}
+                            {task.due_date && <span>Due: {new Date(task.due_date).toLocaleDateString()}</span>}
+                          </div>
+                        )}
+                      </li>
+                    ))
+                  )}
+                </ul>
+              </div>
+            )}
             {!form.employee_id && (
               <p className="text-xs text-gray-500 mt-1">Please select an employee first</p>
             )}
+            <input type="hidden" name="task_id" value={form.task_id} required />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Error Date</label>
