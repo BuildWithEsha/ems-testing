@@ -238,7 +238,7 @@ export default function EarnTrackWages() {
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
           <DollarSign className="w-8 h-8 text-indigo-600" />
-          Earn Track – Wages
+          Wages Tracker
         </h1>
       </div>
 
