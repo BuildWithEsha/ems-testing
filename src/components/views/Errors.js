@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState, useRef } from 'react';
-import { Trash2, ChevronDown } from 'lucide-react';
+import { Trash2, ChevronDown, Eye, X } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import Modal from '../ui/Modal';
 
 export default function Errors() {
   const { user } = useAuth();
@@ -19,6 +20,7 @@ export default function Errors() {
   const [taskSearch, setTaskSearch] = useState('');
   const employeeDropdownRef = useRef(null);
   const taskDropdownRef = useRef(null);
+  const [viewingError, setViewingError] = useState(null);
 
   useEffect(() => {
     const fetchInitial = async () => {
@@ -451,14 +453,23 @@ export default function Errors() {
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{err.error_date ? new Date(err.error_date).toLocaleDateString() : '-'}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{new Date(err.created_at).toLocaleString()}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <button
-                        onClick={() => handleDelete(err.id)}
-                        disabled={deleting}
-                        className="text-red-600 hover:text-red-900 disabled:opacity-50 disabled:cursor-not-allowed"
-                        title="Delete error"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          onClick={() => setViewingError(err)}
+                          className="text-indigo-600 hover:text-indigo-900 p-1 rounded hover:bg-indigo-50"
+                          title="View details"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => handleDelete(err.id)}
+                          disabled={deleting}
+                          className="text-red-600 hover:text-red-900 disabled:opacity-50 disabled:cursor-not-allowed p-1 rounded hover:bg-red-50"
+                          title="Delete error"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -467,6 +478,62 @@ export default function Errors() {
           </table>
         </div>
       </div>
+
+      {/* View Error Details Modal */}
+      <Modal
+        isOpen={!!viewingError}
+        onClose={() => setViewingError(null)}
+        title="Error Record Details"
+        size="md"
+      >
+        {viewingError && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Employee</label>
+                <p className="text-sm font-medium text-gray-900">{viewingError.employee_name}</p>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Task</label>
+                <p className="text-sm font-medium text-gray-900">{viewingError.task_title || '—'}</p>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Severity</label>
+                <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                  viewingError.severity === 'High' ? 'bg-red-100 text-red-800' :
+                  viewingError.severity === 'Medium' ? 'bg-yellow-100 text-yellow-800' :
+                  'bg-green-100 text-green-800'
+                }`}>
+                  {viewingError.severity}
+                </span>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Error Date</label>
+                <p className="text-sm text-gray-900">{viewingError.error_date ? new Date(viewingError.error_date).toLocaleDateString() : '—'}</p>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Created</label>
+                <p className="text-sm text-gray-900">{new Date(viewingError.created_at).toLocaleString()}</p>
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Description</label>
+              <div className="p-4 bg-gray-50 rounded-lg border border-gray-100">
+                <p className="text-sm text-gray-900 whitespace-pre-wrap">{viewingError.description || '—'}</p>
+              </div>
+            </div>
+            <div className="flex justify-end pt-2">
+              <button
+                type="button"
+                onClick={() => setViewingError(null)}
+                className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

@@ -5258,6 +5258,30 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                   res.status(500).json({ error: 'Database error' });
                 }
             });
+
+            // Get task IDs for which the employee has logged time on the given date (workload completion check)
+            app.get('/api/tasks/workload-completion', async (req, res) => {
+              const { employee_name, date } = req.query;
+              if (!employee_name || !date) {
+                return res.status(400).json({ error: 'employee_name and date (YYYY-MM-DD) are required' });
+              }
+              let connection;
+              try {
+                connection = await mysqlPool.getConnection();
+                const [rows] = await connection.execute(
+                  `SELECT DISTINCT task_id FROM task_timesheet 
+                   WHERE employee_name = ? AND DATE(start_time) = ?`,
+                  [employee_name.trim(), date]
+                );
+                res.json({ completed_task_ids: rows.map(r => r.task_id) });
+              } catch (err) {
+                console.error('Error fetching workload completion:', err);
+                res.status(500).json({ error: 'Database error' });
+              } finally {
+                if (connection) connection.release();
+              }
+            });
+
             // Get task summary (counts only - optimized for dashboard)
             app.get('/api/tasks/summary', async (req, res) => {
               const { user_id, role, employee_name, department, employee, search, status, priority, complexity, impact, effortEstimateLabel, unit, target, labels, assignedTo } = req.query;

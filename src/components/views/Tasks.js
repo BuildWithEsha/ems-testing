@@ -8,6 +8,7 @@ import ActionMenu from '../ui/ActionMenu';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTaskConfig } from '../../contexts/TaskConfigContext';
 import performanceMonitor, { measureTaskLoading, measureTimerOperation, measureTaskDetails } from '../../utils/performanceMonitor';
+import { getWorkloadTasksForDate } from '../../utils/workload';
 
 const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask }) {
   const { user } = useAuth();
@@ -44,6 +45,8 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
     showChecklistWarningModal: false,
     showExportModal: false,
     showUpdateModal: false,
+    showWorkloadCompleteModal: false,
+    taskViewMode: 'workload_today',
     totalTasks: 0,
     currentPage: 1,
     hasMoreTasks: true,
@@ -801,7 +804,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
 
   // Destructured state for easier access
   const { tasks, departments, employees, labels, loading, error } = dataState;
-  const { searchTerm, selectedTask, selectedTasks, taskDetailTab, showModal, showImportModal, showFilterModal, showColumnModal, showDetailModal, showBulkStatusModal, showTaskCalculationModal, showStopTimerModal, showDeleteHistoryModal, showDeleteAllHistoryModal, showChecklistWarningModal, showExportModal, showUpdateModal, totalTasks, currentPage, hasMoreTasks, loadingMore, completedTasks: completedTasksFromState, inProgressTasks: inProgressTasksFromState, pendingTasks: pendingTasksFromState, overdueTasks: overdueTasksFromState } = uiState;
+  const { searchTerm, selectedTask, selectedTasks, taskDetailTab, showModal, showImportModal, showFilterModal, showColumnModal, showDetailModal, showBulkStatusModal, showTaskCalculationModal, showStopTimerModal, showDeleteHistoryModal, showDeleteAllHistoryModal, showChecklistWarningModal, showExportModal, showUpdateModal, showWorkloadCompleteModal, taskViewMode, totalTasks, currentPage, hasMoreTasks, loadingMore, completedTasks: completedTasksFromState, inProgressTasks: inProgressTasksFromState, pendingTasks: pendingTasksFromState, overdueTasks: overdueTasksFromState } = uiState;
   const { files: taskFiles, subtasks: taskSubtasks, comments: taskComments, timesheet: taskTimesheet, timesheetTotal, notes: taskNotes, history: taskHistory, newComment, newSubtask, uploadedFile, editingSubtaskId, editingSubtaskTitle, editingCommentId, editingCommentText } = taskDetailState;
   
   // Reconcile fallback assignees to real employee records when employees load
@@ -1577,10 +1580,46 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
   const filteredTasks = getFilteredTasks();
   const allFilteredTasks = getAllFilteredTasks();
 
+  const isEmployeeView = user && (user.role !== 'admin' && user.role !== 'Admin') && (user.permissions?.includes('view_own_tasks') || !(user.permissions?.includes('view_tasks') || user.permissions?.includes('all')));
+  const workloadTasksToday = useMemo(() => {
+    if (!isEmployeeView || !user?.name || !tasks.length) return [];
+    return getWorkloadTasksForDate(tasks, user.name, new Date());
+  }, [tasks, user?.name, isEmployeeView]);
+
+  const [completedTaskIdsToday, setCompletedTaskIdsToday] = useState([]);
+  useEffect(() => {
+    if (!isEmployeeView || !user?.name || !tasks.length) return;
+    const today = new Date().toISOString().slice(0, 10);
+    fetch(`/api/tasks/workload-completion?employee_name=${encodeURIComponent(user.name)}&date=${today}`)
+      .then(r => r.ok ? r.json() : { completed_task_ids: [] })
+      .then(data => setCompletedTaskIdsToday(data.completed_task_ids || []))
+      .catch(() => setCompletedTaskIdsToday([]));
+  }, [isEmployeeView, user?.name, tasks.length, tick]);
+
+  const workloadAllCompletedToday = workloadTasksToday.length > 0 && workloadTasksToday.every(t => completedTaskIdsToday.includes(t.id));
+  useEffect(() => {
+    if (!workloadAllCompletedToday || !isEmployeeView) return;
+    const today = new Date().toISOString().slice(0, 10);
+    const key = `workloadCompleteShown_${today}`;
+    if (sessionStorage.getItem(key)) return;
+    sessionStorage.setItem(key, '1');
+    updateUiState({ showWorkloadCompleteModal: true });
+  }, [workloadAllCompletedToday, isEmployeeView]);
+
+  const displayTasks = useMemo(() => {
+    if (!isEmployeeView) return filteredTasks;
+    const list = filteredTasks;
+    if (taskViewMode === 'workload_today') return workloadTasksToday;
+    if (taskViewMode === 'assigned') return list;
+    if (taskViewMode === 'assigned_started') return list.filter(t => (t.logged_seconds || 0) > 0);
+    if (taskViewMode === 'all') return list;
+    return list;
+  }, [isEmployeeView, filteredTasks, taskViewMode, workloadTasksToday]);
+
   // Computed selectAll state based on filtered tasks
   const selectAll = useMemo(() => {
-    return filteredTasks.length > 0 && filteredTasks.every(task => selectedTasks.has(task.id));
-  }, [selectedTasks, filteredTasks]);
+    return displayTasks.length > 0 && displayTasks.every(task => selectedTasks.has(task.id));
+  }, [selectedTasks, displayTasks]);
 
 
   // Use summary statistics from API (optimized - no need to process all tasks)
@@ -3304,19 +3343,15 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
     }
   };
 
-  // Handle select all tasks
+  // Handle select all tasks (operates on currently displayed tasks)
   const handleSelectAll = useCallback(() => {
-    const filteredTasks = getFilteredTasks();
-    const allTaskIds = new Set(filteredTasks.map(task => task.id));
-    
-    // If all tasks are selected, deselect all; otherwise select all
-    const isAllSelected = filteredTasks.length > 0 && filteredTasks.every(task => selectedTasks.has(task.id));
-    
+    const allTaskIds = new Set(displayTasks.map(task => task.id));
+    const isAllSelected = displayTasks.length > 0 && displayTasks.every(task => selectedTasks.has(task.id));
     setUiState(prev => ({
       ...prev,
       selectedTasks: isAllSelected ? new Set() : allTaskIds
     }));
-  }, [selectedTasks, getFilteredTasks]);
+  }, [selectedTasks, displayTasks]);
 
 
   // Handle edit
@@ -3877,7 +3912,30 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
         </div>
       </div>
 
-
+      {/* Task view mode tabs - for employees (workload / assigned / all) */}
+      {isEmployeeView && (
+        <div className="flex flex-wrap items-center gap-2 border-b border-gray-200 pb-3">
+          <span className="text-sm font-medium text-gray-700 mr-2">View:</span>
+          {[
+            { id: 'workload_today', label: 'My workload today' },
+            { id: 'assigned', label: 'Assigned to me' },
+            { id: 'assigned_started', label: 'Assigned (started)' },
+            { id: 'all', label: 'All tasks' }
+          ].map(mode => (
+            <button
+              key={mode.id}
+              onClick={() => updateUiState({ taskViewMode: mode.id })}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                taskViewMode === mode.id
+                  ? 'bg-indigo-600 text-white'
+                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
+            >
+              {mode.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
@@ -4058,14 +4116,14 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {filteredTasks.length === 0 ? (
+              {displayTasks.length === 0 ? (
                 <tr>
                   <td colSpan={Object.values(visibleColumns).filter(Boolean).length} className="px-6 py-4 text-center text-gray-500">
                     No tasks found
                   </td>
                 </tr>
               ) : (
-                filteredTasks.map((task) => (
+                displayTasks.map((task) => (
                   <tr key={`task-${task.id}-${tick}-${task.timer_started_at ? 'run' : 'stop'}-${task.logged_seconds ?? 0}`} className="hover:bg-gray-50">
                     {columnOrder.map(columnKey => 
                       visibleColumns[columnKey] && (
@@ -4502,6 +4560,27 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
           </Button>
         </div>
       )}
+
+      {/* Workload complete for the day modal */}
+      <Modal
+        isOpen={showWorkloadCompleteModal}
+        onClose={() => updateUiState({ showWorkloadCompleteModal: false })}
+        title="Workload complete"
+        size="sm"
+      >
+        <div className="text-center py-4">
+          <CheckCircle className="w-16 h-16 text-green-500 mx-auto mb-4" />
+          <p className="text-lg font-medium text-gray-900 mb-2">You finished your workload for the day!</p>
+          <p className="text-sm text-gray-600 mb-6">Great job. You can continue with other assigned tasks or switch view to see &quot;Assigned (started)&quot; or &quot;All tasks&quot;.</p>
+          <button
+            type="button"
+            onClick={() => updateUiState({ showWorkloadCompleteModal: false })}
+            className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+          >
+            OK
+          </button>
+        </div>
+      </Modal>
 
       {/* Add/Edit Task Modal */}
       <Modal

@@ -192,6 +192,51 @@ function computeForDate(tasks, employeeName, targetDate) {
   return { iso, totals: { daily, weekly, monthly }, totalMinutes: daily + weekly + monthly };
 }
 
+/**
+ * Returns the list of tasks that count toward the employee's workload for the given date
+ * (daily tasks + weekly tasks matching the day + monthly tasks matching the date).
+ */
+export function getWorkloadTasksForDate(tasks, employeeName, targetDate) {
+  const taskList = Array.isArray(tasks) ? tasks : [];
+  const iso = toISODateLocal(targetDate);
+  const result = [];
+
+  for (const task of taskList) {
+    if (!isAssignedTo(task, employeeName)) continue;
+    const minutes = parseMinutesFromEstimate(task);
+    if (minutes <= 0) continue;
+    const isDaily = hasLabel(task, 'Daily') || hasLabel(task, 'Daily Task');
+    const isWeekly = hasLabel(task, 'Weekly') || hasLabel(task, 'Weekly Task');
+    const isMonthly = hasLabel(task, 'Monthly') || hasLabel(task, 'Monthly Task');
+
+    if (isDaily) {
+      result.push(task);
+      continue;
+    }
+    if (isWeekly && taskMatchesWeeklyDay(task, iso)) {
+      result.push(task);
+      continue;
+    }
+    if (isMonthly) {
+      const dueIso = task.due_date ? toISODateLocal(task.due_date) : '';
+      const dateObj = new Date(iso);
+      let matches = false;
+      if (dueIso && dueIso === iso) {
+        matches = true;
+      } else {
+        const title = String(task.title || task.task || '').toLowerCase();
+        const m = title.match(/\((\d{1,2})(?:st|nd|rd|th)?\s*(?:of)?\s*month\)/i) || title.match(/\bmonthly\s*\(?(\d{1,2})(?:st|nd|rd|th)?\)?/i);
+        if (m) {
+          const dayNum = Math.max(1, Math.min(31, parseInt(m[1], 10)));
+          if (dateObj.getDate() === dayNum) matches = true;
+        }
+      }
+      if (matches) result.push(task);
+    }
+  }
+  return result;
+}
+
 export function computeWorkloadForEmployee(tasks, employee, anchorDate) {
   const employeeName = employee?.name || employee;
   const shiftHours = Number(employee?.working_hours) || 8;
