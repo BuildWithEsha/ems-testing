@@ -8663,6 +8663,160 @@ app.get('/api/notifications/low-idle-employees', async (req, res) => {
   }
 });
 
+// Currently idle employees – same Team Logger API with a short rolling window (e.g. last 15 min)
+app.get('/api/notifications/currently-idle-employees', async (req, res) => {
+  const userRole = req.headers['x-user-role'];
+  const userPermissions = req.headers['x-user-permissions'];
+  const { windowMinutes = 15, minIdleMinutes = 1 } = req.query;
+
+  if (!userRole || !userPermissions) {
+    return res.status(401).json({ error: 'User role and permissions required' });
+  }
+  let permissions;
+  try {
+    permissions = JSON.parse(userPermissions);
+  } catch (e) {
+    return res.status(400).json({ error: 'Invalid permissions format' });
+  }
+  if (!permissions.includes('low_idle_view') && !permissions.includes('all') && userRole !== 'admin' && userRole !== 'Admin') {
+    return res.status(403).json({
+      error: 'Access denied. You do not have permission to view idle notifications.',
+      requiredPermission: 'low_idle_view'
+    });
+  }
+
+  const apiKey = process.env.TEAMLOGGER_API_KEY || TEAMLOGGER_API_KEY_HARDCODED;
+  if (!apiKey) {
+    return res.status(503).json({ error: 'Team Logger API is not configured. Set TEAMLOGGER_API_KEY.' });
+  }
+
+  const winM = Math.max(1, Math.min(60, parseInt(String(windowMinutes), 10) || 15));
+  const minM = Math.max(0, parseInt(String(minIdleMinutes), 10) || 1);
+  const thresholdHours = minM / 60;
+  const endMs = Date.now();
+  const startMs = endMs - winM * 60 * 1000;
+
+  try {
+    const response = await axios.get(TEAMLOGGER_EMPLOYEE_SUMMARY_REPORT_URL, {
+      params: { startTime: startMs, endTime: endMs },
+      headers: { Authorization: `Bearer ${apiKey}` },
+      timeout: 30000,
+      validateStatus: () => true
+    });
+
+    if (response.status !== 200) {
+      const body = response.data;
+      const msg = body && (typeof body === 'object' ? (body.message || body.error || JSON.stringify(body).slice(0, 200)) : String(body).slice(0, 200));
+      console.error('Currently Idle: Team Logger API returned', response.status, msg || response.statusText);
+      return res.status(502).json({
+        error: 'Idle data service returned an error',
+        message: msg || `HTTP ${response.status}`,
+        status: response.status
+      });
+    }
+
+    const responseData = response.data;
+    const rows = Array.isArray(responseData) ? responseData : (responseData?.data || []);
+    const getIdleHours = (row) => {
+      if (!row || typeof row !== 'object') return 0;
+      const h = row.idleHours ?? row.idle_hours ?? row.IdleHours;
+      if (h != null && h !== '') {
+        const num = typeof h === 'number' ? h : parseFloat(h);
+        if (!Number.isNaN(num)) return num;
+      }
+      const sec = row.inactiveSecondsCount ?? row.inactive_seconds_count ?? row.InactiveSecondsCount;
+      if (sec != null && sec !== '') {
+        const num = typeof sec === 'number' ? sec : parseFloat(sec);
+        if (!Number.isNaN(num)) return num / 3600;
+      }
+      const keys = Object.keys(row);
+      for (const k of keys) {
+        const lower = k.toLowerCase();
+        if (lower.includes('idle') && !lower.includes('inactive') && !lower.includes('second')) {
+          const v = row[k];
+          if (v != null && v !== '') {
+            const num = typeof v === 'number' ? v : parseFloat(v);
+            if (!Number.isNaN(num)) return num;
+          }
+        }
+        if (lower.includes('inactive') && (lower.includes('second') || lower.includes('count'))) {
+          const v = row[k];
+          if (v != null && v !== '') {
+            const num = typeof v === 'number' ? v : parseFloat(v);
+            if (!Number.isNaN(num)) return num / 3600;
+          }
+        }
+      }
+      return 0;
+    };
+
+    let list = rows
+      .filter((row) => {
+        const idleH = getIdleHours(row);
+        return idleH >= thresholdHours;
+      })
+      .map((row) => {
+        const idleH = getIdleHours(row);
+        return {
+          employeeName: (row.title ?? row.name ?? row.employeeName ?? '').toString().trim(),
+          email: (row.email ?? '').toString().trim(),
+          employeeCode: (row.code ?? row.employeeCode ?? '').toString().trim(),
+          idleHours: Number(Number(idleH).toFixed(2)),
+          dateRange: `Last ${winM} min`,
+          windowMinutes: winM
+        };
+      })
+      .sort((a, b) => b.idleHours - a.idleHours);
+
+    let connection;
+    try {
+      connection = await mysqlPool.getConnection();
+      const [empRows] = await connection.execute(
+        'SELECT LOWER(TRIM(email)) AS email, LOWER(TRIM(name)) AS name_key, department, name FROM employees WHERE status = ?',
+        ['Active']
+      );
+      const emailToDept = {};
+      const nameToDept = {};
+      for (const r of empRows) {
+        const dept = r.department || 'Unassigned';
+        if (r.email) emailToDept[r.email] = dept;
+        if (r.name_key) nameToDept[r.name_key] = dept;
+      }
+      list = list.map((item) => {
+        const emailKey = (item.email || '').toString().trim().toLowerCase();
+        const nameKey = (item.employeeName || '').toString().trim().toLowerCase();
+        const department = emailToDept[emailKey] || nameToDept[nameKey] || 'Unassigned';
+        return {
+          ...item,
+          department,
+          idleSeconds: Math.round(Number(item.idleHours) * 3600)
+        };
+      });
+    } catch (dbErr) {
+      console.error('Currently Idle: DB enrichment failed:', dbErr.message || dbErr);
+      list = list.map((item) => ({
+        ...item,
+        department: 'Unassigned',
+        idleSeconds: Math.round(Number(item.idleHours) * 3600)
+      }));
+    } finally {
+      if (connection) try { connection.release(); } catch (e) { /* ignore */ }
+    }
+
+    res.set('X-Currently-Idle-WindowMinutes', String(winM));
+    res.set('X-Currently-Idle-Count', String(list.length));
+    res.json(list);
+  } catch (err) {
+    const status = err.response?.status;
+    const msg = err.response?.data?.message || err.response?.data?.error || err.message;
+    console.error('Error fetching Currently Idle (Team Logger):', status || 'no-status', msg, err.stack || '');
+    res.status(status === 401 ? 502 : 500).json({
+      error: 'Failed to fetch currently idle data',
+      message: msg || (err.response?.data ? JSON.stringify(err.response.data).slice(0, 200) : 'Unknown error')
+    });
+  }
+});
+
 // Helper: reset recurring tasks to Pending (labels include daily/weekly/monthly)
 async function resetRecurringTasks(callback) {
   const sql = `

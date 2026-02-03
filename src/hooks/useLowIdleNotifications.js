@@ -14,6 +14,52 @@ export const useLowIdleNotifications = () => {
   const [minIdleHours, setMinIdleHours] = useState(0);
   const [minIdleMinutes, setMinIdleMinutes] = useState(30);
 
+  // Currently idle (rolling window, e.g. last 15 min)
+  const [currentlyIdleList, setCurrentlyIdleList] = useState([]);
+  const [currentlyIdleLoading, setCurrentlyIdleLoading] = useState(false);
+  const [currentlyIdleError, setCurrentlyIdleError] = useState(null);
+  const [currentlyIdleWindowMinutes, setCurrentlyIdleWindowMinutes] = useState(15);
+  const [currentlyIdleMinMinutes, setCurrentlyIdleMinMinutes] = useState(1);
+
+  const fetchCurrentlyIdle = async (opts = {}) => {
+    const win = opts.windowMinutes ?? currentlyIdleWindowMinutes;
+    const minM = opts.minIdleMinutes ?? currentlyIdleMinMinutes;
+    if (!user?.permissions?.includes('low_idle_view') && !user?.permissions?.includes('all') && user?.role !== 'admin' && user?.role !== 'Admin') {
+      setCurrentlyIdleList([]);
+      return;
+    }
+    try {
+      setCurrentlyIdleLoading(true);
+      setCurrentlyIdleError(null);
+      const params = new URLSearchParams({
+        windowMinutes: String(win),
+        minIdleMinutes: String(minM)
+      });
+      const response = await fetch(
+        `/api/notifications/currently-idle-employees?${params}`,
+        {
+          headers: {
+            'x-user-role': user?.role || 'Admin',
+            'x-user-permissions': JSON.stringify(user?.permissions || ['all'])
+          }
+        }
+      );
+      if (response.ok) {
+        const data = await response.json();
+        setCurrentlyIdleList(Array.isArray(data) ? data : []);
+      } else {
+        const errData = await response.json().catch(() => ({}));
+        const msg = errData.error || errData.message || `Request failed (${response.status})`;
+        throw new Error(msg);
+      }
+    } catch (err) {
+      setCurrentlyIdleError(err.message);
+      setCurrentlyIdleList([]);
+    } finally {
+      setCurrentlyIdleLoading(false);
+    }
+  };
+
   const fetchLowIdleNotifications = async (opts = {}) => {
     const s = opts.startDate ?? startDate;
     const e = opts.endDate ?? endDate;
@@ -90,6 +136,16 @@ export const useLowIdleNotifications = () => {
     minIdleHours,
     minIdleMinutes,
     refreshLowIdleNotifications: () => fetchLowIdleNotifications(),
-    updateSettings
+    updateSettings,
+    // Currently idle (rolling window)
+    currentlyIdleList,
+    currentlyIdleLoading,
+    currentlyIdleError,
+    currentlyIdleWindowMinutes,
+    currentlyIdleMinMinutes,
+    setCurrentlyIdleWindowMinutes,
+    setCurrentlyIdleMinMinutes,
+    refreshCurrentlyIdle: () => fetchCurrentlyIdle(),
+    fetchCurrentlyIdle: (opts) => fetchCurrentlyIdle(opts)
   };
 };

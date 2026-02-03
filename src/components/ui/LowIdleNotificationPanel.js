@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, User, Settings, Download, Clock, Building, Search, ChevronDown, ChevronRight } from 'lucide-react';
+import { X, User, Settings, Download, Clock, Building, Search, ChevronDown, ChevronRight, RefreshCw } from 'lucide-react';
 
 const LowIdleNotificationPanel = ({
   isOpen,
@@ -11,8 +11,18 @@ const LowIdleNotificationPanel = ({
   minIdleMinutes,
   onUpdateSettings,
   loading,
-  error
+  error,
+  currentlyIdleList = [],
+  currentlyIdleLoading = false,
+  currentlyIdleError = null,
+  currentlyIdleWindowMinutes = 15,
+  currentlyIdleMinMinutes = 1,
+  onCurrentlyIdleWindowChange,
+  onCurrentlyIdleMinMinutesChange,
+  onRefreshCurrentlyIdle,
+  onFetchCurrentlyIdle
 }) => {
+  const [viewMode, setViewMode] = useState('range'); // 'range' | 'current'
   const [showSettings, setShowSettings] = useState(false);
   const [tempStartDate, setTempStartDate] = useState(startDate);
   const [tempEndDate, setTempEndDate] = useState(endDate);
@@ -34,12 +44,20 @@ const LowIdleNotificationPanel = ({
     }
   }, [showSettings, startDate, endDate, minIdleHours, minIdleMinutes]);
 
+  useEffect(() => {
+    if (viewMode === 'current' && isOpen && onFetchCurrentlyIdle) {
+      onFetchCurrentlyIdle({ windowMinutes: currentlyIdleWindowMinutes, minIdleMinutes: currentlyIdleMinMinutes });
+    }
+  }, [viewMode, isOpen]);
+
+  const listForView = viewMode === 'current' ? (currentlyIdleList || []) : (lowIdleNotifications || []);
+
   const getUniqueDepartments = () => {
-    const depts = (lowIdleNotifications || []).map((n) => n.department || 'Unassigned');
+    const depts = listForView.map((n) => n.department || 'Unassigned');
     return [...new Set(depts)].sort();
   };
 
-  const filtered = (lowIdleNotifications || []).filter(
+  const filtered = listForView.filter(
     (n) =>
       (!searchTerm ||
         (n.employeeName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -115,26 +133,96 @@ const LowIdleNotificationPanel = ({
             <div>
               <h2 className="text-xl font-semibold text-gray-900">High Idle Employees (Tracking App)</h2>
               <p className="text-sm text-gray-600">
-                Employees with more than {minIdleHours}h {minIdleMinutes}m idle from {displayStart} to {displayEnd} (Team Logger API)
+                {viewMode === 'current'
+                  ? `Employees idle in the last ${currentlyIdleWindowMinutes} min (≥${currentlyIdleMinMinutes} min) – Team Logger API`
+                  : `Employees with more than ${minIdleHours}h ${minIdleMinutes}m idle from ${displayStart} to ${displayEnd} (Team Logger API)`}
               </p>
             </div>
           </div>
           <div className="flex items-center space-x-2">
-            <button
-              onClick={() => setShowSettings(!showSettings)}
-              className="flex items-center space-x-2 px-3 py-2 text-sm bg-teal-100 text-teal-700 rounded-lg hover:bg-teal-200 transition-colors"
-              title="Configure date range and min idle"
-            >
-              <Settings className="w-4 h-4" />
-              <span>Min {minIdleHours}h {minIdleMinutes}m · {displayStart} – {displayEnd}</span>
-            </button>
+            {viewMode === 'range' && (
+              <button
+                onClick={() => setShowSettings(!showSettings)}
+                className="flex items-center space-x-2 px-3 py-2 text-sm bg-teal-100 text-teal-700 rounded-lg hover:bg-teal-200 transition-colors"
+                title="Configure date range and min idle"
+              >
+                <Settings className="w-4 h-4" />
+                <span>Min {minIdleHours}h {minIdleMinutes}m · {displayStart} – {displayEnd}</span>
+              </button>
+            )}
             <button onClick={onClose} className="p-2 rounded-lg hover:bg-gray-100 transition-colors">
               <X className="w-5 h-5 text-gray-500" />
             </button>
           </div>
         </div>
 
-        {showSettings && (
+        {/* Tabs: By date range | Idle in last X min (same data as today + min idle) */}
+        <div className="flex border-b border-gray-200">
+          <button
+            type="button"
+            onClick={() => setViewMode('range')}
+            className={`flex-1 py-3 px-4 text-sm font-medium transition-colors ${viewMode === 'range' ? 'text-teal-600 border-b-2 border-teal-500 bg-teal-50/50' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'}`}
+          >
+            By date range
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode('current')}
+            className={`flex-1 py-3 px-4 text-sm font-medium transition-colors ${viewMode === 'current' ? 'text-teal-600 border-b-2 border-teal-500 bg-teal-50/50' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'}`}
+          >
+            Idle in last X min
+          </button>
+        </div>
+
+        {/* Currently idle toolbar + note (same data as date range today + min idle; real-time would need Team Logger API) */}
+        {viewMode === 'current' && (
+          <>
+          <div className="px-6 py-2 bg-amber-50 border-b border-amber-100 text-xs text-amber-800">
+            Same data as <strong>By date range</strong> with today + min idle. Real-time idle (like Team Logger’s in-app filter) would require a live API from Team Logger.
+          </div>
+          <div className="px-6 py-3 bg-gray-50 border-b border-gray-200 flex flex-wrap items-center gap-4">
+            <span className="text-sm text-gray-600">Window:</span>
+            <select
+              value={currentlyIdleWindowMinutes}
+              onChange={(e) => {
+                const v = Number(e.target.value);
+                onCurrentlyIdleWindowChange?.(v);
+                onFetchCurrentlyIdle?.({ windowMinutes: v, minIdleMinutes: currentlyIdleMinMinutes });
+              }}
+              className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-teal-500"
+            >
+              <option value={5}>Last 5 min</option>
+              <option value={15}>Last 15 min</option>
+              <option value={30}>Last 30 min</option>
+            </select>
+            <span className="text-sm text-gray-600">Min idle:</span>
+            <select
+              value={currentlyIdleMinMinutes}
+              onChange={(e) => {
+                const v = Number(e.target.value);
+                onCurrentlyIdleMinMinutesChange?.(v);
+                onFetchCurrentlyIdle?.({ windowMinutes: currentlyIdleWindowMinutes, minIdleMinutes: v });
+              }}
+              className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-teal-500"
+            >
+              <option value={1}>1 min</option>
+              <option value={2}>2 min</option>
+              <option value={5}>5 min</option>
+            </select>
+            <button
+              type="button"
+              onClick={() => onFetchCurrentlyIdle?.({ windowMinutes: currentlyIdleWindowMinutes, minIdleMinutes: currentlyIdleMinMinutes })}
+              disabled={currentlyIdleLoading}
+              className="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-teal-700 bg-teal-100 rounded-lg hover:bg-teal-200 disabled:opacity-50"
+            >
+              <RefreshCw className={`w-4 h-4 ${currentlyIdleLoading ? 'animate-spin' : ''}`} />
+              Refresh
+            </button>
+          </div>
+          </>
+        )}
+
+        {showSettings && viewMode === 'range' && (
           <div className="p-4 bg-teal-50 border-b border-gray-200">
             <p className="text-sm font-medium text-gray-700 mb-3">Show employees with more than this idle time in the date range:</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
@@ -232,7 +320,7 @@ const LowIdleNotificationPanel = ({
             </div>
             <div className="flex items-center space-x-2">
               <span className="text-sm text-gray-600">
-                {filtered.length} employee{filtered.length !== 1 ? 's' : ''} above threshold
+                {filtered.length} employee{filtered.length !== 1 ? 's' : ''} {viewMode === 'current' ? 'currently idle' : 'above threshold'}
               </span>
               <button
                 onClick={exportCsv}
@@ -246,19 +334,29 @@ const LowIdleNotificationPanel = ({
 
         {/* Content: department-wise groups (same as LHE) */}
         <div className="flex-1 overflow-auto p-6">
-          {error && (
+          {(viewMode === 'range' ? error : currentlyIdleError) && (
             <div className="mb-4 p-4 bg-red-50 text-red-700 rounded-lg">
-              {error}
+              {viewMode === 'range' ? error : currentlyIdleError}
             </div>
           )}
-          {loading ? (
+          {(viewMode === 'range' ? loading : currentlyIdleLoading) ? (
             <div className="flex items-center justify-center py-12 text-gray-500">Loading...</div>
           ) : filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-64 text-gray-500 text-center px-4">
               <Clock className="w-16 h-16 text-gray-300 mb-4" />
-              <p className="text-lg font-medium">No employees above threshold</p>
-              <p className="text-sm mb-2">No employees with more than {minIdleHours}h {minIdleMinutes}m idle from {displayStart} to {displayEnd}.</p>
-              <p className="text-xs text-gray-400">Try lowering the minimum idle (e.g. 0h 30m) or pick a different date range. If the range is in the future, Team Logger may have no data yet.</p>
+              {viewMode === 'current' ? (
+                <>
+                  <p className="text-lg font-medium">No employees currently idle</p>
+                  <p className="text-sm mb-2">No employees with at least {currentlyIdleMinMinutes} min idle in the last {currentlyIdleWindowMinutes} minutes.</p>
+                  <p className="text-xs text-gray-400">Try a longer window (e.g. 30 min) or lower min idle, then click Refresh.</p>
+                </>
+              ) : (
+                <>
+                  <p className="text-lg font-medium">No employees above threshold</p>
+                  <p className="text-sm mb-2">No employees with more than {minIdleHours}h {minIdleMinutes}m idle from {displayStart} to {displayEnd}.</p>
+                  <p className="text-xs text-gray-400">Try lowering the minimum idle (e.g. 0h 30m) or pick a different date range. If the range is in the future, Team Logger may have no data yet.</p>
+                </>
+              )}
             </div>
           ) : (
             <div className="space-y-4">
@@ -317,10 +415,12 @@ const LowIdleNotificationPanel = ({
         <div className="p-4 border-t border-gray-200 bg-gray-50">
           <div className="flex items-center justify-between text-sm text-gray-600">
             <span>
-              Showing {filtered.length} of {(lowIdleNotifications || []).length} employees with more than {minIdleHours}h {minIdleMinutes}m idle
+              {viewMode === 'current'
+                ? `Showing ${filtered.length} of ${(currentlyIdleList || []).length} employees idle in last ${currentlyIdleWindowMinutes} min (≥${currentlyIdleMinMinutes} min)`
+                : `Showing ${filtered.length} of ${(lowIdleNotifications || []).length} employees with more than ${minIdleHours}h ${minIdleMinutes}m idle`}
             </span>
             <span>
-              Range: {displayStart} – {displayEnd}
+              {viewMode === 'current' ? `Window: last ${currentlyIdleWindowMinutes} min` : `Range: ${displayStart} – ${displayEnd}`}
             </span>
           </div>
         </div>
