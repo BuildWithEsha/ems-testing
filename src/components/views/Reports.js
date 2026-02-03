@@ -20,6 +20,20 @@ import { useAuth } from '../../contexts/AuthContext';
 const Reports = () => {
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState('task');
+
+  // Manager by designation: can access Reports but only Consolidated Time Log (no other reports)
+  const isManagerByDesignation = () => {
+    if (!user || !user.designation) return false;
+    return String(user.designation).trim().toLowerCase() === 'manager';
+  };
+  const hasFullReportsAccess = () => {
+    if (!user) return false;
+    if (user.role && String(user.role).toLowerCase() === 'admin') return true;
+    if (user.user_role && String(user.user_role).toLowerCase() === 'admin') return true;
+    if (Array.isArray(user.permissions) && (user.permissions.includes('all') || user.permissions.includes('view_reports_menu'))) return true;
+    return false;
+  };
+  const isManagerOnlyView = isManagerByDesignation() && !hasFullReportsAccess();
   const [tasks, setTasks] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -239,36 +253,48 @@ const Reports = () => {
   const taskStats = calculateTaskStats();
   const dwmStats = calculateDWMStats();
 
-  // Consolidated Time Log Report: visible to everyone who can access Reports (including managers)
-  const tabs = [
+  // Managers (by designation, without full reports permission) see only Consolidated Time Log; others see all tabs
+  const allTabs = [
     { id: 'task', label: 'Task Report', icon: BarChart2 },
     { id: 'timelog', label: 'Time Log Report', icon: Clock },
     { id: 'consolidated_timelog', label: 'Consolidated Time Log Report', icon: Clock },
     { id: 'dwm', label: 'DWM Report', icon: Calendar }
   ];
+  const tabs = isManagerOnlyView
+    ? [{ id: 'consolidated_timelog', label: 'Consolidated Time Log Report', icon: Clock }]
+    : allTabs;
+
+  // When manager-only, force active tab to consolidated
+  React.useEffect(() => {
+    if (isManagerOnlyView && activeTab !== 'consolidated_timelog') {
+      setActiveTab('consolidated_timelog');
+    }
+  }, [isManagerOnlyView, activeTab]);
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold text-gray-900">Reports</h1>
-        <div className="flex space-x-3">
-          <Button variant="outline" className="flex items-center space-x-2 relative" onClick={() => setShowFilterModal(true)}>
-            <Filter className="w-4 h-4" />
-            <span>Filters</span>
-            {Object.values(taskReportFilters).some(value => value !== '' && value !== undefined) && (
-              <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
-                {Object.values(taskReportFilters).filter(value => value !== '' && value !== undefined).length}
-              </span>
-            )}
-          </Button>
-          <Button variant="outline" className="flex items-center space-x-2">
-            <Download className="w-4 h-4" />
-            <span>Export</span>
-          </Button>
-        </div>
+        {!isManagerOnlyView && (
+          <div className="flex space-x-3">
+            <Button variant="outline" className="flex items-center space-x-2 relative" onClick={() => setShowFilterModal(true)}>
+              <Filter className="w-4 h-4" />
+              <span>Filters</span>
+              {Object.values(taskReportFilters).some(value => value !== '' && value !== undefined) && (
+                <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
+                  {Object.values(taskReportFilters).filter(value => value !== '' && value !== undefined).length}
+                </span>
+              )}
+            </Button>
+            <Button variant="outline" className="flex items-center space-x-2">
+              <Download className="w-4 h-4" />
+              <span>Export</span>
+            </Button>
+          </div>
+        )}
       </div>
 
-      {/* Tab Navigation */}
+      {/* Tab Navigation - single tab for manager-only, all tabs otherwise */}
       <div className="border-b border-gray-200">
         <nav className="-mb-px flex space-x-8">
           {tabs.map((tab) => {

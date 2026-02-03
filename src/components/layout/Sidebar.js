@@ -44,6 +44,15 @@ const Sidebar = ({ currentView, onViewChange }) => {
     return false;
   };
 
+  // Manager by designation (can access Reports for consolidated log only)
+  const isManagerByDesignation = () => {
+    if (!user || !user.designation) return false;
+    return String(user.designation).trim().toLowerCase() === 'manager';
+  };
+
+  // Reports menu: show if user has reports permission OR is manager by designation
+  const canAccessReports = () => hasPermission('view_reports_menu') || isManagerByDesignation();
+
   // Define menu items with permission filtering
   const getMenuItems = () => {
     const allMenuItems = [
@@ -86,7 +95,7 @@ const Sidebar = ({ currentView, onViewChange }) => {
         ]
       },
       { id: 'healthDashboard', label: 'Health Dashboard', icon: AlertTriangle, permission: 'view_health_dashboard_menu' },
-      { id: 'reports', label: 'Reports', icon: BarChart2, permission: 'view_reports_menu' },
+      { id: 'reports', label: 'Reports', icon: BarChart2, permission: 'view_reports_menu', specialAccess: canAccessReports },
       { id: 'earntrack', label: 'EarnTrack', icon: Wallet, permission: null },
       { id: 'noticeBoard', label: 'Notice Board', icon: Megaphone, permission: 'view_notice_board_menu', isSpecial: true },
       { id: 'tickets', label: 'Tickets', icon: MessageSquare, permission: 'view_tickets_menu', isSpecial: true },
@@ -98,7 +107,8 @@ const Sidebar = ({ currentView, onViewChange }) => {
     return allMenuItems.filter(item => {
       // If item has no permission requirement, show it
       if (!item.permission) return true;
-      
+      // If item has specialAccess (e.g. Reports for managers by designation), show when that passes
+      if (typeof item.specialAccess === 'function' && item.specialAccess()) return true;
       // Check if user has the required permission
       return hasPermission(item.permission);
     }).map(item => {
