@@ -1471,6 +1471,39 @@ app.post('/api/attendance/clock-out', async (req, res) => {
       'UPDATE attendance SET clock_out = ?, duration_seconds = ?, hours_worked = ? WHERE id = ?', 
       [nowForDb, totalDurationSeconds, totalHoursWorked, row.id]
     );
+
+    // Auto-stop any running task timer for this employee with memo "Employee clocked out"
+    try {
+      const [empRows] = await connection.execute('SELECT name FROM employees WHERE id = ?', [employee_id]);
+      const employeeName = empRows.length ? (empRows[0].name || '').trim() : null;
+      if (employeeName) {
+        const [tasksWithTimer] = await connection.execute(
+          'SELECT id, timer_started_at FROM tasks WHERE assigned_to LIKE ? AND timer_started_at IS NOT NULL',
+          ['%' + employeeName + '%']
+        );
+        const formatForMySQL = (date) => {
+          const pktString = date.toLocaleString('sv-SE', { timeZone: 'Asia/Karachi' });
+          return pktString;
+        };
+        for (const t of tasksWithTimer) {
+          let startTime = t.timer_started_at instanceof Date ? t.timer_started_at : new Date(String(t.timer_started_at).replace(' ', 'T'));
+          const endTime = new Date();
+          const finalLoggedSeconds = Math.max(0, Math.floor((endTime - startTime) / 1000));
+          await connection.execute(
+            'UPDATE tasks SET timer_started_at = NULL, logged_seconds = logged_seconds + ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+            [finalLoggedSeconds, t.id]
+          );
+          await connection.execute(
+            `INSERT INTO task_timesheet (task_id, employee_name, employee_id, start_time, end_time, memo, hours_logged, hours_logged_seconds) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [t.id, employeeName, employee_id, formatForMySQL(startTime), formatForMySQL(endTime), 'Employee clocked out', finalLoggedSeconds, finalLoggedSeconds]
+          );
+          await logTaskHistory(t.id, 'Timer stopped', `Timer stopped (Employee clocked out). Logged ${Math.floor(finalLoggedSeconds / 3600)}h ${Math.floor((finalLoggedSeconds % 3600) / 60)}m. Memo: Employee clocked out`, employeeName, employee_id);
+        }
+      }
+    } catch (timerErr) {
+      console.error('Error auto-stopping task timer on clock-out:', timerErr);
+      // Do not fail the clock-out response
+    }
     
     res.json({ 
       id: row.id, 
