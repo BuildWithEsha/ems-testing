@@ -4991,10 +4991,19 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
     countParams.push(`%${employee}%`);
   }
   if (status) {
-    query += ' AND status = ?';
-    countQuery += ' AND status = ?';
-    params.push(status);
-    countParams.push(status);
+    const statusParts = String(status).split(',').map(s => s.trim()).filter(Boolean);
+    if (statusParts.length === 1) {
+      query += ' AND status = ?';
+      countQuery += ' AND status = ?';
+      params.push(statusParts[0]);
+      countParams.push(statusParts[0]);
+    } else if (statusParts.length > 1) {
+      const placeholders = statusParts.map(() => '?').join(', ');
+      query += ` AND status IN (${placeholders})`;
+      countQuery += ` AND status IN (${placeholders})`;
+      params.push(...statusParts);
+      countParams.push(...statusParts);
+    }
   }
   if (priority) {
     query += ' AND priority = ?';
@@ -5246,8 +5255,15 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                 params.push(`%${employee}%`);
               }
               if (status) {
-                query += ' AND status = ?';
-                params.push(status);
+                const statusParts = String(status).split(',').map(s => s.trim()).filter(Boolean);
+                if (statusParts.length === 1) {
+                  query += ' AND status = ?';
+                  params.push(statusParts[0]);
+                } else if (statusParts.length > 1) {
+                  const placeholders = statusParts.map(() => '?').join(', ');
+                  query += ` AND status IN (${placeholders})`;
+                  params.push(...statusParts);
+                }
               }
               if (priority) {
                 query += ' AND priority = ?';

@@ -107,7 +107,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
 
   // Consolidated filter state
   const [filterState, setFilterState] = useState({
-    status: '',
+    status: [],
     priority: '',
     complexity: '',
     impact: '',
@@ -1121,7 +1121,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
       updateUiState({ currentPage: 1, hasMoreTasks: true });
       const searchParams = {
         search: searchValue,
-        status: filterStatus || '',
+        status: getStatusFilterString(),
         priority: filterPriority || '',
         complexity: filterComplexity || '',
         impact: filterImpact || '',
@@ -1519,11 +1519,29 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
     }
   };
 
+  // Build status filter string (comma-separated) from multi-select value
+  const getStatusFilterString = () => {
+    try {
+      if (!Array.isArray(filterStatus) || filterStatus.length === 0) return '';
+      const values = filterStatus
+        .map(item => {
+          if (typeof item === 'object') {
+            return typeof item.value === 'string' ? item.value : (item.label || '');
+          }
+          return item;
+        })
+        .filter(Boolean);
+      return values.join(',');
+    } catch (e) {
+      return '';
+    }
+  };
+
   // Get current search and filter parameters for server-side filtering
   const getSearchFilterParams = () => {
     return {
       search: searchTerm || '',
-      status: filterStatus || '',
+      status: getStatusFilterString(),
       priority: filterPriority || '',
       complexity: filterComplexity || '',
       impact: filterImpact || '',
@@ -1594,7 +1612,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
 
   const handleClearFilters = () => {
     updateFilterState({
-      status: '',
+      status: [],
       priority: '',
       complexity: '',
       impact: '',
@@ -5139,17 +5157,19 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
-              <select
+              <MultiSelect
+                options={[
+                  { value: 'Pending', label: 'Pending' },
+                  { value: 'In Progress', label: 'In Progress' },
+                  { value: 'Completed', label: 'Completed' },
+                  { value: 'On Hold', label: 'On Hold' },
+                  { value: 'Cancelled', label: 'Cancelled' }
+                ]}
                 value={filterStatus}
-                onChange={(e) => startTransition(() => updateFilterState({ status: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="">Select...</option>
-                <option value="Pending">Pending</option>
-                <option value="In Progress">In Progress</option>
-                <option value="Completed">Completed</option>
-                <option value="Cancelled">Cancelled</option>
-              </select>
+                onChange={(value) => startTransition(() => updateFilterState({ status: value }))}
+                placeholder="Select statuses..."
+                searchPlaceholder="Search statuses..."
+              />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Assigned To</label>
