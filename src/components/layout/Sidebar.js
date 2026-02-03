@@ -16,7 +16,8 @@ import {
   MessageSquare,
   Heart,
   Megaphone,
-  Wallet
+  Wallet,
+  DollarSign
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import TicketMenuItem from './TicketMenuItem';
@@ -97,6 +98,7 @@ const Sidebar = ({ currentView, onViewChange }) => {
       { id: 'healthDashboard', label: 'Health Dashboard', icon: AlertTriangle, permission: 'view_health_dashboard_menu' },
       { id: 'reports', label: 'Reports', icon: BarChart2, permission: 'view_reports_menu', specialAccess: canAccessReports },
       { id: 'earntrack', label: 'EarnTrack', icon: Wallet, permission: null },
+      { id: 'earnTrackWages', label: 'Earn Track', icon: DollarSign, adminOnly: true },
       { id: 'noticeBoard', label: 'Notice Board', icon: Megaphone, permission: 'view_notice_board_menu', isSpecial: true },
       { id: 'tickets', label: 'Tickets', icon: MessageSquare, permission: 'view_tickets_menu', isSpecial: true },
       { id: 'calendar', label: 'Calendar', icon: Calendar, permission: 'view_calendar_menu' },
@@ -104,7 +106,10 @@ const Sidebar = ({ currentView, onViewChange }) => {
     ];
 
     // Filter menu items based on user permissions
+    const isAdmin = user?.role === 'admin' || user?.role === 'Admin' || user?.user_role === 'admin' || user?.user_role === 'Admin';
     return allMenuItems.filter(item => {
+      // Admin-only items (e.g. Earn Track Wages) show only for admins
+      if (item.adminOnly) return isAdmin;
       // If item has no permission requirement, show it
       if (!item.permission) return true;
       // If item has specialAccess (e.g. Reports for managers by designation), show when that passes

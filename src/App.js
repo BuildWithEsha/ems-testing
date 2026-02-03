@@ -35,6 +35,7 @@ const HealthDashboard = lazy(() => import('./components/views/HealthDashboard'))
 const EmployeeHealth = lazy(() => import('./components/views/EmployeeHealth'));
 const TaskConfiguration = lazy(() => import('./components/views/TaskConfiguration'));
 const EarnTrack = lazy(() => import('./components/views/EarnTrack'));
+const EarnTrackWages = lazy(() => import('./components/views/EarnTrackWages'));
 
 // UI Components
 import Modal from './components/ui/Modal';
@@ -506,6 +507,12 @@ const AuthenticatedApp = () => {
         return (
           <Suspense fallback={<LoadingFallback />}>
             <EarnTrack />
+          </Suspense>
+        );
+      case 'earnTrackWages':
+        return (
+          <Suspense fallback={<LoadingFallback />}>
+            <EarnTrackWages />
           </Suspense>
         );
       case 'noticeBoard':

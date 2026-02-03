@@ -8624,6 +8624,124 @@ function getEpochMsForRange(startDateStr, endDateStr, timezoneOffsetMinutes = 33
   return { startMs, endMs };
 }
 
+// Wages: employee time summary (admin-only) - all employees, no min-idle filter; for Earn Track wages UI
+app.get('/api/wages/employee-time-summary', async (req, res) => {
+  const userRole = req.headers['x-user-role'];
+  if (userRole !== 'admin' && userRole !== 'Admin') {
+    return res.status(403).json({ error: 'Access denied. Earn Track wages is for admins only.' });
+  }
+  const { startDate, endDate } = req.query;
+  const today = new Date().toISOString().split('T')[0];
+  const norm = (s) => (typeof s === 'string' && s.includes('T') ? s.split('T')[0] : String(s || '').trim());
+  const start = norm(startDate || today);
+  const end = norm(endDate || today);
+  if (!start || !end) {
+    return res.status(400).json({ error: 'startDate and endDate (YYYY-MM-DD) are required' });
+  }
+  let startD = start;
+  let endD = end;
+  if (endD < startD) {
+    [startD, endD] = [endD, startD];
+  }
+
+  const apiKey = process.env.TEAMLOGGER_API_KEY || TEAMLOGGER_API_KEY_HARDCODED;
+  if (!apiKey) {
+    return res.status(503).json({ error: 'Team Logger API is not configured. Set TEAMLOGGER_API_KEY.' });
+  }
+
+  const { startMs, endMs } = getEpochMsForRange(startD, endD);
+
+  try {
+    const response = await axios.get(TEAMLOGGER_EMPLOYEE_SUMMARY_REPORT_URL, {
+      params: { startTime: startMs, endTime: endMs },
+      headers: { Authorization: `Bearer ${apiKey}` },
+      timeout: 30000,
+      validateStatus: () => true
+    });
+
+    if (response.status !== 200) {
+      const body = response.data;
+      const msg = body && (typeof body === 'object' ? (body.message || body.error || JSON.stringify(body).slice(0, 200)) : String(body).slice(0, 200));
+      return res.status(502).json({
+        error: 'Idle data service returned an error',
+        message: msg || `HTTP ${response.status}`,
+        status: response.status
+      });
+    }
+
+    const responseData = response.data;
+    const rows = Array.isArray(responseData) ? responseData : (responseData?.data || []);
+    const getIdleHours = (row) => {
+      if (!row || typeof row !== 'object') return 0;
+      const h = row.idleHours ?? row.idle_hours ?? row.IdleHours;
+      if (h != null && h !== '') {
+        const num = typeof h === 'number' ? h : parseFloat(h);
+        if (!Number.isNaN(num)) return num;
+      }
+      const sec = row.inactiveSecondsCount ?? row.inactive_seconds_count ?? row.InactiveSecondsCount;
+      if (sec != null && sec !== '') {
+        const num = typeof sec === 'number' ? sec : parseFloat(sec);
+        if (!Number.isNaN(num)) return num / 3600;
+      }
+      const keys = Object.keys(row);
+      for (const k of keys) {
+        const lower = k.toLowerCase();
+        if (lower.includes('idle') && !lower.includes('inactive') && !lower.includes('second')) {
+          const v = row[k];
+          if (v != null && v !== '') {
+            const num = typeof v === 'number' ? v : parseFloat(v);
+            if (!Number.isNaN(num)) return num;
+          }
+        }
+        if (lower.includes('inactive') && (lower.includes('second') || lower.includes('count'))) {
+          const v = row[k];
+          if (v != null && v !== '') {
+            const num = typeof v === 'number' ? v : parseFloat(v);
+            if (!Number.isNaN(num)) return num / 3600;
+          }
+        }
+      }
+      return 0;
+    };
+    const getTotalHours = (row) => {
+      if (!row || typeof row !== 'object') return null;
+      const keys = ['totalHours', 'total_hours', 'workedHours', 'worked_hours', 'hoursWorked', 'hours_worked', 'activeHours', 'active_hours'];
+      for (const k of keys) {
+        const v = row[k];
+        if (v != null && v !== '') {
+          const num = typeof v === 'number' ? v : parseFloat(v);
+          if (!Number.isNaN(num)) return num;
+        }
+      }
+      return null;
+    };
+
+    const list = rows.map((row) => {
+      const idleH = getIdleHours(row);
+      const totalH = getTotalHours(row);
+      const activeH = totalH != null ? Math.max(0, totalH - idleH) : null;
+      return {
+        employeeName: (row.title ?? row.name ?? row.employeeName ?? '').toString().trim(),
+        email: (row.email ?? '').toString().trim(),
+        employeeCode: (row.code ?? row.employeeCode ?? '').toString().trim(),
+        idleHours: Number(Number(idleH).toFixed(2)),
+        totalHours: totalH != null ? Number(Number(totalH).toFixed(2)) : null,
+        activeHours: activeH != null ? Number(Number(activeH).toFixed(2)) : null,
+        dateRange: `${startD} to ${endD}`
+      };
+    });
+
+    res.json(list);
+  } catch (err) {
+    const msg = err.response?.data?.message || err.response?.data?.error || err.message;
+    console.error('Wages employee-time-summary error:', msg || err);
+    res.status(500).json({
+      error: 'Failed to fetch employee time summary',
+      message: msg || 'Unknown error'
+    });
+  }
+});
+
 app.get('/api/notifications/low-idle-employees', async (req, res) => {
   const userRole = req.headers['x-user-role'];
   const userPermissions = req.headers['x-user-permissions'];
