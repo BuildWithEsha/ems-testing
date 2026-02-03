@@ -239,10 +239,17 @@ const Reports = () => {
   const taskStats = calculateTaskStats();
   const dwmStats = calculateDWMStats();
 
+  // Consolidated Time Log Report: visible to Admin and Manager (by role or permission)
+  const canSeeConsolidatedReport = user && (
+    (user.role && (user.role === 'admin' || user.role === 'Admin' || user.role === 'manager' || user.role === 'Manager')) ||
+    (user.user_role && (user.user_role === 'admin' || user.user_role === 'Admin' || user.user_role === 'manager' || user.user_role === 'Manager')) ||
+    (Array.isArray(user.permissions) && (user.permissions.includes('all') || user.permissions.includes('view_consolidated_timelog_report')))
+  );
+
   const tabs = [
     { id: 'task', label: 'Task Report', icon: BarChart2 },
     { id: 'timelog', label: 'Time Log Report', icon: Clock },
-    { id: 'consolidated_timelog', label: 'Consolidated Time Log Report', icon: Clock },
+    ...(canSeeConsolidatedReport ? [{ id: 'consolidated_timelog', label: 'Consolidated Time Log Report', icon: Clock }] : []),
     { id: 'dwm', label: 'DWM Report', icon: Calendar }
   ];
 
@@ -309,7 +316,7 @@ const Reports = () => {
           <TimeLogReport />
         )}
 
-        {activeTab === 'consolidated_timelog' && (
+        {activeTab === 'consolidated_timelog' && canSeeConsolidatedReport && (
           <ConsolidatedTimeLogReport />
         )}
 

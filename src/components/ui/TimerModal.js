@@ -12,6 +12,7 @@ const TimerModal = ({ isOpen, onClose, onStartTimer, onStopTimer, onOpenTask }) 
   const [filters, setFilters] = useState({
     searchTerm: '',
     department: '',
+    designation: '',
     priority: '',
     status: ''
   });
@@ -119,6 +120,13 @@ const TimerModal = ({ isOpen, onClose, onStartTimer, onStopTimer, onOpenTask }) 
     return employeeTasks.some(task => task.timer_started_at);
   });
 
+  // Helper: task's assigned employees' designations (from employees list)
+  const getTaskDesignations = (task) => {
+    if (!task.assigned_to || !(employees || []).length) return [];
+    const names = task.assigned_to.split(',').map(n => n.trim()).filter(Boolean);
+    return names.map(name => (employees || []).find(emp => emp.name === name)?.designation).filter(Boolean);
+  };
+
   // Apply filters to active timer tasks
   const filteredActiveTimerTasks = activeTimerTasks.filter(task => {
     if (filters.searchTerm && !task.title?.toLowerCase().includes(filters.searchTerm.toLowerCase())) {
@@ -126,6 +134,10 @@ const TimerModal = ({ isOpen, onClose, onStartTimer, onStopTimer, onOpenTask }) 
     }
     if (filters.department && task.department !== filters.department) {
       return false;
+    }
+    if (filters.designation) {
+      const taskDesignations = getTaskDesignations(task);
+      if (!taskDesignations.length || !taskDesignations.includes(filters.designation)) return false;
     }
     if (filters.priority && task.priority !== filters.priority) {
       return false;
@@ -144,6 +156,9 @@ const TimerModal = ({ isOpen, onClose, onStartTimer, onStopTimer, onOpenTask }) 
     if (filters.department && employee.department !== filters.department) {
       return false;
     }
+    if (filters.designation && (employee.designation || '') !== filters.designation) {
+      return false;
+    }
     return true;
   });
 
@@ -153,6 +168,9 @@ const TimerModal = ({ isOpen, onClose, onStartTimer, onStopTimer, onOpenTask }) 
       return false;
     }
     if (filters.department && employee.department !== filters.department) {
+      return false;
+    }
+    if (filters.designation && (employee.designation || '') !== filters.designation) {
       return false;
     }
     return true;
@@ -223,6 +241,9 @@ const TimerModal = ({ isOpen, onClose, onStartTimer, onStopTimer, onOpenTask }) 
 
   // Get unique statuses for filter dropdown
   const statuses = [...new Set((tasks || []).map(task => task.status).filter(Boolean))].sort();
+
+  // Get unique designations for filter dropdown (from employees)
+  const designations = [...new Set((employees || []).map(emp => emp.designation).filter(Boolean))].sort();
 
   const formatTime = (seconds) => {
     if (!seconds || seconds < 0) return '00:00:00';
@@ -435,7 +456,19 @@ const TimerModal = ({ isOpen, onClose, onStartTimer, onStopTimer, onOpenTask }) 
                   ))}
                 </select>
               </div>
-              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Designation</label>
+                <select
+                  value={filters.designation}
+                  onChange={(e) => setFilters(prev => ({ ...prev, designation: e.target.value }))}
+                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value="">All Designations</option>
+                  {designations.map(des => (
+                    <option key={des} value={des}>{des}</option>
+                  ))}
+                </select>
+              </div>
               {activeTab === 'active' && (
                 <>
                   <div>

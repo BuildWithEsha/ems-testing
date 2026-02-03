@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, memo, startTransition, useRef } from 'react';
-import { Plus, Edit, Trash2, Upload, Download, Search, Filter, Clock, CheckCircle, AlertTriangle, Briefcase, X, Play, Square, ChevronDown, Settings, Circle } from 'lucide-react';
+import { Plus, Edit, Trash2, Upload, Download, Search, Filter, Clock, CheckCircle, AlertTriangle, Briefcase, X, Play, Square, ChevronDown, Settings, Circle, Calendar } from 'lucide-react';
 import Modal from '../ui/Modal';
 import Button from '../ui/Button';
 import Input from '../ui/Input';
@@ -4557,25 +4557,29 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
-                <div className="relative">
+                <div className="relative flex items-center">
                   <Input
                     type="date"
                     value={formData.startDate}
                     onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
                   />
-                  <Clock className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                  <span className="absolute right-3 pointer-events-none text-gray-400" aria-hidden="true">
+                    <Calendar className="w-4 h-4" />
+                  </span>
                 </div>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Due Date</label>
-                <div className="relative">
+                <div className="relative flex items-center">
                   <Input
                     type="date"
                     value={formData.dueDate}
                     onChange={(e) => setFormData({ ...formData, dueDate: e.target.value })}
                     disabled={formData.withoutDueDate}
                   />
-                  <Clock className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                  <span className="absolute right-3 pointer-events-none text-gray-400" aria-hidden="true">
+                    <Calendar className="w-4 h-4" />
+                  </span>
                 </div>
                 <div className="mt-2">
                   <label className="flex items-center">
