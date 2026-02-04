@@ -50,6 +50,14 @@ function hasLabel(task, label) {
   return labels.includes(String(label).toLowerCase());
 }
 
+/** Returns true if task has a label that is "Daily Operation(s)" (exact or as part of comma-separated list). */
+function hasDailyOperationsLabel(task) {
+  const raw = String(task.labels || '').trim();
+  if (!raw) return false;
+  const parts = raw.split(/[,;]+/).map(s => s.trim().toLowerCase()).filter(Boolean);
+  return parts.some(p => p === 'daily operations' || p === 'daily operation');
+}
+
 function normalizeAssigneeName(text) {
   const raw = String(text || '').trim();
   // Drop anything in parentheses: "Name (EMP-123)" -> "Name"
@@ -204,8 +212,8 @@ export function getWorkloadTasksForDate(tasks, employeeName, targetDate) {
   for (const task of taskList) {
     if (!isAssignedTo(task, employeeName)) continue;
     // Exclude Daily Operations tasks from workload view; they should appear only
-    // in the general "assigned to me" views, not in "My workload".
-    if (hasLabel(task, 'Daily Operations') || hasLabel(task, 'Daily Operation')) continue;
+    // in "Assigned to me" / "All", not in "My workload".
+    if (hasDailyOperationsLabel(task)) continue;
     const isDaily = hasLabel(task, 'Daily') || hasLabel(task, 'Daily Task');
     const isWeekly = hasLabel(task, 'Weekly') || hasLabel(task, 'Weekly Task');
     const isMonthly = hasLabel(task, 'Monthly') || hasLabel(task, 'Monthly Task');

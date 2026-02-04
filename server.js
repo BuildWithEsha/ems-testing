@@ -2915,6 +2915,7 @@ app.get('/api/departments/:id/dashboard', async (req, res) => {
             app.get('/api/employees', async (req, res) => {
   // Check if all employees are requested (for task assignment)
   const getAll = req.query.all === 'true';
+  const includeInactive = req.query.includeInactive === 'true';
   const { department, designation } = req.query;
   
   let query, countQuery, params;
@@ -2936,14 +2937,16 @@ app.get('/api/departments/:id/dashboard', async (req, res) => {
     whereParams.push(`%${designation.toLowerCase()}%`);
   }
   
+  const statusFilter = includeInactive ? '' : (whereClause ? ' AND status = "Active"' : ' WHERE status = "Active"');
+  
   if (getAll) {
-    // Return all employees for task assignment
+    // Return all employees (optionally including inactive for e.g. Errors dropdown)
     if (whereClause) {
-      query = `SELECT * FROM employees${whereClause} AND status = "Active" ORDER BY name ASC`;
-      countQuery = `SELECT COUNT(*) as total FROM employees${whereClause} AND status = "Active"`;
+      query = `SELECT * FROM employees${whereClause}${statusFilter} ORDER BY name ASC`;
+      countQuery = `SELECT COUNT(*) as total FROM employees${whereClause}${statusFilter}`;
     } else {
-      query = 'SELECT * FROM employees WHERE status = "Active" ORDER BY name ASC';
-      countQuery = 'SELECT COUNT(*) as total FROM employees WHERE status = "Active"';
+      query = includeInactive ? 'SELECT * FROM employees ORDER BY name ASC' : 'SELECT * FROM employees WHERE status = "Active" ORDER BY name ASC';
+      countQuery = includeInactive ? 'SELECT COUNT(*) as total FROM employees' : 'SELECT COUNT(*) as total FROM employees WHERE status = "Active"';
     }
     params = whereParams;
   } else {

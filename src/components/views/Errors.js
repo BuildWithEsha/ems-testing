@@ -24,7 +24,7 @@ export default function Errors() {
 
   useEffect(() => {
     const fetchInitial = async () => {
-      const empRes = await fetch('/api/employees?all=true');
+      const empRes = await fetch('/api/employees?all=true&includeInactive=true');
       if (empRes.ok) {
         const empData = await empRes.json();
         setEmployees(Array.isArray(empData.data) ? empData.data : (Array.isArray(empData) ? empData : []));
