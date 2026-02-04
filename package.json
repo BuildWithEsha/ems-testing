@@ -12,6 +12,7 @@
     "optimize:db": "node run_optimizations.js",
     "optimize:all": "npm run optimize:db && npm run build",
     "check-teamlogger-keys": "node scripts/check-teamlogger-api-keys.js",
+    "test:teamlogger-report": "node scripts/test-teamlogger-employee-summary.js",
     "test": "react-scripts test",
     "eject": "react-scripts eject",
     "postinstall": "node postinstall.js"

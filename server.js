@@ -8728,26 +8728,68 @@ app.get('/api/wages/employee-time-summary', async (req, res) => {
     };
     const getTotalHours = (row) => {
       if (!row || typeof row !== 'object') return null;
-      const keys = ['totalHours', 'total_hours', 'workedHours', 'worked_hours', 'hoursWorked', 'hours_worked', 'activeHours', 'active_hours'];
-      for (const k of keys) {
+      const hourKeys = ['totalHours', 'total_hours', 'workedHours', 'worked_hours', 'hoursWorked', 'hours_worked', 'activeHours', 'active_hours'];
+      for (const k of hourKeys) {
         const v = row[k];
         if (v != null && v !== '') {
           const num = typeof v === 'number' ? v : parseFloat(v);
           if (!Number.isNaN(num)) return num;
         }
       }
+      const minKeys = ['totalMinutes', 'total_minutes', 'workedMinutes', 'worked_minutes', 'minutesWorked', 'minutes_worked'];
+      for (const k of minKeys) {
+        const v = row[k];
+        if (v != null && v !== '') {
+          const num = typeof v === 'number' ? v : parseFloat(v);
+          if (!Number.isNaN(num)) return num / 60;
+        }
+      }
+      const secKeys = ['totalSeconds', 'total_seconds', 'workedSeconds', 'worked_seconds'];
+      for (const k of secKeys) {
+        const v = row[k];
+        if (v != null && v !== '') {
+          const num = typeof v === 'number' ? v : parseFloat(v);
+          if (!Number.isNaN(num)) return num / 3600;
+        }
+      }
       return null;
     };
 
-    const list = rows.map((row) => {
+    const employeeKey = (row) => {
+      const name = (row.title ?? row.name ?? row.employeeName ?? '').toString().trim();
+      const email = (row.email ?? '').toString().trim();
+      const code = (row.code ?? row.employeeCode ?? '').toString().trim();
+      return (email || name || code || 'unknown').toLowerCase();
+    };
+
+    const aggregated = {};
+    rows.forEach((row) => {
+      const key = employeeKey(row);
       const idleH = getIdleHours(row);
       const totalH = getTotalHours(row);
-      const activeH = totalH != null ? Math.max(0, totalH - idleH) : null;
+      if (!aggregated[key]) {
+        aggregated[key] = {
+          employeeName: (row.title ?? row.name ?? row.employeeName ?? '').toString().trim(),
+          email: (row.email ?? '').toString().trim(),
+          employeeCode: (row.code ?? row.employeeCode ?? '').toString().trim(),
+          idleHours: 0,
+          totalHours: null
+        };
+      }
+      aggregated[key].idleHours += idleH;
+      if (totalH != null) {
+        aggregated[key].totalHours = (aggregated[key].totalHours ?? 0) + totalH;
+      }
+    });
+
+    const list = Object.values(aggregated).map((agg) => {
+      const totalH = agg.totalHours != null ? agg.totalHours : null;
+      const activeH = totalH != null ? Math.max(0, totalH - agg.idleHours) : null;
       return {
-        employeeName: (row.title ?? row.name ?? row.employeeName ?? '').toString().trim(),
-        email: (row.email ?? '').toString().trim(),
-        employeeCode: (row.code ?? row.employeeCode ?? '').toString().trim(),
-        idleHours: Number(Number(idleH).toFixed(2)),
+        employeeName: agg.employeeName,
+        email: agg.email,
+        employeeCode: agg.employeeCode,
+        idleHours: Number(Number(agg.idleHours).toFixed(2)),
         totalHours: totalH != null ? Number(Number(totalH).toFixed(2)) : null,
         activeHours: activeH != null ? Number(Number(activeH).toFixed(2)) : null,
         dateRange: `${startD} to ${endD}`
