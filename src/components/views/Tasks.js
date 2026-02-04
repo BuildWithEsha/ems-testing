@@ -3251,11 +3251,11 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
     exceededEstimateDateRef.current = today;
   }, [todayDateString]);
 
-  // When any task's total time exceeds estimate, add it to "exceeded today" so amber box stays for the whole day
+  // When today's session only exceeds estimate, add task to "exceeded today" so amber box stays for the whole day
   useEffect(() => {
     const toAdd = [];
     for (const task of displayTasks) {
-      if (task?.id && isTimeExceededEstimate(task)) toAdd.push(task.id);
+      if (task?.id && isTimeExceededEstimateToday(task)) toAdd.push(task.id);
     }
     if (toAdd.length === 0) return;
     setExceededEstimateTaskIdsToday(prev => {
@@ -3266,12 +3266,12 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
     });
   }, [displayTasks, timerState.tick]);
 
-  // Popup once per task when total time first exceeds estimate (does not affect timer logic)
+  // Popup once per task when today's session first exceeds estimate (does not affect timer logic)
   useEffect(() => {
     if (showExceededEstimateModal) return;
     for (const task of displayTasks) {
       if (!task?.id) continue;
-      if (isTimeExceededEstimate(task) && !exceededEstimatePopupShownRef.current.has(task.id)) {
+      if (isTimeExceededEstimateToday(task) && !exceededEstimatePopupShownRef.current.has(task.id)) {
         exceededEstimatePopupShownRef.current.add(task.id);
         updateUiState({ showExceededEstimateModal: true, exceededEstimateModalTask: task });
         break;
