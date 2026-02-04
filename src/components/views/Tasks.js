@@ -10,6 +10,9 @@ import { useTaskConfig } from '../../contexts/TaskConfigContext';
 import performanceMonitor, { measureTaskLoading, measureTimerOperation, measureTaskDetails } from '../../utils/performanceMonitor';
 import { getWorkloadTasksForDate } from '../../utils/workload';
 
+// When logged time exceeds estimate by more than this many minutes, show a warning to the user
+const TIME_ESTIMATE_OVERRUN_THRESHOLD_MINUTES = 10;
+
 const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask }) {
   const { user } = useAuth();
   
@@ -3169,6 +3172,42 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
     }
   };
 
+  // Total seconds currently counted for this task (logged + active session if running)
+  const getTotalSecondsForTask = (task) => {
+    const logged = Math.max(0, Number(task.logged_seconds) || 0);
+    const isActive = timerState.activeTimers[task.id];
+    const isActiveFromDB = task.timer_started_at;
+    let activeTime = 0;
+    if (isActive) {
+      const currentTime = timerState.tick || Date.now();
+      activeTime = Math.floor((currentTime - isActive) / 1000);
+    } else if (isActiveFromDB) {
+      const currentTime = timerState.tick || Date.now();
+      activeTime = Math.floor((currentTime - new Date(isActiveFromDB).getTime()) / 1000);
+    }
+    return logged + Math.max(0, activeTime);
+  };
+
+  // Task estimate in minutes (from time_estimate_hours, time_estimate_minutes, or time_estimate)
+  const getTaskEstimateMinutes = (task) => {
+    const minutes = Number(task.time_estimate_minutes);
+    const hours = Number(task.time_estimate_hours);
+    const validMinutes = !Number.isNaN(minutes) && minutes >= 0 ? minutes : 0;
+    const validHours = !Number.isNaN(hours) && hours >= 0 ? hours : 0;
+    if (validHours > 0 || validMinutes > 0) return Math.round(validHours * 60) + validMinutes;
+    if (typeof task.time_estimate === 'number' && Number.isFinite(task.time_estimate)) return Math.max(0, Math.round(task.time_estimate));
+    return 0;
+  };
+
+  // True when task has an estimate and total time exceeds estimate by more than threshold minutes
+  const isTimeExceededEstimate = (task, overrunThresholdMinutes = TIME_ESTIMATE_OVERRUN_THRESHOLD_MINUTES) => {
+    const estimateMinutes = getTaskEstimateMinutes(task);
+    if (estimateMinutes <= 0) return false;
+    const totalSeconds = getTotalSecondsForTask(task);
+    const allowedSeconds = estimateMinutes * 60 + overrunThresholdMinutes * 60;
+    return totalSeconds > allowedSeconds;
+  };
+
   // Helper function to check if user can edit a specific task
   const canEditTask = (task) => {
     if (!user || !user.permissions) return false;
@@ -4477,12 +4516,13 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
                             <span className="text-sm text-gray-900">{task.timer_started_at || '-'}</span>
                           )}
                           {columnKey === 'logged_seconds' && (
-                            <div className="flex items-center space-x-2">
-                              <div className="flex items-center space-x-1" key={`timer-display-${task.id}-${tick}`}>
-                                <Clock className="w-4 h-4 text-gray-500" />
-                                <span className="text-xs font-mono">{getTimerDisplay(task)}</span>
-                              </div>
-                              {/* ✅ FIX: Use timerState.activeTimers directly to prevent stale closure in JSX */}
+                            <div className="flex flex-col gap-0.5">
+                              <div className="flex items-center space-x-2">
+                                <div className="flex items-center space-x-1" key={`timer-display-${task.id}-${tick}`}>
+                                  <Clock className="w-4 h-4 text-gray-500" />
+                                  <span className="text-xs font-mono">{getTimerDisplay(task)}</span>
+                                </div>
+                                {/* ✅ FIX: Use timerState.activeTimers directly to prevent stale closure in JSX */}
                               {canStopTimer(task) && (() => {
                                 // 🔍 DEBUG: Log condition evaluation to diagnose stop button issue
                                 const hasActiveTimer = timerState.activeTimers[task.id];
@@ -4538,10 +4578,18 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
                                   })()}
                                 </div>
                               )}
+                              </div>
+                              {isTimeExceededEstimate(task) && (
+                                <div className="flex items-center gap-1 text-amber-700 text-xs" title={`Time has exceeded the estimate by more than ${TIME_ESTIMATE_OVERRUN_THRESHOLD_MINUTES} minutes`}>
+                                  <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
+                                  <span>Time exceeded estimate by more than {TIME_ESTIMATE_OVERRUN_THRESHOLD_MINUTES} min</span>
+                                </div>
+                              )}
                             </div>
                           )}
                           {columnKey === 'timer' && (
-                            <div className="flex items-center space-x-2">
+                            <div className="flex flex-col gap-0.5">
+                              <div className="flex items-center space-x-2">
                               <div className="flex items-center space-x-1" key={`timer-display-${task.id}-${tick}`}>
                                 <Clock className="w-4 h-4 text-gray-500" />
                                 <span className="text-xs font-mono">{getTimerDisplay(task)}</span>
@@ -4600,6 +4648,13 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
                                       </button>
                                     );
                                   })()}
+                                </div>
+                              )}
+                              </div>
+                              {isTimeExceededEstimate(task) && (
+                                <div className="flex items-center gap-1 text-amber-700 text-xs" title={`Time has exceeded the estimate by more than ${TIME_ESTIMATE_OVERRUN_THRESHOLD_MINUTES} minutes`}>
+                                  <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
+                                  <span>Time exceeded estimate by more than {TIME_ESTIMATE_OVERRUN_THRESHOLD_MINUTES} min</span>
                                 </div>
                               )}
                             </div>
