@@ -228,9 +228,13 @@ export default function EarnTrackWages() {
     closeModal();
   };
 
-  const formatHours = (h) => {
-    if (h == null) return '–';
-    return `${Number(h).toFixed(2)} h`;
+  const formatHms = (hoursDecimal) => {
+    if (hoursDecimal == null) return '–';
+    const totalSeconds = Math.round(Number(hoursDecimal) * 3600);
+    const h = Math.floor(totalSeconds / 3600);
+    const m = Math.floor((totalSeconds % 3600) / 60);
+    const s = totalSeconds % 60;
+    return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   };
 
   return (
@@ -328,9 +332,9 @@ export default function EarnTrackWages() {
                   <td className="px-4 py-3 text-sm text-gray-600">{employee.department || '–'}</td>
                   <td className="px-4 py-3 text-sm text-gray-600">{employee.designation || '–'}</td>
                   <td className="px-4 py-3 text-sm text-right text-gray-700">{hoursPerDay ?? '–'}</td>
-                  <td className="px-4 py-3 text-sm text-right font-mono">{formatHours(totalHours)}</td>
-                  <td className="px-4 py-3 text-sm text-right font-mono">{formatHours(idleHours)}</td>
-                  <td className="px-4 py-3 text-sm text-right font-mono text-indigo-600">{formatHours(activeHours)}</td>
+                  <td className="px-4 py-3 text-sm text-right font-mono">{formatHms(totalHours)}</td>
+                  <td className="px-4 py-3 text-sm text-right font-mono">{formatHms(idleHours)}</td>
+                  <td className="px-4 py-3 text-sm text-right font-mono text-indigo-600">{formatHms(activeHours)}</td>
                   <td className="px-4 py-3 text-sm text-right font-mono">{pkrPerHour != null ? pkrPerHour : '–'}</td>
                   <td className="px-4 py-3 text-sm text-right font-mono font-medium text-green-700">
                     {salary != null ? salary.toLocaleString('en-PK') : '–'}
