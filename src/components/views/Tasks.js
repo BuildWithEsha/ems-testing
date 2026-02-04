@@ -11,7 +11,7 @@ import performanceMonitor, { measureTaskLoading, measureTimerOperation, measureT
 import { getWorkloadTasksForDate } from '../../utils/workload';
 
 // When logged time exceeds estimate by more than this many minutes, show a warning to the user
-const TIME_ESTIMATE_OVERRUN_THRESHOLD_MINUTES = 1;
+const TIME_ESTIMATE_OVERRUN_THRESHOLD_MINUTES = 10;
 
 const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask }) {
   const { user } = useAuth();
