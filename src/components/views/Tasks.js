@@ -49,6 +49,8 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
     showExportModal: false,
     showUpdateModal: false,
     showWorkloadCompleteModal: false,
+    showExceededEstimateModal: false,
+    exceededEstimateModalTask: null,
     taskViewMode: 'workload_today',
     totalTasks: 0,
     currentPage: 1,
@@ -147,6 +149,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
   const activeTimersRef = useRef({}); // taskId -> { startTime, intervalId }
   const userRef = useRef(null);
   const refreshTasksOnlyRef = useRef(null);
+  const exceededEstimatePopupShownRef = useRef(new Set()); // task ids we already showed popup for
 
   // Consolidated modal state
   const [modalState, setModalState] = useState({
@@ -807,7 +810,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
 
   // Destructured state for easier access
   const { tasks, departments, employees, labels, loading, error } = dataState;
-  const { searchTerm, selectedTask, selectedTasks, taskDetailTab, showModal, showImportModal, showFilterModal, showColumnModal, showDetailModal, showBulkStatusModal, showTaskCalculationModal, showStopTimerModal, showDeleteHistoryModal, showDeleteAllHistoryModal, showChecklistWarningModal, showExportModal, showUpdateModal, showWorkloadCompleteModal, taskViewMode, totalTasks, currentPage, hasMoreTasks, loadingMore, completedTasks: completedTasksFromState, inProgressTasks: inProgressTasksFromState, pendingTasks: pendingTasksFromState, overdueTasks: overdueTasksFromState } = uiState;
+  const { searchTerm, selectedTask, selectedTasks, taskDetailTab, showModal, showImportModal, showFilterModal, showColumnModal, showDetailModal, showBulkStatusModal, showTaskCalculationModal, showStopTimerModal, showDeleteHistoryModal, showDeleteAllHistoryModal, showChecklistWarningModal, showExportModal, showUpdateModal, showWorkloadCompleteModal, showExceededEstimateModal, exceededEstimateModalTask, taskViewMode, totalTasks, currentPage, hasMoreTasks, loadingMore, completedTasks: completedTasksFromState, inProgressTasks: inProgressTasksFromState, pendingTasks: pendingTasksFromState, overdueTasks: overdueTasksFromState } = uiState;
   const { files: taskFiles, subtasks: taskSubtasks, comments: taskComments, timesheet: taskTimesheet, timesheetTotal, notes: taskNotes, history: taskHistory, newComment, newSubtask, uploadedFile, editingSubtaskId, editingSubtaskTitle, editingCommentId, editingCommentText } = taskDetailState;
   
   // Reconcile fallback assignees to real employee records when employees load
@@ -3208,6 +3211,24 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
     return totalSeconds > allowedSeconds;
   };
 
+  // Popup once per task when time first exceeds estimate (does not affect timer logic)
+  useEffect(() => {
+    if (showExceededEstimateModal) return; // already showing one
+    for (const task of displayTasks) {
+      if (!task?.id) continue;
+      if (isTimeExceededEstimate(task) && !exceededEstimatePopupShownRef.current.has(task.id)) {
+        exceededEstimatePopupShownRef.current.add(task.id);
+        updateUiState({ showExceededEstimateModal: true, exceededEstimateModalTask: task });
+        break;
+      }
+    }
+  }, [displayTasks, timerState.tick, showExceededEstimateModal, updateUiState]);
+
+  // Tasks that have exceeded their time estimate (for notification section only; does not affect timer)
+  const tasksOverEstimate = useMemo(() => {
+    return displayTasks.filter(t => isTimeExceededEstimate(t));
+  }, [displayTasks, timerState.tick]);
+
   // Helper function to check if user can edit a specific task
   const canEditTask = (task) => {
     if (!user || !user.permissions) return false;
@@ -4224,6 +4245,22 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
         </div>
       )}
 
+      {/* Notification: tasks over time estimate (informational only; does not affect timer) */}
+      {tasksOverEstimate.length > 0 && (
+        <div className="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+          <div className="flex items-center gap-2 mb-2">
+            <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0" />
+            <h3 className="text-sm font-semibold text-amber-900">Tasks over time estimate ({tasksOverEstimate.length})</h3>
+          </div>
+          <p className="text-xs text-amber-800 mb-2">The following tasks have exceeded their estimated time by more than {TIME_ESTIMATE_OVERRUN_THRESHOLD_MINUTES} minutes. This does not affect the timer.</p>
+          <ul className="text-sm text-amber-900 list-disc list-inside space-y-0.5">
+            {tasksOverEstimate.map((t) => (
+              <li key={t.id}>{t.title || `Task #${t.id}`}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {/* Tasks List */}
       <div className="bg-white rounded-lg shadow overflow-hidden">
         <div className="overflow-x-auto">
@@ -4579,12 +4616,6 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
                                 </div>
                               )}
                               </div>
-                              {isTimeExceededEstimate(task) && (
-                                <div className="flex items-center gap-1 text-amber-700 text-xs" title={`Time has exceeded the estimate by more than ${TIME_ESTIMATE_OVERRUN_THRESHOLD_MINUTES} minutes`}>
-                                  <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
-                                  <span>Time exceeded estimate by more than {TIME_ESTIMATE_OVERRUN_THRESHOLD_MINUTES} min</span>
-                                </div>
-                              )}
                             </div>
                           )}
                           {columnKey === 'timer' && (
@@ -4651,12 +4682,6 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
                                 </div>
                               )}
                               </div>
-                              {isTimeExceededEstimate(task) && (
-                                <div className="flex items-center gap-1 text-amber-700 text-xs" title={`Time has exceeded the estimate by more than ${TIME_ESTIMATE_OVERRUN_THRESHOLD_MINUTES} minutes`}>
-                                  <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
-                                  <span>Time exceeded estimate by more than {TIME_ESTIMATE_OVERRUN_THRESHOLD_MINUTES} min</span>
-                                </div>
-                              )}
                             </div>
                           )}
                           {columnKey === 'created_at' && (
@@ -4728,6 +4753,29 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
           <button
             type="button"
             onClick={() => updateUiState({ showWorkloadCompleteModal: false })}
+            className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+          >
+            OK
+          </button>
+        </div>
+      </Modal>
+
+      {/* Time exceeded estimate popup (one-time per task; does not affect timer) */}
+      <Modal
+        isOpen={showExceededEstimateModal && !!exceededEstimateModalTask}
+        onClose={() => updateUiState({ showExceededEstimateModal: false, exceededEstimateModalTask: null })}
+        title="Time exceeded estimate"
+        size="sm"
+      >
+        <div className="text-center py-4">
+          <AlertTriangle className="w-16 h-16 text-amber-500 mx-auto mb-4" />
+          <p className="text-lg font-medium text-gray-900 mb-2">
+            {exceededEstimateModalTask?.title || 'This task'} has exceeded its estimated time by more than {TIME_ESTIMATE_OVERRUN_THRESHOLD_MINUTES} minutes.
+          </p>
+          <p className="text-sm text-gray-600 mb-6">You can continue working or stop the timer when done. This notification does not affect the timer.</p>
+          <button
+            type="button"
+            onClick={() => updateUiState({ showExceededEstimateModal: false, exceededEstimateModalTask: null })}
             className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
           >
             OK
