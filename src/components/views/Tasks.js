@@ -3191,6 +3191,24 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
     return logged + Math.max(0, activeTime);
   };
 
+  // Today's date in local YYYY-MM-DD (for daily reset of over-estimate tracking)
+  const todayDateString = useMemo(() => new Date().toISOString().slice(0, 10), [timerState.tick]);
+
+  // Seconds logged in the current session only, if that session started today; otherwise 0
+  const getTodaySessionSeconds = (task) => {
+    const isActive = timerState.activeTimers[task.id];
+    const isActiveFromDB = task.timer_started_at;
+    let startMs = null;
+    if (isActive) startMs = typeof isActive === 'number' ? isActive : new Date(isActive).getTime();
+    else if (isActiveFromDB) startMs = new Date(isActiveFromDB).getTime();
+    if (startMs == null) return 0;
+    const startDate = new Date(startMs);
+    const today = new Date();
+    if (startDate.getFullYear() !== today.getFullYear() || startDate.getMonth() !== today.getMonth() || startDate.getDate() !== today.getDate()) return 0;
+    const currentTime = timerState.tick || Date.now();
+    return Math.max(0, Math.floor((currentTime - startMs) / 1000));
+  };
+
   // Task estimate in minutes (from time_estimate_hours, time_estimate_minutes, or time_estimate)
   const getTaskEstimateMinutes = (task) => {
     const minutes = Number(task.time_estimate_minutes);
@@ -3211,12 +3229,31 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
     return totalSeconds > allowedSeconds;
   };
 
-  // Popup once per task when time first exceeds estimate (does not affect timer logic)
+  // True when today's session (timer started today) exceeds estimate by more than threshold — used for daily tracking and amber box
+  const isTimeExceededEstimateToday = (task, overrunThresholdMinutes = TIME_ESTIMATE_OVERRUN_THRESHOLD_MINUTES) => {
+    const estimateMinutes = getTaskEstimateMinutes(task);
+    if (estimateMinutes <= 0) return false;
+    const todaySeconds = getTodaySessionSeconds(task);
+    const allowedSeconds = estimateMinutes * 60 + overrunThresholdMinutes * 60;
+    return todaySeconds > allowedSeconds;
+  };
+
+  // Reset popup-shown set when the calendar day changes so user gets a fresh popup each day
+  const exceededEstimateDateRef = useRef(null);
   useEffect(() => {
-    if (showExceededEstimateModal) return; // already showing one
+    const today = new Date().toISOString().slice(0, 10);
+    if (exceededEstimateDateRef.current !== null && exceededEstimateDateRef.current !== today) {
+      exceededEstimatePopupShownRef.current.clear();
+    }
+    exceededEstimateDateRef.current = today;
+  }, [todayDateString]);
+
+  // Popup once per task when today's session first exceeds estimate (does not affect timer logic)
+  useEffect(() => {
+    if (showExceededEstimateModal) return;
     for (const task of displayTasks) {
       if (!task?.id) continue;
-      if (isTimeExceededEstimate(task) && !exceededEstimatePopupShownRef.current.has(task.id)) {
+      if (isTimeExceededEstimateToday(task) && !exceededEstimatePopupShownRef.current.has(task.id)) {
         exceededEstimatePopupShownRef.current.add(task.id);
         updateUiState({ showExceededEstimateModal: true, exceededEstimateModalTask: task });
         break;
@@ -3224,9 +3261,9 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
     }
   }, [displayTasks, timerState.tick, showExceededEstimateModal, updateUiState]);
 
-  // Tasks that have exceeded their time estimate (for notification section only; does not affect timer)
+  // Tasks that have exceeded estimate today (today's session only); amber box resets next day
   const tasksOverEstimate = useMemo(() => {
-    return displayTasks.filter(t => isTimeExceededEstimate(t));
+    return displayTasks.filter(t => isTimeExceededEstimateToday(t));
   }, [displayTasks, timerState.tick]);
 
   // Helper function to check if user can edit a specific task
