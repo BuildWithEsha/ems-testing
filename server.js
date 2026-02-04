@@ -8643,7 +8643,8 @@ function getEpochMsForRange(startDateStr, endDateStr, timezoneOffsetMinutes = 33
   const end = norm(endDateStr);
   const { startMs } = getEpochMsForDay(start, timezoneOffsetMinutes);
   const endDay = getEpochMsForDay(end, timezoneOffsetMinutes);
-  const endMs = endDay.startMs + 24 * 60 * 60 * 1000 - 1;
+  // Use start of next day as endTime so the full last day is included (Team Logger treats endTime as exclusive)
+  const endMs = endDay.startMs + 24 * 60 * 60 * 1000;
   return { startMs, endMs };
 }
 

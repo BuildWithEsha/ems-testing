@@ -1591,6 +1591,24 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
     }
   };
 
+  // Array of allowed status values when a status filter is active (for hiding tasks that no longer match)
+  const allowedStatusesForFilter = useMemo(() => {
+    try {
+      if (!Array.isArray(filterStatus) || filterStatus.length === 0) return null;
+      const values = filterStatus
+        .map(item => {
+          if (typeof item === 'object') {
+            return typeof item.value === 'string' ? item.value : (item.label || '');
+          }
+          return String(item);
+        })
+        .filter(Boolean);
+      return values.length ? values : null;
+    } catch (e) {
+      return null;
+    }
+  }, [filterStatus]);
+
   // Get current search and filter parameters for server-side filtering
   const getSearchFilterParams = () => {
     return {
@@ -3370,12 +3388,18 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
       });
 
       if (response.ok) {
-        // Update local state from current state so we don't overwrite timer stop updates
+        // When a status filter is active, if the new status no longer matches the filter,
+        // remove the task from the list so it disappears without re-applying the filter
+        const statusFilterActive = Array.isArray(allowedStatusesForFilter) && allowedStatusesForFilter.length > 0;
+        const newStatusMatchesFilter = !statusFilterActive || allowedStatusesForFilter.includes(newStatus);
+
         updateDataState((prev) => ({
           ...prev,
-          tasks: prev.tasks.map((task) =>
-            task.id === taskId ? { ...task, status: newStatus } : task
-          ),
+          tasks: statusFilterActive && !newStatusMatchesFilter
+            ? prev.tasks.filter((task) => task.id !== taskId)
+            : prev.tasks.map((task) =>
+                task.id === taskId ? { ...task, status: newStatus } : task
+              ),
         }));
         updateTimerState((prev) => ({ ...prev, tick: Date.now() }));
 
