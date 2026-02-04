@@ -1651,9 +1651,13 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
   const displayTasks = useMemo(() => {
     if (!isEmployeeView) return filteredTasks;
     const list = filteredTasks;
+    const workloadIds = new Set(workloadTasksToday.map(t => t.id));
     if (taskViewMode === 'workload_today') return workloadTasksToday;
-    if (taskViewMode === 'assigned') return list;
-    if (taskViewMode === 'assigned_started') return list.filter(t => (t.logged_seconds || 0) > 0);
+    // "Assigned to me" should list non-workload tasks only
+    if (taskViewMode === 'assigned') return list.filter(t => !workloadIds.has(t.id));
+    // "Assigned & started" should also exclude workload tasks, but keep started filter
+    if (taskViewMode === 'assigned_started') return list.filter(t => (t.logged_seconds || 0) > 0 && !workloadIds.has(t.id));
+    // "All" should show everything (including workload tasks)
     if (taskViewMode === 'all') return list;
     return list;
   }, [isEmployeeView, filteredTasks, taskViewMode, workloadTasksToday]);
