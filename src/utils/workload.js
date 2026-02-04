@@ -203,8 +203,6 @@ export function getWorkloadTasksForDate(tasks, employeeName, targetDate) {
 
   for (const task of taskList) {
     if (!isAssignedTo(task, employeeName)) continue;
-    const minutes = parseMinutesFromEstimate(task);
-    if (minutes <= 0) continue;
     const isDaily = hasLabel(task, 'Daily') || hasLabel(task, 'Daily Task');
     const isWeekly = hasLabel(task, 'Weekly') || hasLabel(task, 'Weekly Task');
     const isMonthly = hasLabel(task, 'Monthly') || hasLabel(task, 'Monthly Task');

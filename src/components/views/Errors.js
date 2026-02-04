@@ -65,7 +65,9 @@ export default function Errors() {
 
   const filteredEmployees = useMemo(() => {
     const q = (employeeSearch || '').trim().toLowerCase();
-    if (!q) return (employees || []).slice(0, 100);
+    // Show all employees when there is no search text so the dropdown
+    // can list the full roster (previously limited to 100).
+    if (!q) return employees || [];
     return (employees || []).filter(e => (e.name || '').toLowerCase().includes(q));
   }, [employees, employeeSearch]);
 
