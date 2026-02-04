@@ -6530,16 +6530,28 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                 // Get current time for end time
                 const endTime = new Date();
                 
-                // Parse timer_started_at - MySQL returns it as local server time (PKT)
-                // We need to handle it consistently without double timezone conversion
+                // Parse timer_started_at consistently as Pakistan time (Asia/Karachi),
+                // matching the logic used in the clock-out auto-stop flow to avoid
+                // shifting the calendar date on UTC Docker/Portainer servers.
                 let startTime;
                 if (task.timer_started_at instanceof Date) {
                   startTime = task.timer_started_at;
                 } else {
-                  // MySQL DATETIME string "YYYY-MM-DD HH:mm:ss" is in server's local timezone
-                  // Parse it correctly without adding Z (which would treat it as UTC)
-                  const timerStr = String(task.timer_started_at);
-                  startTime = new Date(timerStr.replace(' ', 'T'));
+                  const raw = String(task.timer_started_at || '').trim();
+                  const timerStr = raw.replace(' ', 'T');
+                  if (!timerStr) {
+                    // Fallback: if for some reason we don't have a start time string,
+                    // use current time to keep duration non-negative.
+                    startTime = new Date();
+                  } else if (timerStr.includes('+') || timerStr.endsWith('Z')) {
+                    // Already has explicit offset / Z → safe to pass directly.
+                    startTime = new Date(timerStr);
+                  } else {
+                    // Stored as "YYYY-MM-DDTHH:mm:ss" in local PKT without offset.
+                    // Attach +05:00 so JS Date interprets it as Pakistan time,
+                    // preventing an unintended +5h shift when running on UTC servers.
+                    startTime = new Date(timerStr + '+05:00');
+                  }
                 }
                 
                 // Calculate actual duration in seconds (for fallback only)
