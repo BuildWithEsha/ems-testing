@@ -2706,11 +2706,16 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
         console.log('⚠️ Using fallback startTime from task.timer_started_at:', task.timer_started_at, 'converted to:', startTime); // Debug log
       }
       
+      // startTime here is a millisecond timestamp (number)
       const loggedSeconds = startTime ? Math.floor((Date.now() - startTime) / 1000) : 0;
       const currentLoggedSeconds = task?.logged_seconds || 0;
       const newLoggedSeconds = currentLoggedSeconds + loggedSeconds;
+      // Derive exact start/end timestamps for the session so backend can store
+      // the same window the user sees in the memo modal.
+      const startTimeMs = startTime || null;
+      const endTimeMs = startTime ? startTime + (loggedSeconds * 1000) : Date.now();
       
-      console.log('🛑 Stop timer calculation - startTime:', startTime, 'loggedSeconds:', loggedSeconds, 'currentLoggedSeconds:', currentLoggedSeconds, 'newLoggedSeconds:', newLoggedSeconds, 'task.timer_started_at:', task?.timer_started_at); // Debug log
+      console.log('🛑 Stop timer calculation - startTime:', startTime, 'loggedSeconds:', loggedSeconds, 'currentLoggedSeconds:', currentLoggedSeconds, 'newLoggedSeconds:', newLoggedSeconds, 'task.timer_started_at:', task?.timer_started_at, 'startTimeMs:', startTimeMs, 'endTimeMs:', endTimeMs); // Debug log
 
       // ===== OPTIMISTIC UPDATE: Do this AFTER calculating loggedSeconds =====
       // Clear interval and local timer state IMMEDIATELY
@@ -2781,6 +2786,8 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
         },
         body: JSON.stringify({ 
           loggedSeconds,
+          startTimeMs,
+          endTimeMs,
           user_name: user?.name || 'Admin',
           user_id: user?.id || 1,
           memo: stopTimerMemo.trim()

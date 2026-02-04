@@ -6501,7 +6501,7 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
             // Stop timer for task
             app.post('/api/tasks/:id/stop-timer', async (req, res) => {
               const taskId = req.params.id;
-              const { loggedSeconds, user_name, user_id, memo } = req.body;
+              const { loggedSeconds, startTimeMs, endTimeMs, user_name, user_id, memo } = req.body;
               
               let connection;
               try {
@@ -6527,14 +6527,14 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                 }
                 
                 const task = tasks[0];
-                // Get current time for end time
-                const endTime = new Date();
                 
-                // Parse timer_started_at consistently as Pakistan time (Asia/Karachi),
-                // matching the logic used in the clock-out auto-stop flow to avoid
-                // shifting the calendar date on UTC Docker/Portainer servers.
+                // Determine start and end times:
+                // 1) Prefer exact timestamps sent by frontend (startTimeMs/endTimeMs - epoch ms)
+                // 2) Fallback to parsing timer_started_at with explicit PKT offset to avoid date shifts on UTC servers.
                 let startTime;
-                if (task.timer_started_at instanceof Date) {
+                if (typeof startTimeMs === 'number' && !Number.isNaN(startTimeMs) && startTimeMs > 0) {
+                  startTime = new Date(startTimeMs);
+                } else if (task.timer_started_at instanceof Date) {
                   startTime = task.timer_started_at;
                 } else {
                   const raw = String(task.timer_started_at || '').trim();
@@ -6552,6 +6552,14 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                     // preventing an unintended +5h shift when running on UTC servers.
                     startTime = new Date(timerStr + '+05:00');
                   }
+                }
+                
+                let endTime;
+                if (typeof endTimeMs === 'number' && !Number.isNaN(endTimeMs) && endTimeMs > 0) {
+                  endTime = new Date(endTimeMs);
+                } else {
+                  // Get current time for end time
+                  endTime = new Date();
                 }
                 
                 // Calculate actual duration in seconds (for fallback only)
