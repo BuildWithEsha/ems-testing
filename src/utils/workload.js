@@ -50,12 +50,20 @@ function hasLabel(task, label) {
   return labels.includes(String(label).toLowerCase());
 }
 
-/** Returns true if task has a label that is "Daily Operation(s)" (exact or as part of comma-separated list). */
+/** Returns true if task has a label that is "Daily Operation(s)" (handles numeric prefixes like "07-daily-operations"). */
 function hasDailyOperationsLabel(task) {
   const raw = String(task.labels || '').trim();
   if (!raw) return false;
   const parts = raw.split(/[,;]+/).map(s => s.trim().toLowerCase()).filter(Boolean);
-  return parts.some(p => p === 'daily operations' || p === 'daily operation');
+  return parts.some(p => {
+    // Normalize things like "07-daily-operations" -> "daily operations"
+    const normalized = p
+      .replace(/^[^a-zA-Z]+/, '')      // strip leading non-letters (e.g. "07-")
+      .replace(/[_-]+/g, ' ')          // dashes/underscores -> space
+      .replace(/\s+/g, ' ')            // collapse multiple spaces
+      .trim();
+    return normalized === 'daily operations' || normalized === 'daily operation';
+  });
 }
 
 function normalizeAssigneeName(text) {
