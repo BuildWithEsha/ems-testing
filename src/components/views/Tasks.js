@@ -4321,8 +4321,8 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
         </div>
       )}
 
-      {/* Notification: tasks over time estimate (informational only; does not affect timer) */}
-      {tasksOverEstimate.length > 0 && (
+      {/* Notification: tasks over time estimate (employee view only; does not affect timer) */}
+      {isEmployeeView && tasksOverEstimate.length > 0 && (
         <div className="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
           <div className="flex items-center gap-2 mb-2">
             <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0" />

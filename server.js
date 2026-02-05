@@ -2425,6 +2425,7 @@ app.get('/api/notifications/tasks-over-estimate', async (req, res) => {
       t.title AS task_title,
       t.labels,
       t.priority,
+      t.department,
       tt.employee_name,
       e.designation,
       DATE(tt.start_time) AS log_date,
@@ -2452,6 +2453,7 @@ app.get('/api/notifications/tasks-over-estimate', async (req, res) => {
       t.priority,
       tt.employee_name,
       e.designation,
+      t.department,
       DATE(tt.start_time)
     ORDER BY log_date DESC, actual_seconds DESC
   `;

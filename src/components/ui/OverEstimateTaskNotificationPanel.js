@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { AlertTriangle, X, Filter, Search, Calendar, Users, Clock as ClockIcon, ChevronDown } from 'lucide-react';
+import { AlertTriangle, X, Filter, Search, Calendar, Users, Clock as ClockIcon, ChevronDown, ChevronRight, Building } from 'lucide-react';
 
 const formatHMS = (seconds) => {
   const s = Math.max(0, Math.floor(seconds || 0));
@@ -25,6 +25,22 @@ const OverEstimateTaskNotificationPanel = ({
     () => [startDate, endDate, designation || '', minOverMinutes],
     [startDate, endDate, designation, minOverMinutes]
   );
+
+  // Build unique designations and departments from current notifications (for dropdowns/grouping)
+  const { uniqueDesignations, groupedByDepartment } = useMemo(() => {
+    const designationsSet = new Set();
+    const groups = {};
+    (notifications || []).forEach((n) => {
+      if (n.designation) designationsSet.add(n.designation);
+      const dept = n.department || 'Unassigned';
+      if (!groups[dept]) groups[dept] = [];
+      groups[dept].push(n);
+    });
+    return {
+      uniqueDesignations: Array.from(designationsSet).sort(),
+      groupedByDepartment: groups,
+    };
+  }, [notifications]);
 
   const handleApplyFilters = (e) => {
     e.preventDefault();
@@ -93,13 +109,18 @@ const OverEstimateTaskNotificationPanel = ({
               <label className="block text-sm font-medium text-gray-700 mb-1">Designation</label>
               <div className="relative">
                 <Users className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-                <input
-                  type="text"
+                <select
                   name="designation"
-                  placeholder="All"
                   defaultValue={localDesignation}
                   className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500"
-                />
+                >
+                  <option value="">All</option>
+                  {uniqueDesignations.map((d) => (
+                    <option key={d} value={d}>
+                      {d}
+                    </option>
+                  ))}
+                </select>
               </div>
             </div>
             <div>
@@ -144,55 +165,69 @@ const OverEstimateTaskNotificationPanel = ({
             <div className="p-6 text-sm text-gray-600">No tasks over estimate found for the selected filters.</div>
           )}
           {!loading && !error && totalCount > 0 && (
-            <div className="p-4">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
-                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Task</th>
-                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Employee</th>
-                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Designation</th>
-                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Estimate</th>
-                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actual</th>
-                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Overrun</th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {notifications.map((n, idx) => {
-                    const estimateMinutes = Math.round((n.estimate_seconds || 0) / 60);
-                    const overrunMinutes = Math.round((n.overrun_seconds || 0) / 60);
-                    return (
-                      <tr key={`${n.task_id}-${n.employee_name}-${n.log_date}-${idx}`} className="hover:bg-gray-50">
-                        <td className="px-4 py-2 text-sm text-gray-900">
-                          {n.log_date}
-                        </td>
-                        <td className="px-4 py-2 text-sm text-gray-900">
-                          <div className="font-medium text-gray-900">{n.task_title || `Task #${n.task_id}`}</div>
-                          {n.labels && (
-                            <div className="text-xs text-gray-500 truncate max-w-xs">
-                              {n.labels}
-                            </div>
-                          )}
-                        </td>
-                        <td className="px-4 py-2 text-sm text-gray-900">{n.employee_name || '-'}</td>
-                        <td className="px-4 py-2 text-sm text-gray-900">{n.designation || '-'}</td>
-                        <td className="px-4 py-2 text-sm text-gray-900">
-                          <div>{formatHMS(n.estimate_seconds)}</div>
-                          <div className="text-xs text-gray-500">{estimateMinutes} min</div>
-                        </td>
-                        <td className="px-4 py-2 text-sm text-gray-900">
-                          <div>{formatHMS(n.actual_seconds)}</div>
-                          <div className="text-xs text-gray-500">{Math.round((n.actual_seconds || 0) / 60)} min</div>
-                        </td>
-                        <td className="px-4 py-2 text-sm text-amber-700">
-                          <div>{formatHMS(n.overrun_seconds)}</div>
-                          <div className="text-xs">{overrunMinutes} min</div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+            <div className="p-4 space-y-6">
+              {Object.entries(groupedByDepartment).map(([dept, deptItems]) => (
+                <div key={dept} className="border border-gray-200 rounded-lg overflow-hidden">
+                  <div className="flex items-center justify-between px-4 py-2 bg-gray-50 border-b border-gray-200">
+                    <div className="flex items-center space-x-2">
+                      <Building className="w-4 h-4 text-gray-500" />
+                      <span className="text-sm font-semibold text-gray-800">
+                        {dept} ({deptItems.length})
+                      </span>
+                    </div>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-gray-200">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Task</th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Employee</th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Designation</th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Estimate</th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actual</th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Overrun</th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {deptItems.map((n, idx) => {
+                          const estimateMinutes = Math.round((n.estimate_seconds || 0) / 60);
+                          const overrunMinutes = Math.round((n.overrun_seconds || 0) / 60);
+                          return (
+                            <tr key={`${n.task_id}-${n.employee_name}-${n.log_date}-${idx}`} className="hover:bg-gray-50">
+                              <td className="px-4 py-2 text-sm text-gray-900">
+                                {n.log_date}
+                              </td>
+                              <td className="px-4 py-2 text-sm text-gray-900">
+                                <div className="font-medium text-gray-900">{n.task_title || `Task #${n.task_id}`}</div>
+                                {n.labels && (
+                                  <div className="text-xs text-gray-500 truncate max-w-xs">
+                                    {n.labels}
+                                  </div>
+                                )}
+                              </td>
+                              <td className="px-4 py-2 text-sm text-gray-900">{n.employee_name || '-'}</td>
+                              <td className="px-4 py-2 text-sm text-gray-900">{n.designation || '-'}</td>
+                              <td className="px-4 py-2 text-sm text-gray-900">
+                                <div>{formatHMS(n.estimate_seconds)}</div>
+                                <div className="text-xs text-gray-500">{estimateMinutes} min</div>
+                              </td>
+                              <td className="px-4 py-2 text-sm text-gray-900">
+                                <div>{formatHMS(n.actual_seconds)}</div>
+                                <div className="text-xs text-gray-500">{Math.round((n.actual_seconds || 0) / 60)} min</div>
+                              </td>
+                              <td className="px-4 py-2 text-sm text-amber-700">
+                                <div>{formatHMS(n.overrun_seconds)}</div>
+                                <div className="text-xs">{overrunMinutes} min</div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </div>
