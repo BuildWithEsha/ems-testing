@@ -375,6 +375,61 @@ const initializeDatabaseTables = async () => {
       }
     }
     
+    // Create leave management tables if they don't exist
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS leave_requests (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        employee_id INT NOT NULL,
+        department_id INT NULL,
+        status ENUM('pending','approved','rejected') NOT NULL DEFAULT 'pending',
+        reason TEXT,
+        start_date DATE NOT NULL,
+        end_date DATE NOT NULL,
+        start_segment ENUM('shift_start','shift_middle','full_day') NOT NULL DEFAULT 'full_day',
+        end_segment ENUM('shift_middle','shift_end','full_day') NOT NULL DEFAULT 'full_day',
+        days_requested DECIMAL(5,2) NOT NULL DEFAULT 1,
+        is_paid TINYINT(1) NOT NULL DEFAULT 1,
+        is_uninformed TINYINT(1) NOT NULL DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        decision_by INT NULL,
+        decision_at DATETIME NULL,
+        decision_reason TEXT,
+        INDEX idx_leave_employee_id (employee_id),
+        INDEX idx_leave_department_id (department_id),
+        INDEX idx_leave_status (status),
+        INDEX idx_leave_start_end_date (start_date, end_date)
+      )
+    `);
+
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS leave_balances (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        employee_id INT NOT NULL,
+        year INT NOT NULL,
+        month INT NOT NULL,
+        paid_quota INT NOT NULL DEFAULT 2,
+        paid_used INT NOT NULL DEFAULT 0,
+        uninformed_leaves INT NOT NULL DEFAULT 0,
+        next_month_deduction INT NOT NULL DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_leave_balance_employee_month (employee_id, year, month),
+        INDEX idx_leave_balance_employee_id (employee_id)
+      )
+    `);
+
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS leave_policies (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        policy_key VARCHAR(100) NOT NULL UNIQUE,
+        policy_value JSON NULL,
+        description TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      )
+    `);
+
     // Create errors table if it doesn't exist (schema matches existing DB: includes priority)
     await connection.execute(`
       CREATE TABLE IF NOT EXISTS errors (
@@ -10829,6 +10884,594 @@ app.post('/api/health-settings/defaults', async (req, res) => {
     res.json({ message: 'Health settings reset to defaults successfully' });
   } catch (err) {
     console.error('Error resetting health settings to defaults:', err);
+    res.status(500).json({ error: 'Database error' });
+  } finally {
+    if (connection) {
+      connection.release();
+    }
+  }
+});
+
+// Helper: get year/month from a YYYY-MM-DD date string
+const getYearMonthFromDate = (dateStr) => {
+  if (!dateStr) {
+    const now = new Date();
+    return { year: now.getFullYear(), month: now.getMonth() + 1 };
+  }
+  const parts = String(dateStr).split('-');
+  const year = parseInt(parts[0], 10);
+  const month = parseInt(parts[1], 10);
+  if (!year || !month) {
+    const now = new Date();
+    return { year: now.getFullYear(), month: now.getMonth() + 1 };
+  }
+  return { year, month };
+};
+
+// Helper: get or create a leave_balances row for employee/month
+const getOrCreateLeaveBalance = async (connection, employeeId, year, month) => {
+  const [rows] = await connection.execute(
+    'SELECT * FROM leave_balances WHERE employee_id = ? AND year = ? AND month = ?',
+    [employeeId, year, month]
+  );
+  if (rows.length > 0) return rows[0];
+
+  await connection.execute(
+    'INSERT INTO leave_balances (employee_id, year, month) VALUES (?, ?, ?)',
+    [employeeId, year, month]
+  );
+  const [rowsAfterInsert] = await connection.execute(
+    'SELECT * FROM leave_balances WHERE employee_id = ? AND year = ? AND month = ?',
+    [employeeId, year, month]
+  );
+  return rowsAfterInsert[0];
+};
+
+// Leave Management API Routes
+
+// Apply for leave
+app.post('/api/leaves/apply', async (req, res) => {
+  const {
+    employee_id,
+    department_id,
+    reason,
+    start_date,
+    end_date,
+    start_segment,
+    end_segment,
+    days_requested,
+    confirm_exceed
+  } = req.body || {};
+
+  if (!employee_id || !start_date || !end_date) {
+    return res.status(400).json({ error: 'employee_id, start_date and end_date are required' });
+  }
+
+  let connection;
+  try {
+    connection = await mysqlPool.getConnection();
+    await connection.ping();
+
+    // Resolve department if not provided
+    let deptId = department_id || null;
+    let employeeName = '';
+    if (!deptId) {
+      const [empRows] = await connection.execute(
+        'SELECT id, name, department_id FROM employees WHERE id = ?',
+        [employee_id]
+      );
+      if (empRows.length === 0) {
+        return res.status(404).json({ error: 'Employee not found' });
+      }
+      deptId = empRows[0].department_id || null;
+      employeeName = empRows[0].name || '';
+    } else {
+      const [empRows] = await connection.execute(
+        'SELECT id, name FROM employees WHERE id = ?',
+        [employee_id]
+      );
+      if (empRows.length === 0) {
+        return res.status(404).json({ error: 'Employee not found' });
+      }
+      employeeName = empRows[0].name || '';
+    }
+
+    // Department conflict check: overlapping dates in same department, pending/approved
+    if (deptId) {
+      const conflictQuery = `
+        SELECT lr.id, lr.employee_id, e.name AS employee_name, lr.start_date, lr.end_date
+        FROM leave_requests lr
+        JOIN employees e ON e.id = lr.employee_id
+        WHERE lr.department_id = ?
+          AND lr.status IN ('pending','approved')
+          AND lr.start_date <= ?
+          AND lr.end_date >= ?
+        LIMIT 1
+      `;
+      const [conflicts] = await connection.execute(conflictQuery, [deptId, end_date, start_date]);
+      if (conflicts.length > 0) {
+        const c = conflicts[0];
+        return res.status(200).json({
+          success: false,
+          conflict: true,
+          existing_employee_name: c.employee_name || '',
+          existing_start_date: c.start_date,
+          existing_end_date: c.end_date,
+          message: 'Another employee from this department is already on leave for these dates'
+        });
+      }
+    }
+
+    // Enforce monthly paid leave quota (default 2 per month)
+    const { year, month } = getYearMonthFromDate(start_date);
+    const balance = await getOrCreateLeaveBalance(connection, employee_id, year, month);
+    const quota = balance.paid_quota || 2;
+    const used = balance.paid_used || 0;
+    const requested = typeof days_requested === 'number' && !Number.isNaN(days_requested)
+      ? days_requested
+      : 1;
+
+    const willExceedPaid = used + requested > quota;
+    if (willExceedPaid && !confirm_exceed) {
+      return res.status(200).json({
+        success: false,
+        over_quota: true,
+        message: 'You only get 2 paid leaves per month. Proceeding will create an unpaid leave or deduction.'
+      });
+    }
+
+    const isPaid = willExceedPaid ? 0 : 1;
+
+    const insertQuery = `
+      INSERT INTO leave_requests (
+        employee_id,
+        department_id,
+        status,
+        reason,
+        start_date,
+        end_date,
+        start_segment,
+        end_segment,
+        days_requested,
+        is_paid,
+        is_uninformed
+      ) VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, 0)
+    `;
+
+    const [result] = await connection.execute(insertQuery, [
+      employee_id,
+      deptId,
+      reason || '',
+      start_date,
+      end_date,
+      start_segment || 'full_day',
+      end_segment || 'full_day',
+      requested,
+      isPaid
+    ]);
+
+    res.status(201).json({
+      success: true,
+      id: result.insertId,
+      employee_id,
+      employee_name: employeeName,
+      department_id: deptId,
+      status: 'pending',
+      reason,
+      start_date,
+      end_date,
+      start_segment: start_segment || 'full_day',
+      end_segment: end_segment || 'full_day',
+      days_requested: requested,
+      is_paid: isPaid
+    });
+  } catch (err) {
+    console.error('Error applying for leave:', err);
+    res.status(500).json({ error: 'Database error' });
+  } finally {
+    if (connection) {
+      connection.release();
+    }
+  }
+});
+
+// Get current user's leaves grouped by status
+app.get('/api/leaves/my', async (req, res) => {
+  const { employee_id } = req.query;
+  if (!employee_id) return res.status(400).json({ error: 'employee_id is required' });
+
+  let connection;
+  try {
+    connection = await mysqlPool.getConnection();
+    await connection.ping();
+
+    const query = `
+      SELECT lr.*, e.name AS employee_name
+      FROM leave_requests lr
+      JOIN employees e ON e.id = lr.employee_id
+      WHERE lr.employee_id = ?
+      ORDER BY lr.created_at DESC
+      LIMIT 200
+    `;
+    const [rows] = await connection.execute(query, [employee_id]);
+
+    const pending = [];
+    const approved = [];
+    const rejected = [];
+    rows.forEach((row) => {
+      if (row.status === 'pending') pending.push(row);
+      else if (row.status === 'approved') approved.push(row);
+      else if (row.status === 'rejected') rejected.push(row);
+    });
+
+    res.json({
+      pending,
+      recent_approved: approved,
+      recent_rejected: rejected
+    });
+  } catch (err) {
+    console.error('Error fetching my leaves:', err);
+    res.status(500).json({ error: 'Database error' });
+  } finally {
+    if (connection) {
+      connection.release();
+    }
+  }
+});
+
+// Department leaves for managers/admins
+app.get('/api/leaves/department', async (req, res) => {
+  const { department_id } = req.query;
+  if (!department_id) return res.status(400).json({ error: 'department_id is required' });
+
+  let connection;
+  try {
+    connection = await mysqlPool.getConnection();
+    await connection.ping();
+
+    const query = `
+      SELECT lr.*, e.name AS employee_name, d.name AS department_name
+      FROM leave_requests lr
+      JOIN employees e ON e.id = lr.employee_id
+      LEFT JOIN departments d ON d.id = lr.department_id
+      WHERE lr.department_id = ?
+      ORDER BY lr.created_at DESC
+      LIMIT 300
+    `;
+    const [rows] = await connection.execute(query, [department_id]);
+
+    const pending = [];
+    const approved = [];
+    const rejected = [];
+    rows.forEach((row) => {
+      if (row.status === 'pending') pending.push(row);
+      else if (row.status === 'approved') approved.push(row);
+      else if (row.status === 'rejected') rejected.push(row);
+    });
+
+    res.json({
+      pending,
+      recent_approved: approved,
+      recent_rejected: rejected
+    });
+  } catch (err) {
+    console.error('Error fetching department leaves:', err);
+    res.status(500).json({ error: 'Database error' });
+  } finally {
+    if (connection) {
+      connection.release();
+    }
+  }
+});
+
+// Approve or reject a leave request
+app.post('/api/leaves/:id/decision', async (req, res) => {
+  const { id } = req.params;
+  const { status, decision_reason, decision_by } = req.body || {};
+
+  if (!status || !['approved', 'rejected'].includes(status)) {
+    return res.status(400).json({ error: "status must be 'approved' or 'rejected'" });
+  }
+
+  let connection;
+  try {
+    connection = await mysqlPool.getConnection();
+    await connection.ping();
+    await connection.beginTransaction();
+
+    const [rows] = await connection.execute(
+      'SELECT * FROM leave_requests WHERE id = ? FOR UPDATE',
+      [id]
+    );
+    if (rows.length === 0) {
+      await connection.rollback();
+      return res.status(404).json({ error: 'Leave request not found' });
+    }
+
+    const request = rows[0];
+    if (request.status !== 'pending') {
+      await connection.rollback();
+      return res.status(400).json({ error: 'Only pending requests can be updated' });
+    }
+
+    // On approval, enforce department conflict and update leave_balances
+    let updatedIsPaid = request.is_paid;
+    if (status === 'approved') {
+      if (request.department_id) {
+        const conflictQuery = `
+          SELECT id
+          FROM leave_requests
+          WHERE department_id = ?
+            AND status IN ('pending','approved')
+            AND id <> ?
+            AND start_date <= ?
+            AND end_date >= ?
+          LIMIT 1
+        `;
+        const [conflicts] = await connection.execute(conflictQuery, [
+          request.department_id,
+          id,
+          request.end_date,
+          request.start_date
+        ]);
+        if (conflicts.length > 0) {
+          await connection.rollback();
+          return res.status(409).json({
+            error: 'Department conflict: another leave is already approved or pending for this period'
+          });
+        }
+      }
+
+      const { year, month } = getYearMonthFromDate(request.start_date);
+      const balance = await getOrCreateLeaveBalance(connection, request.employee_id, year, month);
+      const quota = balance.paid_quota || 2;
+      const used = balance.paid_used || 0;
+      const requested = Number(request.days_requested) || 1;
+
+      // If this is marked as uninformed, treat as unpaid and increase next_month_deduction
+      if (request.is_uninformed) {
+        const uninformed = balance.uninformed_leaves || 0;
+        const deduction = balance.next_month_deduction || 0;
+        await connection.execute(
+          'UPDATE leave_balances SET uninformed_leaves = ?, next_month_deduction = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+          [uninformed + requested, deduction + requested, balance.id]
+        );
+        updatedIsPaid = 0;
+      } else {
+        const willExceedPaid = used + requested > quota;
+        const newUsed = willExceedPaid ? used : used + requested;
+        await connection.execute(
+          'UPDATE leave_balances SET paid_used = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+          [newUsed, balance.id]
+        );
+        updatedIsPaid = willExceedPaid ? 0 : 1;
+      }
+    }
+
+    const decisionQuery = `
+      UPDATE leave_requests
+      SET status = ?, decision_reason = ?, decision_by = ?, decision_at = NOW(), is_paid = ?
+      WHERE id = ?
+    `;
+    await connection.execute(decisionQuery, [
+      status,
+      decision_reason || null,
+      decision_by || null,
+      updatedIsPaid,
+      id
+    ]);
+
+    await connection.commit();
+
+    res.json({ success: true, id: Number(id), status, is_paid: updatedIsPaid });
+  } catch (err) {
+    if (connection) {
+      try {
+        await connection.rollback();
+      } catch (rollbackErr) {
+        console.error('Error rolling back leave decision transaction:', rollbackErr);
+      }
+    }
+    console.error('Error updating leave decision:', err);
+    res.status(500).json({ error: 'Database error' });
+  } finally {
+    if (connection) {
+      connection.release();
+    }
+  }
+});
+
+// Mark uninformed leave (admin/manager)
+app.post('/api/leaves/mark-uninformed', async (req, res) => {
+  const { employee_id, date, days, reason, decision_by } = req.body || {};
+
+  if (!employee_id || !date) {
+    return res.status(400).json({ error: 'employee_id and date are required' });
+  }
+
+  const daysValue = typeof days === 'number' && !Number.isNaN(days) ? days : 1;
+
+  let connection;
+  try {
+    connection = await mysqlPool.getConnection();
+    await connection.ping();
+    await connection.beginTransaction();
+
+    const [empRows] = await connection.execute(
+      'SELECT id, name, department_id FROM employees WHERE id = ?',
+      [employee_id]
+    );
+    if (empRows.length === 0) {
+      await connection.rollback();
+      return res.status(404).json({ error: 'Employee not found' });
+    }
+    const emp = empRows[0];
+
+    const { year, month } = getYearMonthFromDate(date);
+    const balance = await getOrCreateLeaveBalance(connection, employee_id, year, month);
+    const uninformed = balance.uninformed_leaves || 0;
+    const deduction = balance.next_month_deduction || 0;
+
+    const insertQuery = `
+      INSERT INTO leave_requests (
+        employee_id,
+        department_id,
+        status,
+        reason,
+        start_date,
+        end_date,
+        start_segment,
+        end_segment,
+        days_requested,
+        is_paid,
+        is_uninformed,
+        decision_by,
+        decision_at,
+        decision_reason
+      ) VALUES (?, ?, 'approved', ?, ?, ?, 'full_day', 'full_day', ?, 0, 1, ?, NOW(), ?)
+    `;
+
+    const [result] = await connection.execute(insertQuery, [
+      employee_id,
+      emp.department_id || null,
+      reason || 'Uninformed leave',
+      date,
+      date,
+      daysValue,
+      decision_by || null,
+      reason || 'Uninformed leave'
+    ]);
+
+    await connection.execute(
+      'UPDATE leave_balances SET uninformed_leaves = ?, next_month_deduction = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+      [uninformed + daysValue, deduction + daysValue, balance.id]
+    );
+
+    await connection.commit();
+
+    res.status(201).json({
+      success: true,
+      id: result.insertId,
+      employee_id,
+      employee_name: emp.name,
+      date,
+      days: daysValue
+    });
+  } catch (err) {
+    if (connection) {
+      try {
+        await connection.rollback();
+      } catch (rollbackErr) {
+        console.error('Error rolling back mark-uninformed transaction:', rollbackErr);
+      }
+    }
+    console.error('Error marking uninformed leave:', err);
+    res.status(500).json({ error: 'Database error' });
+  } finally {
+    if (connection) {
+      connection.release();
+    }
+  }
+});
+
+// Leave policy for display
+app.get('/api/leaves/policy', async (req, res) => {
+  let connection;
+  try {
+    connection = await mysqlPool.getConnection();
+    await connection.ping();
+
+    const [rows] = await connection.execute('SELECT policy_key, policy_value, description FROM leave_policies');
+    const policy = {
+      monthly_paid_quota: 2,
+      uninformed_penalty_text: 'Uninformed leaves cause paid leaves from next month to be deducted. No leaves this month are paid out in cash.',
+      cashout_allowed: false
+    };
+
+    rows.forEach((row) => {
+      if (row.policy_key === 'monthly_paid_quota') {
+        try {
+          const val = row.policy_value ? JSON.parse(row.policy_value) : null;
+          if (val && typeof val.quota === 'number') {
+            policy.monthly_paid_quota = val.quota;
+          }
+        } catch (e) {
+          // ignore parse error, keep default
+        }
+      }
+      if (row.policy_key === 'uninformed_penalty_rule') {
+        try {
+          const val = row.policy_value ? JSON.parse(row.policy_value) : null;
+          if (val && typeof val.text === 'string') {
+            policy.uninformed_penalty_text = val.text;
+          }
+        } catch (e) {
+          // ignore parse error
+        }
+      }
+    });
+
+    res.json(policy);
+  } catch (err) {
+    console.error('Error fetching leave policy:', err);
+    res.status(500).json({ error: 'Database error' });
+  } finally {
+    if (connection) {
+      connection.release();
+    }
+  }
+});
+
+// Per-employee leave report
+app.get('/api/leaves/report', async (req, res) => {
+  const { employee_id, year, month } = req.query;
+  if (!employee_id) return res.status(400).json({ error: 'employee_id is required' });
+
+  const now = new Date();
+  const useYear = year ? parseInt(year, 10) : now.getFullYear();
+  const useMonth = month ? parseInt(month, 10) : now.getMonth() + 1;
+
+  let connection;
+  try {
+    connection = await mysqlPool.getConnection();
+    await connection.ping();
+
+    const balance = await getOrCreateLeaveBalance(connection, employee_id, useYear, useMonth);
+    const quota = balance.paid_quota || 2;
+    const used = balance.paid_used || 0;
+    const remaining = Math.max(0, quota - used);
+    const uninformedCount = balance.uninformed_leaves || 0;
+    const deductionNext = balance.next_month_deduction || 0;
+
+    const startDate = `${useYear}-${String(useMonth).padStart(2, '0')}-01`;
+    const endDate = `${useYear}-${String(useMonth).padStart(2, '0')}-31`;
+
+    const [uninformedRows] = await connection.execute(
+      `
+        SELECT id, start_date, end_date, days_requested, reason
+        FROM leave_requests
+        WHERE employee_id = ?
+          AND is_uninformed = 1
+          AND start_date >= ?
+          AND start_date <= ?
+        ORDER BY start_date DESC
+      `,
+      [employee_id, startDate, endDate]
+    );
+
+    res.json({
+      employee_id: Number(employee_id),
+      year: useYear,
+      month: useMonth,
+      paid_quota: quota,
+      paid_used: used,
+      remaining_paid: remaining,
+      uninformed_count: uninformedCount,
+      next_month_deduction: deductionNext,
+      uninformed_details: uninformedRows
+    });
+  } catch (err) {
+    console.error('Error fetching leave report:', err);
     res.status(500).json({ error: 'Database error' });
   } finally {
     if (connection) {
