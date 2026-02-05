@@ -10908,6 +10908,41 @@ const getYearMonthFromDate = (dateStr) => {
   return { year, month };
 };
 
+// Helper: allocate uninformed leave days into future months as deductions
+// This function interprets leave_balances.next_month_deduction as
+// "deduction to apply in this month", not literally just the next month.
+const allocateUninformedToFutureMonths = async (connection, employeeId, baseDateStr, daysToAllocate) => {
+  let remaining = daysToAllocate;
+  if (!remaining || remaining <= 0) return;
+
+  const base = new Date(baseDateStr);
+  if (Number.isNaN(base.getTime())) return;
+
+  // Start from next month
+  let year = base.getFullYear();
+  let month = base.getMonth() + 2; // JS month is 0-based, so +1 is current month, +2 is next
+
+  while (remaining > 0 && year < base.getFullYear() + 5) {
+    if (month > 12) {
+      month = 1;
+      year += 1;
+    }
+    const balance = await getOrCreateLeaveBalance(connection, employeeId, year, month);
+    const quota = balance.paid_quota || 2;
+    const alreadyDeducted = balance.next_month_deduction || 0;
+    const capacity = Math.max(0, quota - alreadyDeducted);
+    if (capacity > 0) {
+      const allocate = Math.min(remaining, capacity);
+      await connection.execute(
+        'UPDATE leave_balances SET next_month_deduction = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+        [alreadyDeducted + allocate, balance.id]
+      );
+      remaining -= allocate;
+    }
+    month += 1;
+  }
+};
+
 // Helper: get or create a leave_balances row for employee/month
 const getOrCreateLeaveBalance = async (connection, employeeId, year, month) => {
   const [rows] = await connection.execute(
@@ -10925,6 +10960,38 @@ const getOrCreateLeaveBalance = async (connection, employeeId, year, month) => {
     [employeeId, year, month]
   );
   return rowsAfterInsert[0];
+};
+
+// Helper: recompute cascading uninformed deductions for an employee
+// based on all approved uninformed leave_requests. This only updates
+// leave_balances for that employee and never touches non-leave tables.
+const recalculateUninformedDeductionsForEmployee = async (connection, employeeId) => {
+  if (!employeeId) return;
+
+  // Clear existing per-month deductions for this employee
+  await connection.execute(
+    'UPDATE leave_balances SET next_month_deduction = 0 WHERE employee_id = ?',
+    [employeeId]
+  );
+
+  // Fetch all approved uninformed leaves for this employee
+  const [uninformedRows] = await connection.execute(
+    `
+      SELECT start_date, days_requested
+      FROM leave_requests
+      WHERE employee_id = ?
+        AND is_uninformed = 1
+        AND status = 'approved'
+      ORDER BY start_date ASC
+    `,
+    [employeeId]
+  );
+
+  for (const row of uninformedRows) {
+    const days = Number(row.days_requested) || 0;
+    if (!days) continue;
+    await allocateUninformedToFutureMonths(connection, employeeId, row.start_date, days);
+  }
 };
 
 // Leave Management API Routes
@@ -11002,16 +11069,19 @@ app.post('/api/leaves/apply', async (req, res) => {
       }
     }
 
-    // Enforce monthly paid leave quota (default 2 per month)
+    // Enforce monthly paid leave quota (default 2 per month),
+    // taking into account any cascading uninformed leave deductions.
     const { year, month } = getYearMonthFromDate(start_date);
     const balance = await getOrCreateLeaveBalance(connection, employee_id, year, month);
     const quota = balance.paid_quota || 2;
     const used = balance.paid_used || 0;
+    const deduction = balance.next_month_deduction || 0;
+    const effectiveQuota = Math.max(0, quota - deduction);
     const requested = typeof days_requested === 'number' && !Number.isNaN(days_requested)
       ? days_requested
       : 1;
 
-    const willExceedPaid = used + requested > quota;
+    const willExceedPaid = used + requested > effectiveQuota;
     if (willExceedPaid && !confirm_exceed) {
       return res.status(200).json({
         success: false,
@@ -11122,23 +11192,39 @@ app.get('/api/leaves/my', async (req, res) => {
 // Department leaves for managers/admins
 app.get('/api/leaves/department', async (req, res) => {
   const { department_id } = req.query;
-  if (!department_id) return res.status(400).json({ error: 'department_id is required' });
+
+  const userRoleHeader = req.headers['user-role'] || req.headers['x-user-role'] || 'employee';
+  const userRole = String(userRoleHeader || '').toLowerCase();
+  const isAdmin = userRole === 'admin';
+  const isManager = userRole.includes('manager');
+
+  if (!isAdmin && !isManager) {
+    return res.status(403).json({ error: 'Access denied. Only managers and admins can view department leaves.' });
+  }
 
   let connection;
   try {
     connection = await mysqlPool.getConnection();
     await connection.ping();
 
-    const query = `
+    let query = `
       SELECT lr.*, e.name AS employee_name, d.name AS department_name
       FROM leave_requests lr
       JOIN employees e ON e.id = lr.employee_id
       LEFT JOIN departments d ON d.id = lr.department_id
-      WHERE lr.department_id = ?
-      ORDER BY lr.created_at DESC
-      LIMIT 300
     `;
-    const [rows] = await connection.execute(query, [department_id]);
+    const params = [];
+
+    // For managers, always require a specific department filter (current behavior).
+    // For admins, allow an optional department filter; if not provided, show all.
+    if (!isAdmin || department_id) {
+      query += ' WHERE lr.department_id = ?';
+      params.push(department_id);
+    }
+
+    query += ' ORDER BY lr.created_at DESC LIMIT 300';
+
+    const [rows] = await connection.execute(query, params);
 
     const pending = [];
     const approved = [];
@@ -11226,20 +11312,24 @@ app.post('/api/leaves/:id/decision', async (req, res) => {
       const balance = await getOrCreateLeaveBalance(connection, request.employee_id, year, month);
       const quota = balance.paid_quota || 2;
       const used = balance.paid_used || 0;
-      const requested = Number(request.days_requested) || 1;
+      const deduction = balance.next_month_deduction || 0;
+      const effectiveQuota = Math.max(0, quota - deduction);
+      const requestedDays = Number(request.days_requested) || 1;
 
-      // If this is marked as uninformed, treat as unpaid and increase next_month_deduction
       if (request.is_uninformed) {
+        // Uninformed leaves are always unpaid but still counted for the month.
         const uninformed = balance.uninformed_leaves || 0;
-        const deduction = balance.next_month_deduction || 0;
         await connection.execute(
-          'UPDATE leave_balances SET uninformed_leaves = ?, next_month_deduction = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-          [uninformed + requested, deduction + requested, balance.id]
+          'UPDATE leave_balances SET uninformed_leaves = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+          [uninformed + requestedDays, balance.id]
         );
+
+        // Recalculate cascading deductions across future months for this employee.
+        await recalculateUninformedDeductionsForEmployee(connection, request.employee_id);
         updatedIsPaid = 0;
       } else {
-        const willExceedPaid = used + requested > quota;
-        const newUsed = willExceedPaid ? used : used + requested;
+        const willExceedPaid = used + requestedDays > effectiveQuota;
+        const newUsed = willExceedPaid ? used : used + requestedDays;
         await connection.execute(
           'UPDATE leave_balances SET paid_used = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
           [newUsed, balance.id]
@@ -11283,13 +11373,39 @@ app.post('/api/leaves/:id/decision', async (req, res) => {
 
 // Mark uninformed leave (admin/manager)
 app.post('/api/leaves/mark-uninformed', async (req, res) => {
-  const { employee_id, date, days, reason, decision_by } = req.body || {};
+  const {
+    employee_id,
+    date,
+    start_date,
+    end_date,
+    start_segment,
+    end_segment,
+    days,
+    days_requested,
+    reason,
+    decision_by
+  } = req.body || {};
 
-  if (!employee_id || !date) {
-    return res.status(400).json({ error: 'employee_id and date are required' });
+  const userRoleHeader = req.headers['user-role'] || req.headers['x-user-role'] || 'employee';
+  const userRole = String(userRoleHeader || '').toLowerCase();
+  const isAdmin = userRole === 'admin';
+  const isManager = userRole.includes('manager');
+
+  if (!isAdmin && !isManager) {
+    return res.status(403).json({ error: 'Access denied. Only managers and admins can mark uninformed leaves.' });
   }
 
-  const daysValue = typeof days === 'number' && !Number.isNaN(days) ? days : 1;
+  const effectiveStartDate = start_date || date;
+  const effectiveEndDate = end_date || start_date || date;
+
+  if (!employee_id || !effectiveStartDate || !effectiveEndDate) {
+    return res.status(400).json({ error: 'employee_id and a valid start/end date are required' });
+  }
+
+  const requestedDays =
+    (typeof days_requested === 'number' && !Number.isNaN(days_requested))
+      ? days_requested
+      : (typeof days === 'number' && !Number.isNaN(days) ? days : 1);
 
   let connection;
   try {
@@ -11307,10 +11423,9 @@ app.post('/api/leaves/mark-uninformed', async (req, res) => {
     }
     const emp = empRows[0];
 
-    const { year, month } = getYearMonthFromDate(date);
+    const { year, month } = getYearMonthFromDate(effectiveStartDate);
     const balance = await getOrCreateLeaveBalance(connection, employee_id, year, month);
     const uninformed = balance.uninformed_leaves || 0;
-    const deduction = balance.next_month_deduction || 0;
 
     const insertQuery = `
       INSERT INTO leave_requests (
@@ -11328,24 +11443,29 @@ app.post('/api/leaves/mark-uninformed', async (req, res) => {
         decision_by,
         decision_at,
         decision_reason
-      ) VALUES (?, ?, 'approved', ?, ?, ?, 'full_day', 'full_day', ?, 0, 1, ?, NOW(), ?)
+      ) VALUES (?, ?, 'approved', ?, ?, ?, ?, ?, ?, ?, 0, 1, ?, NOW(), ?)
     `;
 
     const [result] = await connection.execute(insertQuery, [
       employee_id,
       emp.department_id || null,
       reason || 'Uninformed leave',
-      date,
-      date,
-      daysValue,
+      effectiveStartDate,
+      effectiveEndDate,
+      start_segment || 'full_day',
+      end_segment || 'full_day',
+      requestedDays,
       decision_by || null,
       reason || 'Uninformed leave'
     ]);
 
     await connection.execute(
-      'UPDATE leave_balances SET uninformed_leaves = ?, next_month_deduction = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-      [uninformed + daysValue, deduction + daysValue, balance.id]
+      'UPDATE leave_balances SET uninformed_leaves = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+      [uninformed + requestedDays, balance.id]
     );
+
+    // Recalculate cascading deductions across future months for this employee.
+    await recalculateUninformedDeductionsForEmployee(connection, employee_id);
 
     await connection.commit();
 
@@ -11354,8 +11474,9 @@ app.post('/api/leaves/mark-uninformed', async (req, res) => {
       id: result.insertId,
       employee_id,
       employee_name: emp.name,
-      date,
-      days: daysValue
+      start_date: effectiveStartDate,
+      end_date: effectiveEndDate,
+      days: requestedDays
     });
   } catch (err) {
     if (connection) {
@@ -11384,7 +11505,7 @@ app.get('/api/leaves/policy', async (req, res) => {
     const [rows] = await connection.execute('SELECT policy_key, policy_value, description FROM leave_policies');
     const policy = {
       monthly_paid_quota: 2,
-      uninformed_penalty_text: 'Uninformed leaves cause paid leaves from next month to be deducted. No leaves this month are paid out in cash.',
+      uninformed_penalty_text: 'Each uninformed leave day reduces paid leave quotas in future months until all such days have been deducted. No leaves this month are paid out in cash.',
       cashout_allowed: false
     };
 
@@ -11439,9 +11560,10 @@ app.get('/api/leaves/report', async (req, res) => {
     const balance = await getOrCreateLeaveBalance(connection, employee_id, useYear, useMonth);
     const quota = balance.paid_quota || 2;
     const used = balance.paid_used || 0;
-    const remaining = Math.max(0, quota - used);
     const uninformedCount = balance.uninformed_leaves || 0;
-    const deductionNext = balance.next_month_deduction || 0;
+    const deductionThisMonth = balance.next_month_deduction || 0;
+    const effectiveQuota = Math.max(0, quota - deductionThisMonth);
+    const remaining = Math.max(0, effectiveQuota - used);
 
     const startDate = `${useYear}-${String(useMonth).padStart(2, '0')}-01`;
     const endDate = `${useYear}-${String(useMonth).padStart(2, '0')}-31`;
@@ -11467,7 +11589,8 @@ app.get('/api/leaves/report', async (req, res) => {
       paid_used: used,
       remaining_paid: remaining,
       uninformed_count: uninformedCount,
-      next_month_deduction: deductionNext,
+      next_month_deduction: deductionThisMonth,
+      effective_quota: effectiveQuota,
       uninformed_details: uninformedRows
     });
   } catch (err) {

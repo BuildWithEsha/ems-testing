@@ -25,10 +25,21 @@ export default function Leaves() {
   const [policy, setPolicy] = useState(null);
   const [report, setReport] = useState(null);
   const [departmentLeaves, setDepartmentLeaves] = useState({ pending: [], recent_approved: [], recent_rejected: [] });
-  const isManagerOrAdmin = user?.role === 'admin' || user?.role === 'Admin' || user?.is_manager;
+  const isAdmin = user?.role === 'admin' || user?.role === 'Admin';
+  const isManagerOrAdmin = isAdmin || user?.is_manager;
 
   const employeeId = user?.id;
   const departmentId = user?.department_id || null;
+
+  const [markUninformedForm, setMarkUninformedForm] = useState({
+    employee_id: '',
+    start_date: '',
+    end_date: '',
+    start_segment: 'full_day',
+    end_segment: 'full_day',
+    reason: 'Uninformed leave',
+  });
+  const [markUninformedEmployees, setMarkUninformedEmployees] = useState([]);
 
   const loadMyLeaves = async () => {
     if (!employeeId) return;
@@ -71,9 +82,12 @@ export default function Leaves() {
   };
 
   const loadDepartmentLeaves = async () => {
-    if (!departmentId || !isManagerOrAdmin) return;
+    if (!isManagerOrAdmin) return;
     try {
-      const res = await fetch(`/api/leaves/department?department_id=${departmentId}`);
+      const url = isAdmin && !departmentId
+        ? '/api/leaves/department'
+        : `/api/leaves/department?department_id=${departmentId}`;
+      const res = await fetch(url);
       if (res.ok) {
         const data = await res.json();
         setDepartmentLeaves({
@@ -87,11 +101,29 @@ export default function Leaves() {
     }
   };
 
+  const loadMarkUninformedEmployees = async () => {
+    if (!isManagerOrAdmin) return;
+    try {
+      let url = '/api/employees?all=true';
+      if (!isAdmin && user?.department) {
+        url += `&department=${encodeURIComponent(user.department)}`;
+      }
+      const res = await fetch(url);
+      if (!res.ok) return;
+      const data = await res.json();
+      const list = Array.isArray(data?.data) ? data.data : Array.isArray(data) ? data : [];
+      setMarkUninformedEmployees(list);
+    } catch (err) {
+      console.error('Error loading employees for uninformed leave', err);
+    }
+  };
+
   useEffect(() => {
     loadMyLeaves();
     loadPolicy();
     loadReport();
     loadDepartmentLeaves();
+    loadMarkUninformedEmployees();
   }, [employeeId]);
 
   const handleFormChange = (e) => {
@@ -103,6 +135,20 @@ export default function Leaves() {
     if (!form.start_date || !form.end_date) return 0;
     const start = new Date(form.start_date);
     const end = new Date(form.end_date);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 0;
+    const diffDays = Math.floor((end - start) / (1000 * 60 * 60 * 24)) + 1;
+    return Math.max(diffDays, 1);
+  };
+
+  const handleMarkUninformedFormChange = (e) => {
+    const { name, value } = e.target;
+    setMarkUninformedForm((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const computeMarkUninformedDays = () => {
+    if (!markUninformedForm.start_date || !markUninformedForm.end_date) return 0;
+    const start = new Date(markUninformedForm.start_date);
+    const end = new Date(markUninformedForm.end_date);
     if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 0;
     const diffDays = Math.floor((end - start) / (1000 * 60 * 60 * 24)) + 1;
     return Math.max(diffDays, 1);
@@ -363,7 +409,7 @@ export default function Leaves() {
     }
   };
 
-  const handleMarkUninformed = async (employeeIdForLeave, date) => {
+  const handleMarkUninformed = async (row) => {
     if (!isManagerOrAdmin) return;
     const reason = window.prompt(
       'Enter reason for marking uninformed leave:',
@@ -375,10 +421,13 @@ export default function Leaves() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          employee_id: employeeIdForLeave,
-          date,
+          employee_id: row.employee_id,
+          start_date: row.start_date,
+          end_date: row.end_date || row.start_date,
+          start_segment: row.start_segment || 'full_day',
+          end_segment: row.end_segment || 'full_day',
+          days_requested: Number(row.days_requested) || 1,
           reason,
-          days: 1,
           decision_by: user?.id || null,
         }),
       });
@@ -395,6 +444,54 @@ export default function Leaves() {
     }
   };
 
+  const submitMarkUninformedForm = async () => {
+    if (!isManagerOrAdmin) return;
+    if (!markUninformedForm.employee_id || !markUninformedForm.start_date || !markUninformedForm.end_date) {
+      alert('Please select employee and start/end dates');
+      return;
+    }
+    const daysRequested = computeMarkUninformedDays();
+    if (daysRequested <= 0) {
+      alert('Invalid date range for uninformed leave');
+      return;
+    }
+    try {
+      const res = await fetch('/api/leaves/mark-uninformed', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          employee_id: Number(markUninformedForm.employee_id),
+          start_date: markUninformedForm.start_date,
+          end_date: markUninformedForm.end_date,
+          start_segment: markUninformedForm.start_segment,
+          end_segment: markUninformedForm.end_segment,
+          days_requested: daysRequested,
+          reason: markUninformedForm.reason || 'Uninformed leave',
+          decision_by: user?.id || null,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        alert(data.error || 'Failed to mark uninformed leave');
+        return;
+      }
+      alert('Uninformed leave recorded successfully');
+      setMarkUninformedForm({
+        employee_id: '',
+        start_date: '',
+        end_date: '',
+        start_segment: 'full_day',
+        end_segment: 'full_day',
+        reason: 'Uninformed leave',
+      });
+      await loadDepartmentLeaves();
+      await loadReport();
+    } catch (err) {
+      console.error('Error marking uninformed leave via form', err);
+      alert('Error marking uninformed leave');
+    }
+  };
+
   const renderDepartmentTable = (rows, showActions) => (
     <div className="bg-white border rounded p-4">
       {rows.length === 0 ? (
@@ -405,6 +502,7 @@ export default function Leaves() {
             <thead className="bg-gray-50">
               <tr>
                 <th className="px-4 py-2 text-left font-medium text-gray-700">Employee</th>
+                <th className="px-4 py-2 text-left font-medium text-gray-700">Department</th>
                 <th className="px-4 py-2 text-left font-medium text-gray-700">Dates</th>
                 <th className="px-4 py-2 text-left font-medium text-gray-700">Days</th>
                 <th className="px-4 py-2 text-left font-medium text-gray-700">Status</th>
@@ -446,7 +544,7 @@ export default function Leaves() {
                       )}
                       <button
                         type="button"
-                        onClick={() => handleMarkUninformed(row.employee_id, row.start_date)}
+                        onClick={() => handleMarkUninformed(row)}
                         className="px-2 py-1 text-xs rounded bg-yellow-500 text-white"
                       >
                         Mark Uninformed
@@ -471,7 +569,7 @@ export default function Leaves() {
       </p>
       <p>
         {policy?.uninformed_penalty_text ||
-          'If you take uninformed leaves, paid leaves from the next month will be deducted and no leaves this month will be paid out in money.'}
+          'If you take uninformed leaves, paid leave quotas in future months will be reduced until all uninformed days have been deducted. No leaves this month will be paid out in money.'}
       </p>
     </div>
   );
@@ -491,9 +589,15 @@ export default function Leaves() {
           <div className="border rounded p-3">
             <div className="text-xs uppercase text-gray-500">Paid Leaves</div>
             <div className="mt-1 text-sm">
-              Quota:{' '}
+              Base quota:{' '}
               <span className="font-semibold">
                 {report.paid_quota}
+              </span>
+            </div>
+            <div className="text-sm">
+              Effective quota after deductions:{' '}
+              <span className="font-semibold">
+                {report.effective_quota ?? Math.max(0, (report.paid_quota || 0) - (report.next_month_deduction || 0))}
               </span>
             </div>
             <div className="text-sm">
@@ -519,7 +623,7 @@ export default function Leaves() {
             </div>
           </div>
           <div className="border rounded p-3">
-            <div className="text-xs uppercase text-gray-500">Next Month Deduction</div>
+            <div className="text-xs uppercase text-gray-500">This Month Deduction</div>
             <div className="mt-1 text-sm">
               Days to deduct:{' '}
               <span className="font-semibold">
@@ -548,6 +652,103 @@ export default function Leaves() {
     );
   };
 
+  const renderMarkUninformedForm = () => {
+    if (!isManagerOrAdmin) return null;
+    const daysRequested = computeMarkUninformedDays();
+    return (
+      <div className="bg-white border rounded p-6 mt-6">
+        <h2 className="text-lg font-semibold text-gray-900 mb-4">Mark Uninformed Leave</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Employee</label>
+            <select
+              name="employee_id"
+              value={markUninformedForm.employee_id}
+              onChange={handleMarkUninformedFormChange}
+              className="w-full border rounded px-3 py-2"
+            >
+              <option value="">Select employee</option>
+              {markUninformedEmployees.map((emp) => (
+                <option key={emp.id} value={emp.id}>
+                  {emp.name} {emp.department ? `(${emp.department})` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Reason</label>
+            <input
+              type="text"
+              name="reason"
+              value={markUninformedForm.reason}
+              onChange={handleMarkUninformedFormChange}
+              className="w-full border rounded px-3 py-2"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Start date</label>
+            <input
+              type="date"
+              name="start_date"
+              value={markUninformedForm.start_date}
+              onChange={handleMarkUninformedFormChange}
+              className="w-full border rounded px-3 py-2"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">End date</label>
+            <input
+              type="date"
+              name="end_date"
+              value={markUninformedForm.end_date}
+              onChange={handleMarkUninformedFormChange}
+              className="w-full border rounded px-3 py-2"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Start of shift</label>
+            <select
+              name="start_segment"
+              value={markUninformedForm.start_segment}
+              onChange={handleMarkUninformedFormChange}
+              className="w-full border rounded px-3 py-2"
+            >
+              <option value="shift_start">Start of shift</option>
+              <option value="shift_middle">Middle of shift</option>
+              <option value="full_day">Full day</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">End of shift</label>
+            <select
+              name="end_segment"
+              value={markUninformedForm.end_segment}
+              onChange={handleMarkUninformedFormChange}
+              className="w-full border rounded px-3 py-2"
+            >
+              <option value="shift_middle">Middle of shift</option>
+              <option value="shift_end">End of shift</option>
+              <option value="full_day">Full day</option>
+            </select>
+          </div>
+        </div>
+        <div className="mt-4 flex items-center justify-between">
+          <div className="text-sm text-gray-600">
+            Days (uninformed) to record:{' '}
+            <span className="font-semibold">{daysRequested}</span>
+          </div>
+          <button
+            type="button"
+            onClick={submitMarkUninformedForm}
+            className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-yellow-600 hover:bg-yellow-700"
+          >
+            Save Uninformed Leave
+          </button>
+        </div>
+      </div>
+    );
+  };
+
   const renderContent = () => {
     switch (activeTab) {
       case TABS.APPLY:
@@ -563,6 +764,7 @@ export default function Leaves() {
                   Department pending leaves
                 </h2>
                 {renderDepartmentTable(departmentLeaves.pending || [], true)}
+                {renderMarkUninformedForm()}
               </>
             )}
           </div>
