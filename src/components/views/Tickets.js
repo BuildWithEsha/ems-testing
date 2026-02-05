@@ -33,14 +33,20 @@ export default function Tickets() {
   // Helper functions to check ticket permissions
   const canViewTickets = () => {
     if (!user) return false;
-    if (!user.permissions) return true; // default to own tickets for employees without explicit permissions
-    return user.permissions.includes('all') || user.permissions.includes('view_tickets') || user.permissions.includes('view_own_tickets');
+    const isAdmin = user.role === 'admin' || user.role === 'Admin';
+    const perms = user.permissions || [];
+    // Non-admin employees can always view their own tickets
+    if (!isAdmin) return true;
+    // Admins need explicit permissions
+    return perms.includes('all') || perms.includes('view_tickets') || perms.includes('view_own_tickets');
   };
 
   const canViewOwnTickets = () => {
     if (!user) return false;
-    if (!user.permissions) return true;
-    return user.permissions.includes('all') || user.permissions.includes('view_own_tickets');
+    const isAdmin = user.role === 'admin' || user.role === 'Admin';
+    const perms = user.permissions || [];
+    if (!isAdmin) return true;
+    return perms.includes('all') || perms.includes('view_own_tickets');
   };
 
   const canCreateTickets = () => {
