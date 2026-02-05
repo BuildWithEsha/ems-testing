@@ -4994,6 +4994,78 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
               </div>
             </div>
           </div>
+
+          {/* RACI / U fields - reuse the same user selections as the main Add Task form */}
+          <div>
+            <h3 className="text-lg font-medium text-gray-900 mb-4">Roles (RACI)</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Responsible</label>
+                <MultiSelect
+                  options={employees.filter(emp => emp.status === 'Active').map(emp => ({
+                    value: emp.id,
+                    label: `${emp.name} (${emp.employee_id})`
+                  }))}
+                  value={formData.responsible}
+                  onChange={(value) => setFormData({ ...formData, responsible: value })}
+                  placeholder="Select employees..."
+                  searchPlaceholder="Search employees..."
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Accountable</label>
+                <MultiSelect
+                  options={employees.filter(emp => emp.status === 'Active').map(emp => ({
+                    value: emp.id,
+                    label: `${emp.name} (${emp.employee_id})`
+                  }))}
+                  value={formData.accountable}
+                  onChange={(value) => setFormData({ ...formData, accountable: value })}
+                  placeholder="Select employees..."
+                  searchPlaceholder="Search employees..."
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Consulted</label>
+                <MultiSelect
+                  options={employees.filter(emp => emp.status === 'Active').map(emp => ({
+                    value: emp.id,
+                    label: `${emp.name} (${emp.employee_id})`
+                  }))}
+                  value={formData.consulted}
+                  onChange={(value) => setFormData({ ...formData, consulted: value })}
+                  placeholder="Select employees..."
+                  searchPlaceholder="Search employees..."
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Informed</label>
+                <MultiSelect
+                  options={employees.filter(emp => emp.status === 'Active').map(emp => ({
+                    value: emp.id,
+                    label: `${emp.name} (${emp.employee_id})`
+                  }))}
+                  value={formData.informed}
+                  onChange={(value) => setFormData({ ...formData, informed: value })}
+                  placeholder="Select employees..."
+                  searchPlaceholder="Search employees..."
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Trained</label>
+                <MultiSelect
+                  options={employees.filter(emp => emp.status === 'Active').map(emp => ({
+                    value: emp.id,
+                    label: `${emp.name} (${emp.employee_id})`
+                  }))}
+                  value={formData.trained}
+                  onChange={(value) => setFormData({ ...formData, trained: value })}
+                  placeholder="Select employees..."
+                  searchPlaceholder="Search employees..."
+                />
+              </div>
+            </div>
+          </div>
           <div className="flex justify-end space-x-3">
             <Button
               variant="secondary"
