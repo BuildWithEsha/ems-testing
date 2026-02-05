@@ -1,5 +1,5 @@
-import React, { useMemo } from 'react';
-import { AlertTriangle, X, Filter, Search, Calendar, Users, Clock as ClockIcon, ChevronDown, ChevronRight, Building } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { AlertTriangle, X, Filter, Search, Calendar, Users, Clock as ClockIcon, ChevronDown, Building } from 'lucide-react';
 
 const formatHMS = (seconds) => {
   const s = Math.max(0, Math.floor(seconds || 0));
@@ -26,21 +26,56 @@ const OverEstimateTaskNotificationPanel = ({
     [startDate, endDate, designation, minOverMinutes]
   );
 
-  // Build unique designations and departments from current notifications (for dropdowns/grouping)
-  const { uniqueDesignations, groupedByDepartment } = useMemo(() => {
+  // Local filters similar to LTE/LHE
+  const [filters, setFilters] = useState({
+    searchTerm: '',
+    department: '',
+    priority: ''
+  });
+
+  // Build unique filter values and apply filters, then group by department
+  const { uniqueDesignations, uniqueDepartments, uniquePriorities, groupedByDepartment } = useMemo(() => {
     const designationsSet = new Set();
-    const groups = {};
-    (notifications || []).forEach((n) => {
+    const departmentsSet = new Set();
+    const prioritiesSet = new Set();
+    const source = notifications || [];
+
+    // Collect uniques
+    source.forEach((n) => {
       if (n.designation) designationsSet.add(n.designation);
+      if (n.department) departmentsSet.add(n.department);
+      if (n.priority) prioritiesSet.add(n.priority);
+    });
+
+    // Apply local filters
+    const filtered = source.filter((n) => {
+      if (filters.searchTerm && !(n.task_title || '').toLowerCase().includes(filters.searchTerm.toLowerCase())) {
+        return false;
+      }
+      if (filters.department && (n.department || '') !== filters.department) {
+        return false;
+      }
+      if (filters.priority && (n.priority || '') !== filters.priority) {
+        return false;
+      }
+      return true;
+    });
+
+    // Group by department
+    const groups = {};
+    filtered.forEach((n) => {
       const dept = n.department || 'Unassigned';
       if (!groups[dept]) groups[dept] = [];
       groups[dept].push(n);
     });
+
     return {
       uniqueDesignations: Array.from(designationsSet).sort(),
+      uniqueDepartments: Array.from(departmentsSet).sort(),
+      uniquePriorities: Array.from(prioritiesSet).sort(),
       groupedByDepartment: groups,
     };
-  }, [notifications]);
+  }, [notifications, filters]);
 
   const handleApplyFilters = (e) => {
     e.preventDefault();
@@ -54,7 +89,7 @@ const OverEstimateTaskNotificationPanel = ({
 
   if (!isOpen) return null;
 
-  const totalCount = notifications?.length || 0;
+  const totalCount = Object.values(groupedByDepartment).reduce((sum, arr) => sum + arr.length, 0);
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -78,9 +113,17 @@ const OverEstimateTaskNotificationPanel = ({
           </button>
         </div>
 
-        {/* Filters */}
-        <div className="p-4 border-b border-gray-200">
+        {/* Filters (date + threshold + local filters, similar to LTE/LHE) */}
+        <div className="p-6 border-b border-gray-200">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center space-x-2 text-sm text-gray-600">
+              <Filter className="w-4 h-4" />
+              <span>{totalCount} record(s) found</span>
+            </div>
+          </div>
+
           <form className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+            {/* Start Date */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
               <div className="relative">
@@ -93,6 +136,8 @@ const OverEstimateTaskNotificationPanel = ({
                 />
               </div>
             </div>
+
+            {/* End Date */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">End Date</label>
               <div className="relative">
@@ -105,6 +150,8 @@ const OverEstimateTaskNotificationPanel = ({
                 />
               </div>
             </div>
+
+            {/* Designation (backend filter) */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Designation</label>
               <div className="relative">
@@ -123,6 +170,8 @@ const OverEstimateTaskNotificationPanel = ({
                 </select>
               </div>
             </div>
+
+            {/* Min Overrun */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Min Overrun (minutes)</label>
               <div className="relative">
@@ -136,18 +185,61 @@ const OverEstimateTaskNotificationPanel = ({
                 />
               </div>
             </div>
-            <div className="md:col-span-4 flex justify-between items-center mt-2">
-              <div className="flex items-center space-x-2 text-sm text-gray-600">
-                <Search className="w-4 h-4" />
-                <span>{totalCount} record(s) found</span>
+
+            {/* Search Task */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Search Task</label>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                <input
+                  type="text"
+                  value={filters.searchTerm}
+                  onChange={(e) => setFilters(prev => ({ ...prev, searchTerm: e.target.value }))}
+                  placeholder="Search by task title..."
+                  className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500"
+                />
               </div>
+            </div>
+
+            {/* Department */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Department</label>
+              <select
+                value={filters.department}
+                onChange={(e) => setFilters(prev => ({ ...prev, department: e.target.value }))}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500"
+              >
+                <option value="">All Departments</option>
+                {uniqueDepartments.map(dept => (
+                  <option key={dept} value={dept}>{dept}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Priority */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Priority</label>
+              <select
+                value={filters.priority}
+                onChange={(e) => setFilters(prev => ({ ...prev, priority: e.target.value }))}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500"
+              >
+                <option value="">All Priorities</option>
+                {uniquePriorities.map(priority => (
+                  <option key={priority} value={priority}>{priority}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Apply button */}
+            <div className="md:col-span-4 flex justify-end mt-2">
               <button
                 type="button"
                 onClick={handleApplyFilters}
                 className="inline-flex items-center space-x-2 px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors"
               >
                 <Filter className="w-4 h-4" />
-                <span>Apply Filters</span>
+                <span>Apply Date & Threshold</span>
               </button>
             </div>
           </form>
