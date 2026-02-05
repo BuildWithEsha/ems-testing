@@ -11193,12 +11193,14 @@ app.get('/api/leaves/my', async (req, res) => {
 app.get('/api/leaves/department', async (req, res) => {
   const { department_id } = req.query;
 
-  const userRoleHeader = req.headers['user-role'] || req.headers['x-user-role'] || 'employee';
-  const userRole = String(userRoleHeader || '').toLowerCase();
+  const userRoleHeader = req.headers['user-role'] || req.headers['x-user-role'] || null;
+  const userRole = userRoleHeader ? String(userRoleHeader).toLowerCase() : 'employee';
   const isAdmin = userRole === 'admin';
   const isManager = userRole.includes('manager');
 
-  if (!isAdmin && !isManager) {
+  // If a role header is explicitly provided and user is not admin/manager, block access.
+  // If no header is present, preserve legacy behavior and allow the query.
+  if (userRoleHeader && !isAdmin && !isManager) {
     return res.status(403).json({ error: 'Access denied. Only managers and admins can view department leaves.' });
   }
 

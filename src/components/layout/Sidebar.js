@@ -29,6 +29,7 @@ const Sidebar = ({ currentView, onViewChange }) => {
   const { user } = useAuth();
   const [hrOpen, setHROpen] = React.useState(true);
   const [tmOpen, setTMOpen] = React.useState(true);
+  const [leavesOpen, setLeavesOpen] = React.useState(true);
   
   // Check if user has specific permission
   const hasPermission = (permission) => {
@@ -182,11 +183,80 @@ const Sidebar = ({ currentView, onViewChange }) => {
                     {item.children.map((child) => {
                       const CIcon = child.icon;
                       const isActive = currentView === child.id;
+
+                      const isLeavesParent = child.id === 'leaves';
+                      const leavesSubIds = [
+                        'leaves_department_pending',
+                        'leaves_department_approved',
+                        'leaves_department_rejected',
+                        'leaves_mark_uninformed',
+                      ];
+
+                      // Render Leaves as a collapsible group with its own arrow and subsections
+                      if (
+                        isLeavesParent &&
+                        item.children.some((c) => leavesSubIds.includes(c.id))
+                      ) {
+                        const leavesSubItems = item.children.filter((c) =>
+                          leavesSubIds.includes(c.id)
+                        );
+
+                        return (
+                          <div key="leaves-group" className="space-y-1">
+                            <button
+                              onClick={() => {
+                                onViewChange('leaves');
+                                setLeavesOpen((prev) => !prev);
+                              }}
+                              className={`w-full flex items-center justify-between px-2 py-2 text-left text-sm rounded ${
+                                currentView === 'leaves' ? 'text-indigo-700 font-medium' : 'text-gray-600 hover:text-gray-900'
+                              }`}
+                            >
+                              <span className="flex items-center">
+                                <CIcon className="w-4 h-4 mr-2" /> {child.label}
+                              </span>
+                              <ChevronDown
+                                className={`w-4 h-4 transition-transform ${leavesOpen ? 'rotate-180' : ''}`}
+                              />
+                            </button>
+                            {leavesOpen && (
+                              <div className="ml-4 space-y-1">
+                                {leavesSubItems.map((sub) => {
+                                  const SIcon = sub.icon;
+                                  const subActive = currentView === sub.id;
+                                  return (
+                                    <button
+                                      key={sub.id}
+                                      onClick={() => onViewChange(sub.id)}
+                                      className={`w-full flex items-center px-2 py-1 text-left text-xs rounded ${
+                                        subActive ? 'text-indigo-700 font-medium' : 'text-gray-600 hover:text-gray-900'
+                                      }`}
+                                    >
+                                      <SIcon className="w-3 h-3 mr-2" /> {sub.label}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      }
+
+                      // Skip separate rendering of Leaves subsections; they are handled above
+                      if (
+                        leavesSubIds.includes(child.id)
+                      ) {
+                        return null;
+                      }
+
+                      // Default render for other HR children
                       return (
                         <button
                           key={child.id}
                           onClick={() => onViewChange(child.id)}
-                          className={`w-full flex items-center px-2 py-2 text-left text-sm rounded ${isActive ? 'text-indigo-700 font-medium' : 'text-gray-600 hover:text-gray-900'}`}
+                          className={`w-full flex items-center px-2 py-2 text-left text-sm rounded ${
+                            isActive ? 'text-indigo-700 font-medium' : 'text-gray-600 hover:text-gray-900'
+                          }`}
                         >
                           <CIcon className="w-4 h-4 mr-2" /> {child.label}
                         </button>
