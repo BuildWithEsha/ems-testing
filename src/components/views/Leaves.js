@@ -10,9 +10,11 @@ const TABS = {
   REPORT: 'report',
 };
 
-export default function Leaves() {
+export default function Leaves({ initialTab, initialManagerSection }) {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState(TABS.APPLY);
+  const [activeTab, setActiveTab] = useState(
+    initialTab && Object.values(TABS).includes(initialTab) ? initialTab : TABS.APPLY
+  );
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState({
     start_date: '',

@@ -17,7 +17,9 @@ import {
   Heart,
   Megaphone,
   Wallet,
-  DollarSign
+  DollarSign,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import TicketMenuItem from './TicketMenuItem';
@@ -54,6 +56,9 @@ const Sidebar = ({ currentView, onViewChange }) => {
   // Reports menu: show if user has reports permission OR is manager by designation
   const canAccessReports = () => hasPermission('view_reports_menu') || isManagerByDesignation();
 
+  const isAdmin = user?.role === 'admin' || user?.role === 'Admin' || user?.user_role === 'admin' || user?.user_role === 'Admin';
+  const isManager = !!user?.is_manager || (user?.designation && String(user.designation).toLowerCase().includes('manager'));
+
   // Define menu items with permission filtering
   const getMenuItems = () => {
     const allMenuItems = [
@@ -86,6 +91,15 @@ const Sidebar = ({ currentView, onViewChange }) => {
           { id: 'errors', label: 'Errors', icon: AlertTriangle, permission: 'view_errors_submenu' },
           { id: 'issues', label: 'Issues', icon: AlertTriangle, permission: 'view_errors_submenu' },
           { id: 'leaves', label: 'Leaves', icon: Calendar, permission: 'view_leaves_submenu' },
+          // Manager/admin-only subsections under Leaves
+          ...(isAdmin || isManager
+            ? [
+                { id: 'leaves_department_pending', label: 'Dept Pending Leaves', icon: Eye, permission: 'view_leaves_submenu' },
+                { id: 'leaves_department_approved', label: 'Dept Approved Leaves', icon: Eye, permission: 'view_leaves_submenu' },
+                { id: 'leaves_department_rejected', label: 'Dept Rejected Leaves', icon: Eye, permission: 'view_leaves_submenu' },
+                { id: 'leaves_mark_uninformed', label: 'Mark Uninformed Leaves', icon: EyeOff, permission: 'view_leaves_submenu' },
+              ]
+            : []),
           { id: 'shiftRoster', label: 'Shift Roster', icon: Clock, permission: 'view_shift_roster_submenu' },
           { id: 'attendance', label: 'Attendance', icon: Clock, permission: 'view_attendance_submenu' },
           { id: 'holiday', label: 'Holiday', icon: Calendar, permission: 'view_holiday_submenu' },
