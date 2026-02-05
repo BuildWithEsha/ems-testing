@@ -11193,6 +11193,18 @@ app.get('/api/leaves/my', async (req, res) => {
 app.get('/api/leaves/department', async (req, res) => {
   const { department_id } = req.query;
 
+  // Normalize department filter
+  let deptFilter = department_id;
+  if (
+    deptFilter === undefined ||
+    deptFilter === null ||
+    deptFilter === '' ||
+    deptFilter === 'undefined' ||
+    deptFilter === 'null'
+  ) {
+    deptFilter = null;
+  }
+
   const userRoleHeader = req.headers['user-role'] || req.headers['x-user-role'] || null;
   const userRole = userRoleHeader ? String(userRoleHeader).toLowerCase() : 'employee';
   const isAdmin = userRole === 'admin';
@@ -11202,6 +11214,11 @@ app.get('/api/leaves/department', async (req, res) => {
   // If no header is present, preserve legacy behavior and allow the query.
   if (userRoleHeader && !isAdmin && !isManager) {
     return res.status(403).json({ error: 'Access denied. Only managers and admins can view department leaves.' });
+  }
+
+  // For managers, a valid department filter is required
+  if (!isAdmin && isManager && !deptFilter) {
+    return res.status(400).json({ error: 'department_id is required for manager views' });
   }
 
   let connection;
@@ -11217,11 +11234,11 @@ app.get('/api/leaves/department', async (req, res) => {
     `;
     const params = [];
 
-    // For managers, always require a specific department filter (current behavior).
+    // For managers, always filter by their department.
     // For admins, allow an optional department filter; if not provided, show all.
-    if (!isAdmin || department_id) {
+    if (!isAdmin || deptFilter !== null) {
       query += ' WHERE lr.department_id = ?';
-      params.push(department_id);
+      params.push(deptFilter);
     }
 
     query += ' ORDER BY lr.created_at DESC LIMIT 300';

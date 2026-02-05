@@ -758,7 +758,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
         return renderApplyForm();
       case TABS.PENDING:
         // Default: personal-only view (main Leaves / My Leaves)
-        if (!isManagerOrAdmin || !managerViewMode) {
+        if (!managerViewMode) {
           return (
             <div className="space-y-6">
               <h2 className="text-lg font-semibold text-gray-900">My pending leaves</h2>
@@ -789,7 +789,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
 
         return null;
       case TABS.APPROVED:
-        if (!isManagerOrAdmin || !managerViewMode) {
+        if (!managerViewMode) {
           return (
             <div className="space-y-6">
               <h2 className="text-lg font-semibold text-gray-900">My recent approved leaves</h2>
@@ -809,7 +809,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
 
         return null;
       case TABS.REJECTED:
-        if (!isManagerOrAdmin || !managerViewMode) {
+        if (!managerViewMode) {
           return (
             <div className="space-y-6">
               <h2 className="text-lg font-semibold text-gray-900">My recent rejected leaves</h2>
