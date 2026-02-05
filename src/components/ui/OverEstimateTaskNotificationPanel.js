@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from 'react';
-import { AlertTriangle, X, Filter, Search, Calendar, Users, Clock as ClockIcon, ChevronDown, Building } from 'lucide-react';
+import React, { useMemo, useState, useEffect } from 'react';
+import { AlertTriangle, X, Filter, Search, Calendar, Users, Clock as ClockIcon, ChevronDown, ChevronRight, Building, Settings } from 'lucide-react';
 
 const formatHMS = (seconds) => {
   const s = Math.max(0, Math.floor(seconds || 0));
@@ -30,21 +30,32 @@ const OverEstimateTaskNotificationPanel = ({
   const [filters, setFilters] = useState({
     searchTerm: '',
     department: '',
-    priority: ''
+    designationFilter: ''
   });
 
+  const [showSettings, setShowSettings] = useState(false);
+  const [tempMinOver, setTempMinOver] = useState(minOverMinutes);
+  const [tempSelectedDate, setTempSelectedDate] = useState(startDate);
+  const [expandedDepartments, setExpandedDepartments] = useState(new Set());
+
+  // Keep temporary settings in sync when opening settings panel
+  useEffect(() => {
+    if (showSettings) {
+      setTempMinOver(minOverMinutes);
+      setTempSelectedDate(startDate);
+    }
+  }, [showSettings, minOverMinutes, startDate]);
+
   // Build unique filter values and apply filters, then group by department
-  const { uniqueDesignations, uniqueDepartments, uniquePriorities, groupedByDepartment } = useMemo(() => {
+  const { uniqueDesignations, uniqueDepartments, groupedByDepartment } = useMemo(() => {
     const designationsSet = new Set();
     const departmentsSet = new Set();
-    const prioritiesSet = new Set();
     const source = notifications || [];
 
     // Collect uniques
     source.forEach((n) => {
       if (n.designation) designationsSet.add(n.designation);
       if (n.department) departmentsSet.add(n.department);
-      if (n.priority) prioritiesSet.add(n.priority);
     });
 
     // Apply local filters
@@ -55,7 +66,7 @@ const OverEstimateTaskNotificationPanel = ({
       if (filters.department && (n.department || '') !== filters.department) {
         return false;
       }
-      if (filters.priority && (n.priority || '') !== filters.priority) {
+      if (filters.designationFilter && (n.designation || '') !== filters.designationFilter) {
         return false;
       }
       return true;
@@ -77,6 +88,13 @@ const OverEstimateTaskNotificationPanel = ({
     };
   }, [notifications, filters]);
 
+  const handleDepartmentToggle = (dept) => {
+    const next = new Set(expandedDepartments);
+    if (next.has(dept)) next.delete(dept);
+    else next.add(dept);
+    setExpandedDepartments(next);
+  };
+
   const handleApplyFilters = (e) => {
     e.preventDefault();
     const form = e.target.form || e.currentTarget.form || e.currentTarget;
@@ -85,6 +103,18 @@ const OverEstimateTaskNotificationPanel = ({
     const desig = form.designation?.value || '';
     const minOver = parseInt(form.minOver?.value, 10) || minOverMinutes;
     onUpdateFilters({ start, end, designation: desig, minOver });
+  };
+
+  const handleSettingsUpdate = () => {
+    if (tempMinOver < 0) return;
+    const date = tempSelectedDate || startDate;
+    onUpdateFilters({
+      start: date,
+      end: date,
+      designation,
+      minOver: tempMinOver
+    });
+    setShowSettings(false);
   };
 
   if (!isOpen) return null;
@@ -99,30 +129,120 @@ const OverEstimateTaskNotificationPanel = ({
           <div className="flex items-center space-x-3">
             <AlertTriangle className="w-6 h-6 text-amber-500" />
             <div>
-              <h2 className="text-xl font-semibold text-gray-900">Tasks Over Estimate</h2>
+              <h2 className="text-xl font-semibold text-gray-900">Tasks Over Estimate Notifications</h2>
               <p className="text-sm text-gray-600">
-                Showing tasks where actual logged time exceeded the estimate by at least {minOverMinutes} minutes.
+                Tasks where logged time exceeded estimate by at least {minOverMinutes} minutes on {startDate}.
               </p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
-          >
-            <X className="w-5 h-5 text-gray-500" />
-          </button>
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={() => setShowSettings(!showSettings)}
+              className="flex items-center space-x-2 px-3 py-2 text-sm bg-amber-100 text-amber-700 rounded-lg hover:bg-amber-200 transition-colors"
+              title="Configure over-estimate settings"
+            >
+              <Settings className="w-4 h-4" />
+              <span>{minOverMinutes} min</span>
+            </button>
+            <button
+              onClick={onClose}
+              className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+            >
+              <X className="w-5 h-5 text-gray-500" />
+            </button>
+          </div>
         </div>
 
-        {/* Filters (date + threshold + local filters, similar to LTE/LHE) */}
-        <div className="p-6 border-b border-gray-200">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center space-x-2 text-sm text-gray-600">
-              <Filter className="w-4 h-4" />
-              <span>{totalCount} record(s) found</span>
+        {/* Settings (min overrun + date) */}
+        {showSettings && (
+          <div className="p-4 bg-amber-50 border-b border-gray-200">
+            <div className="flex flex-wrap items-center gap-4">
+              <div className="flex items-center space-x-2">
+                <label className="text-sm font-medium text-gray-700">Minimum Overrun (minutes):</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={tempMinOver}
+                  onChange={(e) => setTempMinOver(parseInt(e.target.value, 10) || 0)}
+                  className="w-24 px-3 py-1 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500"
+                />
+              </div>
+              <div className="flex items-center space-x-2">
+                <label className="text-sm font-medium text-gray-700">Date:</label>
+                <input
+                  type="date"
+                  value={tempSelectedDate}
+                  onChange={(e) => setTempSelectedDate(e.target.value)}
+                  className="px-3 py-1 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500"
+                />
+              </div>
+              <button
+                onClick={handleSettingsUpdate}
+                className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors"
+              >
+                Update
+              </button>
+              <button
+                onClick={() => {
+                  setTempMinOver(minOverMinutes);
+                  setTempSelectedDate(startDate);
+                  setShowSettings(false);
+                }}
+                className="px-4 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition-colors"
+              >
+                Cancel
+              </button>
             </div>
           </div>
+        )}
 
-          <form className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+        {/* Filters (search + department/designation) */}
+        <div className="p-4 border-b border-gray-200">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="flex items-center space-x-4">
+              {/* Search Task */}
+              <div className="relative">
+                <Search className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Search tasks..."
+                  value={filters.searchTerm}
+                  onChange={(e) => setFilters(prev => ({ ...prev, searchTerm: e.target.value }))}
+                  className="pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 w-64"
+                />
+              </div>
+
+              {/* Department Filter */}
+              <select
+                value={filters.department}
+                onChange={(e) => setFilters(prev => ({ ...prev, department: e.target.value }))}
+                className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+              >
+                <option value="">All Departments</option>
+                {uniqueDepartments.map(dept => (
+                  <option key={dept} value={dept}>{dept}</option>
+                ))}
+              </select>
+
+              {/* Designation Filter */}
+              <select
+                value={filters.designationFilter}
+                onChange={(e) => setFilters(prev => ({ ...prev, designationFilter: e.target.value }))}
+                className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+              >
+                <option value="">All Designations</option>
+                {uniqueDesignations.map(des => (
+                  <option key={des} value={des}>{des}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex items-center space-x-2 text-sm text-gray-600">
+              <Filter className="w-4 h-4" />
+              <span>{totalCount} task{totalCount !== 1 ? 's' : ''} over estimate</span>
+            </div>
+          </div>
+        </div>
             {/* Start Date */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
@@ -260,14 +380,22 @@ const OverEstimateTaskNotificationPanel = ({
             <div className="p-4 space-y-6">
               {Object.entries(groupedByDepartment).map(([dept, deptItems]) => (
                 <div key={dept} className="border border-gray-200 rounded-lg overflow-hidden">
-                  <div className="flex items-center justify-between px-4 py-2 bg-gray-50 border-b border-gray-200">
+                  <button
+                    type="button"
+                    onClick={() => handleDepartmentToggle(dept)}
+                    className="w-full flex items-center justify-between px-4 py-2 bg-gray-50 border-b border-gray-200"
+                  >
                     <div className="flex items-center space-x-2">
+                      <ChevronRight
+                        className={`w-4 h-4 text-gray-500 transition-transform ${expandedDepartments.has(dept) ? 'transform rotate-90' : ''}`}
+                      />
                       <Building className="w-4 h-4 text-gray-500" />
                       <span className="text-sm font-semibold text-gray-800">
                         {dept} ({deptItems.length})
                       </span>
                     </div>
-                  </div>
+                  </button>
+                  {expandedDepartments.has(dept) && (
                   <div className="overflow-x-auto">
                     <table className="min-w-full divide-y divide-gray-200">
                       <thead className="bg-gray-50">
@@ -318,6 +446,7 @@ const OverEstimateTaskNotificationPanel = ({
                       </tbody>
                     </table>
                   </div>
+                  )}
                 </div>
               ))}
             </div>
