@@ -34,44 +34,20 @@ const ActionMenu = ({ onSelect, onEdit, onDelete, isErrorMenu = false, itemType 
     });
   };
 
+  // Optional: close on Escape key, but do NOT rely on global click handlers
   useEffect(() => {
-    if (!isOpen) {
-      return;
-    }
+    if (!isOpen) return;
 
-    const handleClickOutside = (e) => {
-      // CRITICAL: Ignore click if menu was just opened (prevents immediate closing)
-      if (justOpenedRef.current) {
-        return;
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        setIsOpen(false);
       }
-      
-      // CRITICAL: Check if clicking on a menu item button FIRST
-      // This prevents closing when clicking menu items
-      const clickedMenuItem = e.target.closest('button[role="menuitem"]');
-      if (clickedMenuItem && menuRef.current?.contains(clickedMenuItem)) {
-        // Clicking on a menu item - don't close, let the onClick handle it
-        return;
-      }
-      
-      // Check if clicking inside menu container
-      if (menuRef.current?.contains(e.target)) {
-        return;
-      }
-      
-      // Check if clicking on the toggle button
-      if (buttonRef.current?.contains(e.target)) {
-        return;
-      }
-      
-      // Only close if truly outside
-      setIsOpen(false);
     };
 
-    // Use bubble phase so menu item onClick runs first
-    document.addEventListener('click', handleClickOutside, false);
-    
+    document.addEventListener('keydown', handleKeyDown);
+
     return () => {
-      document.removeEventListener('click', handleClickOutside, false);
+      document.removeEventListener('keydown', handleKeyDown);
     };
   }, [isOpen]);
 
