@@ -32,12 +32,14 @@ export default function Tickets() {
 
   // Helper functions to check ticket permissions
   const canViewTickets = () => {
-    if (!user || !user.permissions) return false;
-    return user.permissions.includes('all') || user.permissions.includes('view_tickets');
+    if (!user) return false;
+    if (!user.permissions) return true; // default to own tickets for employees without explicit permissions
+    return user.permissions.includes('all') || user.permissions.includes('view_tickets') || user.permissions.includes('view_own_tickets');
   };
 
   const canViewOwnTickets = () => {
-    if (!user || !user.permissions) return false;
+    if (!user) return false;
+    if (!user.permissions) return true;
     return user.permissions.includes('all') || user.permissions.includes('view_own_tickets');
   };
 

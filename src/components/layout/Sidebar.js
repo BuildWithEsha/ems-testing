@@ -100,7 +100,7 @@ const Sidebar = ({ currentView, onViewChange }) => {
       { id: 'earntrack', label: 'EarnTrack', icon: Wallet, permission: null },
       { id: 'earnTrackWages', label: 'Wages Tracker', icon: DollarSign, adminOnly: true },
       { id: 'noticeBoard', label: 'Notice Board', icon: Megaphone, permission: 'view_notice_board_menu', isSpecial: true },
-      { id: 'tickets', label: 'Tickets', icon: MessageSquare, permission: 'view_tickets_menu', isSpecial: true },
+      { id: 'tickets', label: 'Tickets', icon: MessageSquare, permission: null, isSpecial: true },
       { id: 'calendar', label: 'Calendar', icon: Calendar, permission: 'view_calendar_menu' },
       { id: 'settings', label: 'Settings', icon: Settings, permission: 'view_settings_menu' },
     ];

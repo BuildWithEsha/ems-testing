@@ -9647,7 +9647,9 @@ app.get('/api/tickets', async (req, res) => {
 
     // Check permissions for ticket viewing
     const hasViewAllTickets = userPermissions.includes('all') || userPermissions.includes('view_tickets');
-    const hasViewOwnTickets = userPermissions.includes('view_own_tickets');
+    // Non-admins are always allowed to see their own tickets; admins rely on explicit permissions
+    const isAdminUser = userRole === 'admin' || userRole === 'Admin';
+    const hasViewOwnTickets = userPermissions.includes('view_own_tickets') || !isAdminUser;
 
     if (hasViewOwnTickets && !hasViewAllTickets) {
       // User can only see own tickets - filter by created_by or assigned_to
@@ -9879,14 +9881,14 @@ async function createLessHoursTicketsForDate(targetDate, thresholdHours = 6, cre
 
       const ticketId = result.insertId;
 
-      // Create notification so employee sees the ticket in notifications
+      // Create notification so employee sees the ticket in notifications (same type as manual tickets)
       try {
         await createNotification(
           employeeId,
           ticketId,
-          'less_hours_ticket',
-          'EMS less hours',
-          `You have logged less than ${thresholdHours} hours in EMS for ${dateStr}. A ticket has been created.`
+          'new_ticket_assigned',
+          'New Ticket Assigned',
+          `You have been assigned a new ticket: ${title}`
         );
       } catch (notifyErr) {
         console.warn('Failed to create less-hours ticket notification:', notifyErr);
