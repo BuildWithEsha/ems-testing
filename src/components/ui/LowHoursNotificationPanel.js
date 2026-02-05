@@ -150,7 +150,8 @@ const LowHoursNotificationPanel = ({
         headers: {
           'Content-Type': 'application/json',
           'user-role': user?.role || 'admin',
-          'user-permissions': JSON.stringify(user?.permissions || ['all'])
+          'user-permissions': JSON.stringify(user?.permissions || ['all']),
+          'user-id': String(user?.id || '')
         },
         body: JSON.stringify({
           date: selectedDate,

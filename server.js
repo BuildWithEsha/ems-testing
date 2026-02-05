@@ -9792,7 +9792,7 @@ app.post('/api/tickets', async (req, res) => {
 });
 
 // Helper: create less-hours tickets for a given date and threshold (in hours)
-async function createLessHoursTicketsForDate(targetDate, thresholdHours = 6) {
+async function createLessHoursTicketsForDate(targetDate, thresholdHours = 6, createdByUserId = null) {
   let connection;
   try {
     connection = await mysqlPool.getConnection();
@@ -9874,7 +9874,7 @@ async function createLessHoursTicketsForDate(targetDate, thresholdHours = 6) {
         'Open',
         employeeId,
         department,
-        null
+        createdByUserId || employeeId
       ]);
 
       const ticketId = result.insertId;
@@ -9932,12 +9932,13 @@ app.post('/api/tickets/auto-less-hours', async (req, res) => {
   const minHoursFromBody = body.minHours;
   const dateFromQuery = req.query.date;
   const minHoursFromQuery = req.query.minHours;
+  const createdByHeader = req.headers['user-id'] || req.headers['x-user-id'] || null;
 
   const targetDate = (dateFromBody || dateFromQuery || new Date().toISOString().split('T')[0]).split('T')[0];
   const thresholdHours = Number(minHoursFromBody || minHoursFromQuery || 6) || 6;
 
   try {
-    const result = await createLessHoursTicketsForDate(targetDate, thresholdHours);
+    const result = await createLessHoursTicketsForDate(targetDate, thresholdHours, createdByHeader);
     res.json(result);
   } catch (err) {
     console.error('Error auto-creating less-hours tickets:', err);
