@@ -2454,47 +2454,8 @@ app.get('/api/notifications/tasks-over-estimate', async (req, res) => {
       tt.employee_name,
       e.designation,
       DATE(tt.start_time)
-    HAVING
-      -- Compute estimate in seconds (hours/minutes preferred, fallback to time_estimate)
-      (
-        CASE
-          WHEN MAX(COALESCE(t.time_estimate_hours, 0)) > 0
-               OR MAX(COALESCE(t.time_estimate_minutes, 0)) > 0
-            THEN (MAX(COALESCE(t.time_estimate_hours, 0)) * 60 + MAX(COALESCE(t.time_estimate_minutes, 0))) * 60
-          WHEN MAX(COALESCE(t.time_estimate, 0)) > 0
-            THEN MAX(COALESCE(t.time_estimate, 0)) * 60
-          ELSE 0
-        END
-      ) > 0
-      AND
-      (
-        -- Use full SUM expression instead of alias to avoid SQL dialect issues
-        SUM(
-          CASE 
-            WHEN tt.hours_logged_seconds IS NOT NULL AND tt.hours_logged_seconds != 0 
-              THEN ABS(tt.hours_logged_seconds)
-            WHEN tt.hours_logged IS NOT NULL AND tt.hours_logged != 0 
-              THEN ABS(tt.hours_logged)
-            WHEN tt.start_time IS NOT NULL AND tt.end_time IS NOT NULL THEN 
-              ABS(TIMESTAMPDIFF(SECOND, tt.start_time, tt.end_time))
-            ELSE 0
-          END
-        ) -
-        (
-          CASE
-            WHEN MAX(COALESCE(t.time_estimate_hours, 0)) > 0
-                 OR MAX(COALESCE(t.time_estimate_minutes, 0)) > 0
-              THEN (MAX(COALESCE(t.time_estimate_hours, 0)) * 60 + MAX(COALESCE(t.time_estimate_minutes, 0))) * 60
-            WHEN MAX(COALESCE(t.time_estimate, 0)) > 0
-              THEN MAX(COALESCE(t.time_estimate, 0)) * 60
-            ELSE 0
-          END
-        )
-      ) >= ?
     ORDER BY log_date DESC, actual_seconds DESC
   `;
-
-  params.push(minOverSeconds);
 
   let connection;
   try {
