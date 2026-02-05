@@ -1159,30 +1159,59 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
       const callback = e.detail?.callback;
       const active = { ...activeTimersRef.current };
       const taskIds = Object.keys(active);
-      const endTimeMs = Date.now();
-      const stopPromises = taskIds.map(async (taskId) => {
-        const { startTime, intervalId } = active[taskId];
-        if (typeof intervalId === 'number') clearInterval(intervalId);
-        const startTimeMs = typeof startTime === 'number' ? startTime : new Date(startTime).getTime();
-        const loggedSeconds = Math.floor((endTimeMs - startTimeMs) / 1000);
-        try {
-          await fetch(`/api/tasks/${taskId}/stop-timer`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              loggedSeconds,
-              startTimeMs,
-              endTimeMs,
-              user_name: user?.name || 'Admin',
-              user_id: user?.id || 1,
-              memo: 'Employee clocked out',
-            }),
-          });
-        } catch (err) {
-          console.error('Failed to stop timer for clock-out, task', taskId, err);
-        }
-      });
-      await Promise.all(stopPromises);
+      if (taskIds.length > 0) {
+        const nowMs = Date.now();
+        const tasks = tasksRef.current || [];
+        const taskUpdates = {}; // taskId (string) -> new logged_seconds
+
+        const stopPromises = taskIds.map(async (taskId) => {
+          const { startTime, intervalId } = active[taskId];
+          if (typeof intervalId === 'number') clearInterval(intervalId);
+
+          const startTimeMs = typeof startTime === 'number' ? startTime : new Date(startTime).getTime();
+          const loggedSeconds = Math.floor((nowMs - startTimeMs) / 1000);
+
+          const numericId = Number(taskId);
+          const task = tasks.find((t) => t.id === numericId);
+          const currentLogged = task?.logged_seconds || 0;
+          const newLoggedSeconds = currentLogged + loggedSeconds;
+          taskUpdates[String(taskId)] = newLoggedSeconds;
+
+          try {
+            await fetch(`/api/tasks/${taskId}/stop-timer`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                loggedSeconds,
+                startTimeMs,
+                endTimeMs: nowMs,
+                user_name: user?.name || 'Admin',
+                user_id: user?.id || 1,
+                memo: 'Employee clocked out',
+              }),
+            });
+          } catch (err) {
+            console.error('Failed to stop timer for clock-out, task', taskId, err);
+          }
+        });
+
+        await Promise.all(stopPromises);
+
+        // Clear timer_started_at and update logged_seconds locally so UI and header badge reflect stopped timers immediately
+        updateDataState((prev) => ({
+          ...prev,
+          tasks: prev.tasks.map((t) => {
+            const key = String(t.id);
+            if (taskUpdates[key] === undefined) return t;
+            return {
+              ...t,
+              timer_started_at: null,
+              logged_seconds: taskUpdates[key],
+            };
+          }),
+        }));
+      }
+
       taskIds.forEach((id) => {
         delete activeTimersRef.current[id];
         delete activeTimersRef.current[String(id)];
