@@ -11,6 +11,7 @@ const ActionMenu = ({ onSelect, onEdit, onDelete, isErrorMenu = false, itemType 
   const justOpenedRef = useRef(false); // Track if menu was just opened
 
   const handleToggle = (e) => {
+    e.preventDefault();
     e.stopPropagation();
     if (buttonRef.current) {
       const rect = buttonRef.current.getBoundingClientRect();
@@ -21,13 +22,13 @@ const ActionMenu = ({ onSelect, onEdit, onDelete, isErrorMenu = false, itemType 
     }
     setIsOpen(prev => {
       const newState = !prev;
-      // If opening the menu, set flag to ignore the next click event
+      // If opening the menu, set flag to ignore the next outside click event
       if (newState) {
         justOpenedRef.current = true;
         // Clear flag after a short delay to allow click event to complete
         setTimeout(() => {
           justOpenedRef.current = false;
-        }, 100);
+        }, 200);
       }
       return newState;
     });
@@ -119,7 +120,10 @@ const ActionMenu = ({ onSelect, onEdit, onDelete, isErrorMenu = false, itemType 
       <button 
         ref={buttonRef} 
         onClick={handleToggle}
-        onMouseDown={(e) => e.stopPropagation()}
+        onMouseDown={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+        }}
         className="p-2 rounded-full hover:bg-gray-100 transition-colors"
         title="Actions"
       >
@@ -136,6 +140,10 @@ const ActionMenu = ({ onSelect, onEdit, onDelete, isErrorMenu = false, itemType 
             zIndex: 9999
           }} 
           className="w-40 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5" 
+          onMouseDown={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+          }}
           onClick={(e) => e.stopPropagation()}
         >
           <div className="py-1" role="menu" aria-orientation="vertical">

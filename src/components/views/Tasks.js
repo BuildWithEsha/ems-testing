@@ -3281,11 +3281,23 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
 
   // Popup once per task when today's session first exceeds estimate (does not affect timer logic)
   useEffect(() => {
+    // Only show this popup in employee view (not for admins)
+    if (!isEmployeeView) return;
     if (showExceededEstimateModal) return;
+    const today = new Date().toISOString().slice(0, 10);
     for (const task of displayTasks) {
       if (!task?.id) continue;
+      const storageKey = `estimateExceededShown_${today}_${task.id}`;
+      // If we've already shown this popup today for this task (even after refresh), skip it
+      if (sessionStorage.getItem(storageKey)) {
+        if (!exceededEstimatePopupShownRef.current.has(task.id)) {
+          exceededEstimatePopupShownRef.current.add(task.id);
+        }
+        continue;
+      }
       if (isTimeExceededEstimateToday(task) && !exceededEstimatePopupShownRef.current.has(task.id)) {
         exceededEstimatePopupShownRef.current.add(task.id);
+        sessionStorage.setItem(storageKey, '1');
         updateUiState({ showExceededEstimateModal: true, exceededEstimateModalTask: task });
         break;
       }
