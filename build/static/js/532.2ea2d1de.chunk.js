@@ -1,2 +1,0 @@
-"use strict";(self.webpackChunkemployee_management_system=self.webpackChunkemployee_management_system||[]).push([[532],{5532:(e,s,t)=>{t.r(s),t.d(s,{default:()=>n});t(5043);var a=t(579);function n(){return(0,a.jsxs)("div",{className:"p-6",children:[(0,a.jsx)("h1",{className:"text-2xl font-semibold text-gray-900 mb-2",children:"Holiday"}),(0,a.jsx)("div",{className:"bg-white border rounded p-6 text-gray-600",children:"This section is coming soon."})]})}}}]);
-//# sourceMappingURL=532.2ea2d1de.chunk.js.map

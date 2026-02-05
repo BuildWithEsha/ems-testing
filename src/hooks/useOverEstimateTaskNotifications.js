@@ -75,7 +75,6 @@ export const useOverEstimateTaskNotifications = () => {
 
   useEffect(() => {
     fetchOverEstimateNotifications();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
   const updateFilters = ({ start, end, designation: newDesignation, minOver }) => {

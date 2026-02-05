@@ -1,2 +1,0 @@
-"use strict";(self.webpackChunkemployee_management_system=self.webpackChunkemployee_management_system||[]).push([[223],{4223:(e,s,t)=>{t.r(s),t.d(s,{default:()=>a});t(5043);var n=t(579);function a(){return(0,n.jsxs)("div",{className:"p-6",children:[(0,n.jsx)("h1",{className:"text-2xl font-semibold text-gray-900 mb-2",children:"Shift Roster"}),(0,n.jsx)("div",{className:"bg-white border rounded p-6 text-gray-600",children:"This section is coming soon."})]})}}}]);
-//# sourceMappingURL=223.5ca72273.chunk.js.map
