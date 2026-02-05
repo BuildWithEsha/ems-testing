@@ -2215,9 +2215,22 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
     }
   };
 
-  // Handle bulk delete
+  // Handle bulk delete (admin-only)
   const handleBulkDelete = async () => {
     if (selectedTasks.size === 0) return;
+
+    // Frontend guard: only allow admins / users with full delete permission to proceed
+    const role = (user?.role || '').toLowerCase();
+    const permissions = user?.permissions || [];
+    const canDeleteTasks =
+      role === 'admin' ||
+      permissions.includes('all') ||
+      permissions.includes('delete_tasks');
+
+    if (!canDeleteTasks) {
+      alert('You are not allowed to delete tasks. Please contact your administrator.');
+      return;
+    }
     
     const confirmMessage = `Are you sure you want to delete ${selectedTasks.size} selected task(s)?`;
     if (!confirm(confirmMessage)) {
@@ -2231,9 +2244,9 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
         method: 'DELETE',
         headers: {
           'Content-Type': 'application/json',
-          'user-role': user?.role || 'admin',
-          'user-permissions': JSON.stringify(['all']),
-          'user-name': user?.name || 'Admin'
+          'user-role': user?.role || 'employee',
+          'user-permissions': JSON.stringify(user?.permissions || []),
+          'user-name': user?.name || ''
         },
         body: JSON.stringify({ 
           ids: selectedIds
@@ -3303,22 +3316,18 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
     return false;
   };
 
-  // Helper function to check if user can delete a specific task
+  // Helper function to check if user can delete a specific task (admin-only)
   const canDeleteTask = (task) => {
-    if (!user || !user.permissions) return false;
-    
-    // Check for universal delete permission
-    if (user.permissions.includes('all') || user.permissions.includes('delete_tasks')) {
-      return true;
-    }
-    
-    // Check for delete own tasks permission
-    if (user.permissions.includes('delete_own_tasks')) {
-      // Check if task is assigned to current user
-      const assignedTo = task.assigned_to || '';
-      return assignedTo.toLowerCase().includes(user.name?.toLowerCase() || '');
-    }
-    
+    if (!user) return false;
+
+    const role = (user.role || '').toLowerCase();
+    const permissions = user.permissions || [];
+
+    // Only admins or users with explicit global delete permissions can delete tasks
+    if (role === 'admin') return true;
+    if (permissions.includes('all') || permissions.includes('delete_tasks')) return true;
+
+    // Regular users (including those with "delete_own_tasks") are not allowed to delete tasks
     return false;
   };
 
@@ -4759,7 +4768,8 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
                             <ActionMenu
                               onSelect={() => handleTaskClick(task)}
                               onEdit={canEditTask(task) ? () => handleEdit(task) : undefined}
-                              onDelete={canDeleteTask(task) ? () => handleDelete(task.id) : undefined}
+                              // Always wire delete action; handleDelete will show a \"not allowed\" popup for non-admin users
+                              onDelete={() => handleDelete(task.id)}
                               itemType="task"
                             />
                           )}

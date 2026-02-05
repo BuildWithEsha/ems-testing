@@ -6282,13 +6282,15 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                   }));
                 }
                 
-                // Check permissions
-                const hasDeleteOwnTasks = userPermissions.includes('delete_own_tasks');
-                const hasDeleteAllTasks = userPermissions.includes('delete_tasks') || userPermissions.includes('all');
+                // Check permissions (admin / global delete only; regular users cannot delete tasks)
+                const hasDeleteAllTasks =
+                  userPermissions.includes('delete_tasks') ||
+                  userPermissions.includes('all') ||
+                  (userRole && userRole.toLowerCase() === 'admin');
                 
-                if (!hasDeleteOwnTasks && !hasDeleteAllTasks) {
+                if (!hasDeleteAllTasks) {
                   console.log('Access denied: User has no delete permissions');
-                  return res.status(403).json({ error: 'Access denied: You do not have permission to delete tasks' });
+                  return res.status(403).json({ error: 'Access denied: You do not have permission to delete tasks. Please contact your administrator.' });
                 }
                 
                 // ========== FIX #5: Use transaction with row-level locking ==========
@@ -6311,19 +6313,8 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                   return res.status(404).json({ error: 'No tasks found with the provided IDs' });
                 }
                 
-                // Filter tasks based on permissions
-                let tasksToDelete = existingTasks;
-                if (hasDeleteOwnTasks && !hasDeleteAllTasks && userName) {
-                  tasksToDelete = existingTasks.filter(task => 
-                    task.assigned_to && task.assigned_to.toLowerCase().includes(userName.toLowerCase())
-                  );
-                  
-                  if (tasksToDelete.length === 0) {
-                    await connection.rollback();
-                    connection.release();
-                    return res.status(403).json({ error: 'Access denied: You can only delete tasks assigned to you' });
-                  }
-                }
+                // Since only admin/global delete is allowed, all existingTasks are eligible
+                const tasksToDelete = existingTasks;
                 
                 // ========== FIX #3 & #4: Get task IDs with validation ==========
                 const taskIdsToDelete = tasksToDelete.map(task => task.id).filter(id => id != null && id !== undefined);
@@ -6445,6 +6436,29 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                 return res.status(400).json({ error: 'Task ID must be a valid positive number' });
               }
 
+              // ========== PERMISSION CHECK: Only admins / users with global delete permission can delete tasks ==========
+              let userPermissions = [];
+              let userRole = 'employee';
+              try {
+                userPermissions = req.headers['user-permissions']
+                  ? JSON.parse(req.headers['user-permissions'])
+                  : [];
+              } catch (e) {
+                console.warn('Failed to parse user-permissions header for task delete:', req.headers['user-permissions']);
+                userPermissions = [];
+              }
+              userRole = (req.headers['user-role'] || 'employee').toLowerCase();
+
+              const hasDeleteAllTasks =
+                userRole === 'admin' ||
+                userPermissions.includes('all') ||
+                userPermissions.includes('delete_tasks');
+
+              if (!hasDeleteAllTasks) {
+                console.log('Access denied: User has no permission to delete tasks');
+                return res.status(403).json({ error: 'Access denied: You do not have permission to delete tasks. Please contact your administrator.' });
+              }
+
               let connection;
               
               try {
@@ -6456,7 +6470,7 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                   'SELECT id, title FROM tasks WHERE id = ?',
                   [taskIdNum]
                 );
-
+                
                 if (taskCheck.length === 0) {
                   connection.release();
                   return res.status(404).json({ error: 'Task not found' });
