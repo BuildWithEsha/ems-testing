@@ -1153,6 +1153,55 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
     return () => window.removeEventListener('app:timer-stopped-on-clockout', handler);
   }, [updateTimerState, updateDataState]);
 
+  // Before clock-out: stop all active timers with frontend start/end times so timesheet has correct times, then run clock-out callback
+  useEffect(() => {
+    const handler = async (e) => {
+      const callback = e.detail?.callback;
+      const active = { ...activeTimersRef.current };
+      const taskIds = Object.keys(active);
+      const endTimeMs = Date.now();
+      const stopPromises = taskIds.map(async (taskId) => {
+        const { startTime, intervalId } = active[taskId];
+        if (typeof intervalId === 'number') clearInterval(intervalId);
+        const startTimeMs = typeof startTime === 'number' ? startTime : new Date(startTime).getTime();
+        const loggedSeconds = Math.floor((endTimeMs - startTimeMs) / 1000);
+        try {
+          await fetch(`/api/tasks/${taskId}/stop-timer`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              loggedSeconds,
+              startTimeMs,
+              endTimeMs,
+              user_name: user?.name || 'Admin',
+              user_id: user?.id || 1,
+              memo: 'Employee clocked out',
+            }),
+          });
+        } catch (err) {
+          console.error('Failed to stop timer for clock-out, task', taskId, err);
+        }
+      });
+      await Promise.all(stopPromises);
+      taskIds.forEach((id) => {
+        delete activeTimersRef.current[id];
+        delete activeTimersRef.current[String(id)];
+      });
+      updateTimerState((prev) => {
+        const newTimers = { ...prev.activeTimers };
+        const newIntervals = { ...prev.intervals };
+        taskIds.forEach((id) => {
+          delete newTimers[id];
+          delete newIntervals[id];
+        });
+        return { ...prev, activeTimers: newTimers, intervals: newIntervals, tick: Date.now() };
+      });
+      if (typeof callback === 'function') callback();
+    };
+    window.addEventListener('app:stop-timers-for-clockout', handler);
+    return () => window.removeEventListener('app:stop-timers-for-clockout', handler);
+  }, [updateTimerState, user]);
+
   // Load more tasks function for pagination
   const loadMoreTasks = async () => {
     if (loadingMore || !hasMoreTasks || user?.role === 'admin' || user?.role === 'Admin') return;
@@ -1275,19 +1324,23 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
     const pending = [];
     const taskUpdates = {}; // taskId -> newLoggedSeconds
 
+    const nowMs = Date.now();
     taskIds.forEach((taskId) => {
       const { startTime, intervalId } = active[taskId];
       if (typeof intervalId === 'number') clearInterval(intervalId);
 
       const task = tasks.find((t) => t.id === Number(taskId));
       const currentLogged = task?.logged_seconds || 0;
-      const loggedSeconds = Math.floor((Date.now() - startTime) / 1000);
+      const startTimeMs = typeof startTime === 'number' ? startTime : new Date(startTime).getTime();
+      const loggedSeconds = Math.floor((nowMs - startTimeMs) / 1000);
       const newLoggedSeconds = currentLogged + loggedSeconds;
       taskUpdates[taskId] = newLoggedSeconds;
 
       pending.push({
         taskId: Number(taskId),
         loggedSeconds,
+        startTimeMs,
+        endTimeMs: nowMs,
         memo: 'No Internet(Timer auto stopped)',
         user_name: user?.name || 'Admin',
         user_id: user?.id || 1,
@@ -1344,17 +1397,20 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
 
     const remaining = [];
     for (const item of pending) {
-      const { taskId, loggedSeconds, memo, user_name, user_id } = item;
+      const { taskId, loggedSeconds, memo, user_name, user_id, startTimeMs, endTimeMs } = item;
+      const body = {
+        loggedSeconds,
+        user_name: user_name || 'Admin',
+        user_id: user_id || 1,
+        memo: (memo || '').trim(),
+      };
+      if (typeof startTimeMs === 'number' && startTimeMs > 0) body.startTimeMs = startTimeMs;
+      if (typeof endTimeMs === 'number' && endTimeMs > 0) body.endTimeMs = endTimeMs;
       try {
         const response = await fetch(`/api/tasks/${taskId}/stop-timer`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            loggedSeconds,
-            user_name: user_name || 'Admin',
-            user_id: user_id || 1,
-            memo: (memo || '').trim(),
-          }),
+          body: JSON.stringify(body),
         });
         const isAlreadyStopped = response.status === 400;
         if (!response.ok && !isAlreadyStopped) remaining.push(item);
@@ -3445,7 +3501,8 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
             : (timerState.activeTimers[taskId]
                 ? (typeof timerState.activeTimers[taskId] === 'number' ? timerState.activeTimers[taskId] : new Date(timerState.activeTimers[taskId]).getTime())
                 : new Date(currentTask.timer_started_at).getTime());
-          const loggedSeconds = Math.floor((Date.now() - startTimeMs) / 1000);
+          const endTimeMs = Date.now();
+          const loggedSeconds = Math.floor((endTimeMs - startTimeMs) / 1000);
           const currentLogged = currentTask.logged_seconds || 0;
           const newLoggedSeconds = currentLogged + loggedSeconds;
 
@@ -3488,6 +3545,8 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 loggedSeconds,
+                startTimeMs,
+                endTimeMs,
                 user_name: user?.name || 'Admin',
                 user_id: user?.id || 1,
                 memo: 'Task marked as completed (Timer auto stopped)',

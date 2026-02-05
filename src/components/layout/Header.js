@@ -235,36 +235,39 @@ const Header = ({ onSearch, onLogout, tasks, employees, onStartTimer, onStopTime
     }
   };
 
-  const handleClockOut = async () => {
+  const handleClockOut = () => {
     if (!user?.id) return;
-    try {
-      const res = await fetch('/api/attendance/clock-out', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ employee_id: user.id })
-      });
-      
-      if (res.ok) {
-        const data = await res.json().catch(() => ({}));
-        const statusRes = await fetch(`/api/attendance/status?employee_id=${user.id}`);
-        if (statusRes.ok) {
-          setAttendance(await statusRes.json());
-          console.log('✅ Clocked out successfully');
+    const doClockOut = async () => {
+      try {
+        const res = await fetch('/api/attendance/clock-out', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ employee_id: user.id })
+        });
+        
+        if (res.ok) {
+          const data = await res.json().catch(() => ({}));
+          const statusRes = await fetch(`/api/attendance/status?employee_id=${user.id}`);
+          if (statusRes.ok) {
+            setAttendance(await statusRes.json());
+            console.log('✅ Clocked out successfully');
+          }
+          if (data.stopped_timer_task_ids && data.stopped_timer_task_ids.length > 0) {
+            window.dispatchEvent(new CustomEvent('app:timer-stopped-on-clockout', {
+              detail: { taskIds: data.stopped_timer_task_ids, stopped_timers: data.stopped_timers || [] }
+            }));
+          }
+        } else {
+          const errorData = await res.json();
+          console.error('❌ Clock out failed:', errorData.error);
+          alert(`Clock out failed: ${errorData.error || 'Unknown error'}`);
         }
-        if (data.stopped_timer_task_ids && data.stopped_timer_task_ids.length > 0) {
-          window.dispatchEvent(new CustomEvent('app:timer-stopped-on-clockout', {
-            detail: { taskIds: data.stopped_timer_task_ids, stopped_timers: data.stopped_timers || [] }
-          }));
-        }
-      } else {
-        const errorData = await res.json();
-        console.error('❌ Clock out failed:', errorData.error);
-        alert(`Clock out failed: ${errorData.error || 'Unknown error'}`);
+      } catch (error) {
+        console.error('❌ Clock out error:', error);
+        alert('Clock out failed: Network error');
       }
-    } catch (error) {
-      console.error('❌ Clock out error:', error);
-      alert('Clock out failed: Network error');
-    }
+    };
+    window.dispatchEvent(new CustomEvent('app:stop-timers-for-clockout', { detail: { callback: doClockOut } }));
   };
 
   // Get active timer count for notification badge - ensure tasks is an array
