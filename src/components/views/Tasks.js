@@ -4963,7 +4963,6 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
                   required
                 />
               </div>
-              {/* Reuse some of the basic fields from the Add Task form for convenience */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Department</label>
                 <select
@@ -4977,19 +4976,6 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
                       {dept.name}
                     </option>
                   ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Priority</label>
-                <select
-                  value={formData.priority}
-                  onChange={(e) => setFormData({ ...formData, priority: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="Low">Low</option>
-                  <option value="Medium">Medium</option>
-                  <option value="High">High</option>
-                  <option value="Critical">Critical</option>
                 </select>
               </div>
             </div>
@@ -5062,6 +5048,266 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
                   onChange={(value) => setFormData({ ...formData, trained: value })}
                   placeholder="Select employees..."
                   searchPlaceholder="Search employees..."
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Other Details Section (mirror Add Task modal) */}
+          <div>
+            <h3 className="text-lg font-medium text-gray-900 mb-4">Other Details</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Label</label>
+                <div className="flex">
+                  <select
+                    value={formData.labels}
+                    onChange={(e) => setFormData({ ...formData, labels: e.target.value })}
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded-l-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">Select...</option>
+                    {Object.keys(scoringPoints.labels).map(option => (
+                      <option key={option} value={option}>{option}</option>
+                    ))}
+                    {(labels || []).map((label) => (
+                      <option key={label.id} value={label.name}>
+                        {label.name}
+                      </option>
+                    ))}
+                  </select>
+                  <Button variant="secondary" className="rounded-l-none">
+                    Add
+                  </Button>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Milestones</label>
+                <div className="flex">
+                  <select
+                    value={formData.milestones}
+                    onChange={(e) => setFormData({ ...formData, milestones: e.target.value })}
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded-l-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">Select...</option>
+                    <option value="Phase 1">Phase 1</option>
+                    <option value="Phase 2">Phase 2</option>
+                    <option value="Phase 3">Phase 3</option>
+                  </select>
+                  <Button variant="secondary" className="rounded-l-none">
+                    Add
+                  </Button>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Priority</label>
+                <select
+                  value={formData.priority}
+                  onChange={(e) => setFormData({ ...formData, priority: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Select...</option>
+                  {Object.keys(scoringPoints.priority).map(option => (
+                    <option key={option} value={option}>{option}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Time Estimate</label>
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="number"
+                    min="0"
+                    max="999"
+                    value={formData.timeEstimateHours}
+                    onChange={(e) => setFormData({ ...formData, timeEstimateHours: parseInt(e.target.value) || 0 })}
+                    className="w-16 px-2 py-1 border border-gray-300 rounded text-center focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="0"
+                  />
+                  <span className="text-sm text-gray-600">hrs</span>
+                  <input
+                    type="number"
+                    min="0"
+                    max="59"
+                    value={formData.timeEstimateMinutes}
+                    onChange={(e) => setFormData({ ...formData, timeEstimateMinutes: parseInt(e.target.value) || 0 })}
+                    className="w-16 px-2 py-1 border border-gray-300 rounded text-center focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="0"
+                  />
+                  <span className="text-sm text-gray-600">mins</span>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Complexity</label>
+                <select
+                  value={formData.complexity}
+                  onChange={(e) => {
+                    console.log('Complexity changed to:', e.target.value);
+                    setFormData({ ...formData, complexity: e.target.value });
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Select...</option>
+                  {Object.keys(scoringPoints.complexity).map(option => (
+                    <option key={option} value={option}>{option}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Impact</label>
+                <select
+                  value={formData.impact}
+                  onChange={(e) => {
+                    console.log('Impact changed to:', e.target.value);
+                    setFormData({ ...formData, impact: e.target.value });
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Select...</option>
+                  {Object.keys(scoringPoints.impact).map(option => (
+                    <option key={option} value={option} title={getImpactDescription(option)}>{option}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Effort Estimate Label</label>
+                <select
+                  value={formData.effortEstimateLabel}
+                  onChange={(e) => {
+                    console.log('Effort Estimate Label changed to:', e.target.value);
+                    setFormData({ ...formData, effortEstimateLabel: e.target.value });
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Select...</option>
+                  {Object.keys(scoringPoints.effort).map(option => (
+                    <option key={option} value={option}>{option}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Unit</label>
+                <input
+                  type="number"
+                  value={formData.unit}
+                  onChange={(e) => setFormData({ ...formData, unit: e.target.value })}
+                  placeholder="Enter number of units"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  min="0"
+                  step="0.01"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Target</label>
+                <input
+                  type="text"
+                  value={formData.target}
+                  onChange={(e) => setFormData({ ...formData, target: e.target.value })}
+                  placeholder="Enter target (optional)"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+            <div className="mt-4 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">File Links</label>
+                <textarea
+                  value={formData.fileLinks}
+                  onChange={(e) => setFormData({ ...formData, fileLinks: e.target.value })}
+                  rows="3"
+                  placeholder="Enter file links (one per line or comma-separated)..."
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <p className="mt-1 text-xs text-gray-500">Enter file URLs, one per line or separated by commas</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Video Links</label>
+                <textarea
+                  value={formData.videoLinks}
+                  onChange={(e) => setFormData({ ...formData, videoLinks: e.target.value })}
+                  rows="3"
+                  placeholder="Enter video links (one per line or comma-separated)..."
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <p className="mt-1 text-xs text-gray-500">Enter video URLs (YouTube, Vimeo, etc.), one per line or separated by commas</p>
+              </div>
+            </div>
+            <div className="mt-4 space-y-2">
+              <label className="flex items-center">
+                <input
+                  type="checkbox"
+                  checked={formData.makePrivate}
+                  onChange={(e) => setFormData({ ...formData, makePrivate: e.target.checked })}
+                  className="rounded border-gray-300"
+                />
+                <span className="ml-2 text-sm text-gray-600">Make Private</span>
+              </label>
+              <label className="flex items-center">
+                <input
+                  type="checkbox"
+                  checked={formData.share}
+                  onChange={(e) => setFormData({ ...formData, share: e.target.checked })}
+                  className="rounded border-gray-300"
+                />
+                <span className="ml-2 text-sm text-gray-600">Share</span>
+              </label>
+              <label className="flex items-center">
+                <input
+                  type="checkbox"
+                  checked={formData.repeat}
+                  onChange={(e) => setFormData({ ...formData, repeat: e.target.checked })}
+                  className="rounded border-gray-300"
+                />
+                <span className="ml-2 text-sm text-gray-600">Repeat</span>
+              </label>
+              <label className="flex items-center">
+                <input
+                  type="checkbox"
+                  checked={formData.isDependent}
+                  onChange={(e) => setFormData({ ...formData, isDependent: e.target.checked })}
+                  className="rounded border-gray-300"
+                />
+                <span className="ml-2 text-sm text-gray-600">Task is dependent on another task</span>
+              </label>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Validation By</label>
+                <Input
+                  type="text"
+                  placeholder="e.g. Validation By"
+                  value={formData.validationBy}
+                  onChange={(e) => setFormData({ ...formData, validationBy: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Effort Label</label>
+                <Input
+                  type="text"
+                  placeholder="e.g. Effort Label"
+                  value={formData.effortLabel}
+                  onChange={(e) => setFormData({ ...formData, effortLabel: e.target.value })}
+                />
+              </div>
+            </div>
+            <div className="mt-4 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Checklist</label>
+                <textarea
+                  value={formData.checklist}
+                  onChange={(e) => setFormData({ ...formData, checklist: e.target.value })}
+                  rows="3"
+                  placeholder="Add checklist items, one per line."
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Workflow Guide</label>
+                <textarea
+                  value={formData.workflowGuide}
+                  onChange={(e) => setFormData({ ...formData, workflowGuide: e.target.value })}
+                  rows="3"
+                  placeholder="Add workflow guidance, one step per line."
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
             </div>
