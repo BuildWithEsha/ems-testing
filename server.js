@@ -2468,7 +2468,18 @@ app.get('/api/notifications/tasks-over-estimate', async (req, res) => {
       ) > 0
       AND
       (
-        actual_seconds -
+        -- Use full SUM expression instead of alias to avoid SQL dialect issues
+        SUM(
+          CASE 
+            WHEN tt.hours_logged_seconds IS NOT NULL AND tt.hours_logged_seconds != 0 
+              THEN ABS(tt.hours_logged_seconds)
+            WHEN tt.hours_logged IS NOT NULL AND tt.hours_logged != 0 
+              THEN ABS(tt.hours_logged)
+            WHEN tt.start_time IS NOT NULL AND tt.end_time IS NOT NULL THEN 
+              ABS(TIMESTAMPDIFF(SECOND, tt.start_time, tt.end_time))
+            ELSE 0
+          END
+        ) -
         (
           CASE
             WHEN MAX(COALESCE(t.time_estimate_hours, 0)) > 0
