@@ -120,7 +120,6 @@ const Sidebar = ({ currentView, onViewChange }) => {
     ];
 
     // Filter menu items based on user permissions
-    const isAdmin = user?.role === 'admin' || user?.role === 'Admin' || user?.user_role === 'admin' || user?.user_role === 'Admin';
     return allMenuItems.filter(item => {
       // Admin-only items (e.g. Earn Track Wages) show only for admins
       if (item.adminOnly) return isAdmin;
