@@ -5759,17 +5759,8 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
               }
             });
             // Create new task
-            app.post('/api/tasks', async (req, res) => {
-              // Get user permissions from headers
-              const userPermissions = req.headers['user-permissions'] ? JSON.parse(req.headers['user-permissions']) : [];
-              const userRole = req.headers['user-role'] || 'employee';
-              
-              // Allow all authenticated users to create tasks (add task usable by all employees)
-              if (!userRole && !req.headers['x-user-id']) {
-                return res.status(401).json({ error: 'Authentication required to create tasks.' });
-              }
-              
-              const taskData = req.body;
+            // Helper to insert a single task row using existing schema
+            const insertTask = async (connection, taskData) => {
               const query = `
                 INSERT INTO tasks (
                   title, department, task_category, project, start_date, due_date, without_due_date,
@@ -5778,8 +5769,7 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                   validation_by, effort_label, checklist, workflow_guide, file_links, video_links
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
               `;
-              // Coerce undefined/empty to null so MySQL accepts optional fields (e.g. department)
-              const opt = (v) => sanitizeForMySQL(v === undefined || v === null || (typeof v === 'string' && v.trim() === '') ? null : v);
+              const opt = (v) => sanitizeForMySQL(v === undefined || v === null || (typeof v === 'string' && v.trim && v.trim() === '') ? null : v);
               const values = [
                 sanitizeForMySQL(taskData.title), 
                 opt(taskData.department), 
@@ -5817,29 +5807,112 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                 sanitizeForMySQL(taskData.fileLinks !== undefined ? taskData.fileLinks : null),
                 sanitizeForMySQL(taskData.videoLinks !== undefined ? taskData.videoLinks : null)
               ];
-              
+              const [result] = await connection.execute(query, values);
+              const newTaskId = result.insertId;
+              await logTaskHistory(
+                newTaskId,
+                'Created',
+                'Task created',
+                'Admin',
+                1
+              );
+              return newTaskId;
+            };
+
+            app.post('/api/tasks', async (req, res) => {
+              const userRole = req.headers['user-role'] || 'employee';
+              if (!userRole && !req.headers['x-user-id']) {
+                return res.status(401).json({ error: 'Authentication required to create tasks.' });
+              }
+              const taskData = req.body;
+              let connection;
               try {
-                // Debug logging to see what values are being sent
+                connection = await mysqlPool.getConnection();
+                await connection.ping();
                 console.log('Task creation - Received data:', JSON.stringify(taskData, null, 2));
-                console.log('Task creation - Values array:', JSON.stringify(values, null, 2));
-                
-                const [result] = await mysqlPool.execute(query, values);
-                
-                const newTaskId = result.insertId;
-                
-                // Log task creation history
-                await logTaskHistory(
-                  newTaskId,
-                  'Created',
-                  'Task created',
-                  'Admin',
-                  1
-                );
-                
+                const newTaskId = await insertTask(connection, taskData);
                 res.status(201).json({ message: 'Task created successfully', id: newTaskId });
               } catch (err) {
                 console.error('Error creating task:', err);
                 res.status(500).json({ error: 'Database error' });
+              } finally {
+                if (connection) {
+                  connection.release();
+                }
+              }
+            });
+
+            // Helper: create tasks by designation (one task per matching employee)
+            const createTasksByDesignation = async (baseTaskPayload, designation) => {
+              let connection;
+              try {
+                connection = await mysqlPool.getConnection();
+                await connection.ping();
+
+                const [employees] = await connection.execute(
+                  'SELECT id, name, department, designation FROM employees WHERE status = "Active" AND designation = ?',
+                  [designation]
+                );
+
+                if (!employees || employees.length === 0) {
+                  return { designation, employees: 0, tasksCreated: 0, createdTaskIds: [] };
+                }
+
+                const createdTaskIds = [];
+                for (const emp of employees) {
+                  const taskPayload = {
+                    ...baseTaskPayload,
+                    // Override assigned_to via toAssignedToString by setting appropriate fields
+                    assignedTo: emp.name,
+                    department: baseTaskPayload.department || emp.department || null,
+                  };
+                  const newTaskId = await insertTask(connection, taskPayload);
+                  createdTaskIds.push(newTaskId);
+                }
+
+                return {
+                  designation,
+                  employees: employees.length,
+                  tasksCreated: createdTaskIds.length,
+                  createdTaskIds,
+                };
+              } finally {
+                if (connection) {
+                  connection.release();
+                }
+              }
+            };
+
+            // Admin-only endpoint to create tasks by designation
+            app.post('/api/tasks/by-designation', async (req, res) => {
+              const { designation, task } = req.body || {};
+              const userRole = req.headers['user-role'] || 'employee';
+              const userPermissions = req.headers['user-permissions'] ? JSON.parse(req.headers['user-permissions']) : [];
+
+              if (!designation || typeof designation !== 'string' || !designation.trim()) {
+                return res.status(400).json({ error: 'designation is required' });
+              }
+
+              const isAdminUser = userRole === 'admin' || userRole === 'Admin';
+              const hasPermission =
+                isAdminUser ||
+                userPermissions.includes('all') ||
+                userPermissions.includes('create_tasks_by_designation');
+
+              if (!hasPermission) {
+                return res.status(403).json({ error: 'Access denied: You do not have permission to create tasks by designation' });
+              }
+
+              if (!task || !task.title) {
+                return res.status(400).json({ error: 'Task payload with at least a title is required' });
+              }
+
+              try {
+                const result = await createTasksByDesignation(task, designation.trim());
+                res.json(result);
+              } catch (err) {
+                console.error('Error creating tasks by designation:', err);
+                res.status(500).json({ error: 'Failed to create tasks by designation' });
               }
             });
 

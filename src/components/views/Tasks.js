@@ -51,6 +51,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
     showWorkloadCompleteModal: false,
     showExceededEstimateModal: false,
     exceededEstimateModalTask: null,
+    showAddTaskByDesignationModal: false,
     taskViewMode: 'workload_today',
     totalTasks: 0,
     currentPage: 1,
@@ -810,7 +811,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
 
   // Destructured state for easier access
   const { tasks, departments, employees, labels, loading, error } = dataState;
-  const { searchTerm, selectedTask, selectedTasks, taskDetailTab, showModal, showImportModal, showFilterModal, showColumnModal, showDetailModal, showBulkStatusModal, showTaskCalculationModal, showStopTimerModal, showDeleteHistoryModal, showDeleteAllHistoryModal, showChecklistWarningModal, showExportModal, showUpdateModal, showWorkloadCompleteModal, showExceededEstimateModal, exceededEstimateModalTask, taskViewMode, totalTasks, currentPage, hasMoreTasks, loadingMore, completedTasks: completedTasksFromState, inProgressTasks: inProgressTasksFromState, pendingTasks: pendingTasksFromState, overdueTasks: overdueTasksFromState } = uiState;
+  const { searchTerm, selectedTask, selectedTasks, taskDetailTab, showModal, showImportModal, showFilterModal, showColumnModal, showDetailModal, showBulkStatusModal, showTaskCalculationModal, showStopTimerModal, showDeleteHistoryModal, showDeleteAllHistoryModal, showChecklistWarningModal, showExportModal, showUpdateModal, showWorkloadCompleteModal, showExceededEstimateModal, exceededEstimateModalTask, showAddTaskByDesignationModal, taskViewMode, totalTasks, currentPage, hasMoreTasks, loadingMore, completedTasks: completedTasksFromState, inProgressTasks: inProgressTasksFromState, pendingTasks: pendingTasksFromState, overdueTasks: overdueTasksFromState } = uiState;
   const { files: taskFiles, subtasks: taskSubtasks, comments: taskComments, timesheet: taskTimesheet, timesheetTotal, notes: taskNotes, history: taskHistory, newComment, newSubtask, uploadedFile, editingSubtaskId, editingSubtaskTitle, editingCommentId, editingCommentText } = taskDetailState;
   
   // Reconcile fallback assignees to real employee records when employees load
@@ -4143,6 +4144,12 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
               Add Task
             </Button>
           )}
+          {(!isEmployeeView && user && (user.role === 'admin' || user.role === 'Admin' || user.permissions?.includes('all'))) && (
+            <Button variant="primary" onClick={() => updateUiState({ showAddTaskByDesignationModal: true })}>
+              <Plus className="w-4 h-4 mr-2" />
+              Add Task by Designation
+            </Button>
+          )}
         </div>
       </div>
 
@@ -4838,6 +4845,167 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
         </div>
       </Modal>
 
+      {/* Add Task by Designation Modal (admin-only) */}
+      <Modal
+        isOpen={!!showAddTaskByDesignationModal}
+        onClose={() => updateUiState({ showAddTaskByDesignationModal: false })}
+        title="Add Task by Designation"
+        size="xl"
+      >
+        <form
+          onSubmit={async (e) => {
+            e.preventDefault();
+            const form = e.target;
+            const designation = form.designation.value;
+            if (!designation) {
+              alert('Please select a designation.');
+              return;
+            }
+            if (!formData.title) {
+              alert('Please enter a title.');
+              return;
+            }
+            const baseTaskPayload = {
+              title: formData.title,
+              department: formData.department,
+              taskCategory: formData.taskCategory,
+              project: formData.project,
+              startDate: formData.startDate,
+              dueDate: formData.dueDate,
+              withoutDueDate: formData.withoutDueDate,
+              // assigned_to will be set per-employee on backend
+              status: formData.status,
+              description: formData.description,
+              responsible: formData.responsible,
+              accountable: formData.accountable,
+              consulted: formData.consulted,
+              informed: formData.informed,
+              trained: formData.trained,
+              labels: formData.labels,
+              milestones: formData.milestones,
+              priority: formData.priority,
+              complexity: formData.complexity,
+              impact: formData.impact,
+              unit: formData.unit,
+              target: formData.target,
+              effort_estimate_label: formData.effort_estimate_label,
+              time_estimate_hours: formData.time_estimate_hours,
+              time_estimate_minutes: formData.time_estimate_minutes,
+              makePrivate: formData.makePrivate,
+              share: formData.share,
+              repeat: formData.repeat,
+              isDependent: formData.isDependent,
+              validationBy: formData.validationBy,
+              effortLabel: formData.effortLabel,
+              checklist: formData.checklist,
+              workflowGuide: formData.workflowGuide,
+              fileLinks: formData.fileLinks,
+              videoLinks: formData.videoLinks,
+            };
+            try {
+              const response = await fetch('/api/tasks/by-designation', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'user-role': user?.role || 'admin',
+                  'user-permissions': JSON.stringify(user?.permissions || ['all']),
+                },
+                body: JSON.stringify({
+                  designation,
+                  task: baseTaskPayload,
+                }),
+              });
+              if (!response.ok) {
+                const err = await response.json().catch(() => ({}));
+                throw new Error(err.error || 'Failed to create tasks by designation');
+              }
+              const result = await response.json();
+              alert(`Created ${result.tasksCreated || 0} task(s) for designation "${result.designation}".`);
+              updateUiState({ showAddTaskByDesignationModal: false });
+              fetchAllData();
+            } catch (err) {
+              console.error('Error creating tasks by designation:', err);
+              alert(err.message || 'Failed to create tasks by designation');
+            }
+          }}
+          className="space-y-6"
+        >
+          <div>
+            <h3 className="text-lg font-medium text-gray-900 mb-4">Designation & Task Info</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Designation</label>
+                <select
+                  name="designation"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  defaultValue=""
+                >
+                  <option value="">Select...</option>
+                  {Array.from(new Set((employees || []).map((e) => e.designation).filter(Boolean))).map(
+                    (desig) => (
+                      <option key={desig} value={desig}>
+                        {desig}
+                      </option>
+                    )
+                  )}
+                </select>
+                <p className="mt-1 text-xs text-gray-500">
+                  This will create one task per active employee with the selected designation.
+                </p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
+                <Input
+                  type="text"
+                  placeholder="e.g. Title"
+                  value={formData.title}
+                  onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                  required
+                />
+              </div>
+              {/* Reuse some of the basic fields from the Add Task form for convenience */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Department</label>
+                <select
+                  value={formData.department}
+                  onChange={(e) => setFormData({ ...formData, department: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Select...</option>
+                  {(departments || []).map((dept) => (
+                    <option key={dept.id} value={dept.name}>
+                      {dept.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Priority</label>
+                <select
+                  value={formData.priority}
+                  onChange={(e) => setFormData({ ...formData, priority: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="Low">Low</option>
+                  <option value="Medium">Medium</option>
+                  <option value="High">High</option>
+                  <option value="Critical">Critical</option>
+                </select>
+              </div>
+            </div>
+          </div>
+          <div className="flex justify-end space-x-3">
+            <Button
+              variant="secondary"
+              type="button"
+              onClick={() => updateUiState({ showAddTaskByDesignationModal: false })}
+            >
+              Cancel
+            </Button>
+            <Button type="submit">Create Tasks</Button>
+          </div>
+        </form>
+      </Modal>
       {/* Time exceeded estimate popup (one-time per task; does not affect timer) */}
       <Modal
         isOpen={showExceededEstimateModal && !!exceededEstimateModalTask}
