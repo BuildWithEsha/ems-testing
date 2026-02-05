@@ -7,6 +7,7 @@ import AbsenceNotificationPanel from '../ui/AbsenceNotificationPanel';
 import CLETNotificationPanel from '../ui/CLETNotificationPanel';
 import MissedTaskNotificationPanel from '../ui/MissedTaskNotificationPanel';
 import LessTrainedEmployeeNotificationPanel from '../ui/LessTrainedEmployeeNotificationPanel';
+import OverEstimateTaskNotificationPanel from '../ui/OverEstimateTaskNotificationPanel';
 import LowHoursNotificationPanel from '../ui/LowHoursNotificationPanel';
 import LowIdleNotificationPanel from '../ui/LowIdleNotificationPanel';
 import NotificationBell from '../ui/NotificationBell';
@@ -16,6 +17,7 @@ import { useAbsenceNotifications } from '../../hooks/useAbsenceNotifications';
 import { useCLETNotifications } from '../../hooks/useCLETNotifications';
 import { useMissedTaskNotifications } from '../../hooks/useMissedTaskNotifications';
 import { useLessTrainedEmployeeNotifications } from '../../hooks/useLessTrainedEmployeeNotifications';
+import { useOverEstimateTaskNotifications } from '../../hooks/useOverEstimateTaskNotifications';
 import { useLowHoursNotifications } from '../../hooks/useLowHoursNotifications';
 import { useLowIdleNotifications } from '../../hooks/useLowIdleNotifications';
 
@@ -27,6 +29,7 @@ const Header = ({ onSearch, onLogout, tasks, employees, onStartTimer, onStopTime
   const [showAbsenceNotificationPanel, setShowAbsenceNotificationPanel] = useState(false);
   const [showCLETNotificationPanel, setShowCLETNotificationPanel] = useState(false);
   const [showLessTrainedEmployeeNotificationPanel, setShowLessTrainedEmployeeNotificationPanel] = useState(false);
+  const [showOverEstimateTaskNotificationPanel, setShowOverEstimateTaskNotificationPanel] = useState(false);
   const [showLowHoursNotificationPanel, setShowLowHoursNotificationPanel] = useState(false);
   const [showLowIdleNotificationPanel, setShowLowIdleNotificationPanel] = useState(false);
   const [showMissedTaskNotificationPanel, setShowMissedTaskNotificationPanel] = useState(false);
@@ -52,6 +55,20 @@ const Header = ({ onSearch, onLogout, tasks, employees, onStartTimer, onStopTime
   
   // LTE notification system for admin users
   const { lessTrainedEmployeeNotifications, hasLessTrainedEmployeeNotifications, loading: lessTrainedEmployeeNotificationsLoading, minTrainedThreshold, updateMinTrainedThreshold } = useLessTrainedEmployeeNotifications();
+  
+  // Over-estimate tasks notification system for admin users
+  const {
+    items: overEstimateNotifications,
+    loading: overEstimateLoading,
+    error: overEstimateError,
+    startDate: overEstimateStart,
+    endDate: overEstimateEnd,
+    designation: overEstimateDesignation,
+    minOverMinutes: overEstimateMinOver,
+    hasAccess: hasOverEstimateAccess,
+    updateFilters: updateOverEstimateFilters,
+    refresh: refreshOverEstimateNotifications
+  } = useOverEstimateTaskNotifications();
   
   // LHE (Low Hours Employees) notification system for admin users
   const { lowHoursNotifications, hasLowHoursNotifications, loading: lowHoursNotificationsLoading, minHoursThreshold, selectedDate: lowHoursSelectedDate, updateMinHoursThreshold, updateSelectedDate: updateLowHoursDate, updateSettings: updateLowHoursSettings } = useLowHoursNotifications();
@@ -459,6 +476,23 @@ const Header = ({ onSearch, onLogout, tasks, employees, onStartTimer, onStopTime
               </button>
             )}
 
+            {/* Over-estimate Tasks Notifications - Only show if user has view_overestimate_tasks or is admin */}
+            {(hasOverEstimateAccess) && (
+              <button 
+                className="p-2 rounded-lg hover:bg-gray-100 relative transition-colors"
+                onClick={() => setShowOverEstimateTaskNotificationPanel(true)}
+                title="Tasks Over Estimate Notifications"
+                disabled={overEstimateLoading}
+              >
+                <span className={`text-sm font-medium ${overEstimateLoading ? 'text-gray-400' : 'text-amber-600'}`}>OverEst</span>
+                {overEstimateNotifications.length > 0 && !overEstimateLoading && (
+                  <span className="absolute -top-1 -right-1 bg-amber-500 text-white text-xs rounded-full h-4 min-w-[1rem] px-1 flex items-center justify-center animate-pulse">
+                    {overEstimateNotifications.length}
+                  </span>
+                )}
+              </button>
+            )}
+
             {/* Low Idle (Team Logger) - Only show if user has low_idle_view permission */}
             {(user?.permissions?.includes('low_idle_view') || user?.permissions?.includes('all') || user?.role === 'admin' || user?.role === 'Admin') && (
               <button 
@@ -643,6 +677,20 @@ const Header = ({ onSearch, onLogout, tasks, employees, onStartTimer, onStopTime
         lessTrainedEmployeeNotifications={lessTrainedEmployeeNotifications}
         minTrainedThreshold={minTrainedThreshold}
         onUpdateMinTrainedThreshold={updateMinTrainedThreshold}
+      />
+
+      {/* Tasks Over Estimate Notification Panel (admin/reporting view) */}
+      <OverEstimateTaskNotificationPanel
+        isOpen={showOverEstimateTaskNotificationPanel}
+        onClose={() => setShowOverEstimateTaskNotificationPanel(false)}
+        notifications={overEstimateNotifications}
+        startDate={overEstimateStart}
+        endDate={overEstimateEnd}
+        designation={overEstimateDesignation}
+        minOverMinutes={overEstimateMinOver}
+        onUpdateFilters={updateOverEstimateFilters}
+        loading={overEstimateLoading}
+        error={overEstimateError}
       />
 
       {/* LHE (Low Hours Employees) Notification Panel */}

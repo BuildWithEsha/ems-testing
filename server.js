@@ -2370,6 +2370,165 @@ app.get('/api/reports/timelog/consolidated', async (req, res) => {
     }
   }
 });
+
+// Tasks Over Estimate Notifications - admin/reporting API
+app.get('/api/notifications/tasks-over-estimate', async (req, res) => {
+  const { start, end, designation, min_over_minutes } = req.query;
+
+  if (!start || !end) {
+    return res.status(400).json({ error: 'start and end are required (YYYY-MM-DD)' });
+  }
+
+  // Permissions: only admins or users with global view permissions can access
+  const userRoleHeader = req.headers['x-user-role'] || req.headers['user-role'] || 'employee';
+  const userPermissionsHeader = req.headers['x-user-permissions'] || req.headers['user-permissions'] || '[]';
+  let userPermissions = [];
+  try {
+    userPermissions = typeof userPermissionsHeader === 'string'
+      ? JSON.parse(userPermissionsHeader)
+      : [];
+  } catch (e) {
+    console.warn('Invalid permissions format for tasks-over-estimate:', userPermissionsHeader);
+    userPermissions = [];
+  }
+  const role = (userRoleHeader || '').toLowerCase();
+  const hasAccess =
+    role === 'admin' ||
+    userPermissions.includes('all') ||
+    userPermissions.includes('view_overestimate_tasks');
+
+  if (!hasAccess) {
+    return res.status(403).json({ error: 'Access denied: You do not have permission to view over-estimate tasks' });
+  }
+
+  // Build time window
+  const params = [];
+  let where = `tt.start_time >= ? AND tt.start_time <= ?`;
+  const startDate = `${start} 00:00:00`;
+  const endDate = `${end} 23:59:59`;
+  params.push(startDate, endDate);
+
+  // Optional designation filter via employees table
+  if (designation) {
+    where += ` AND e.designation = ?`;
+    params.push(designation);
+  }
+
+  const minOverMinutes = Number.isFinite(Number(min_over_minutes))
+    ? Math.max(0, Number(min_over_minutes))
+    : 10;
+  const minOverSeconds = minOverMinutes * 60;
+
+  const query = `
+    SELECT
+      tt.task_id,
+      t.title AS task_title,
+      t.labels,
+      t.priority,
+      tt.employee_name,
+      e.designation,
+      DATE(tt.start_time) AS log_date,
+      MAX(COALESCE(t.time_estimate_hours, 0)) AS time_estimate_hours,
+      MAX(COALESCE(t.time_estimate_minutes, 0)) AS time_estimate_minutes,
+      MAX(COALESCE(t.time_estimate, 0)) AS time_estimate_fallback,
+      SUM(
+        CASE 
+          WHEN tt.hours_logged_seconds IS NOT NULL AND tt.hours_logged_seconds != 0 
+            THEN ABS(tt.hours_logged_seconds)
+          WHEN tt.hours_logged IS NOT NULL AND tt.hours_logged != 0 
+            THEN ABS(tt.hours_logged)
+          WHEN tt.start_time IS NOT NULL AND tt.end_time IS NOT NULL THEN 
+            ABS(TIMESTAMPDIFF(SECOND, tt.start_time, tt.end_time))
+          ELSE 0
+        END
+      ) AS actual_seconds
+    FROM task_timesheet tt
+    LEFT JOIN tasks t ON t.id = tt.task_id
+    LEFT JOIN employees e ON e.name = tt.employee_name
+    WHERE ${where}
+    GROUP BY
+      tt.task_id,
+      t.title,
+      t.labels,
+      t.priority,
+      tt.employee_name,
+      e.designation,
+      DATE(tt.start_time)
+    HAVING
+      -- Compute estimate in seconds (hours/minutes preferred, fallback to time_estimate)
+      (
+        CASE
+          WHEN MAX(COALESCE(t.time_estimate_hours, 0)) > 0
+               OR MAX(COALESCE(t.time_estimate_minutes, 0)) > 0
+            THEN (MAX(COALESCE(t.time_estimate_hours, 0)) * 60 + MAX(COALESCE(t.time_estimate_minutes, 0))) * 60
+          WHEN MAX(COALESCE(t.time_estimate, 0)) > 0
+            THEN MAX(COALESCE(t.time_estimate, 0)) * 60
+          ELSE 0
+        END
+      ) > 0
+      AND
+      (
+        actual_seconds -
+        (
+          CASE
+            WHEN MAX(COALESCE(t.time_estimate_hours, 0)) > 0
+                 OR MAX(COALESCE(t.time_estimate_minutes, 0)) > 0
+              THEN (MAX(COALESCE(t.time_estimate_hours, 0)) * 60 + MAX(COALESCE(t.time_estimate_minutes, 0))) * 60
+            WHEN MAX(COALESCE(t.time_estimate, 0)) > 0
+              THEN MAX(COALESCE(t.time_estimate, 0)) * 60
+            ELSE 0
+          END
+        )
+      ) >= ?
+    ORDER BY log_date DESC, actual_seconds DESC
+  `;
+
+  params.push(minOverSeconds);
+
+  let connection;
+  try {
+    connection = await mysqlPool.getConnection();
+    await connection.ping();
+    const [rows] = await connection.execute(query, params);
+
+    // Map to a cleaner shape for the frontend
+    const items = rows.map(row => {
+      // Compute estimateSeconds consistently with HAVING clause
+      const estHours = Number(row.time_estimate_hours) || 0;
+      const estMinutes = Number(row.time_estimate_minutes) || 0;
+      const estFallback = Number(row.time_estimate_fallback) || 0;
+      let estimateSeconds = 0;
+      if (estHours > 0 || estMinutes > 0) {
+        estimateSeconds = (estHours * 60 + estMinutes) * 60;
+      } else if (estFallback > 0) {
+        estimateSeconds = estFallback * 60;
+      }
+      const actualSeconds = Number(row.actual_seconds) || 0;
+      const overrunSeconds = Math.max(0, actualSeconds - estimateSeconds);
+      return {
+        task_id: row.task_id,
+        task_title: row.task_title,
+        labels: row.labels,
+        priority: row.priority,
+        employee_name: row.employee_name,
+        designation: row.designation,
+        log_date: row.log_date,
+        estimate_seconds: estimateSeconds,
+        actual_seconds: actualSeconds,
+        overrun_seconds: overrunSeconds
+      };
+    }).filter(r => r.overrun_seconds >= minOverSeconds && r.estimate_seconds > 0);
+
+    res.json({ items });
+  } catch (err) {
+    console.error('Tasks over estimate query error:', err);
+    res.status(500).json({ error: 'Database error' });
+  } finally {
+    if (connection) {
+      connection.release();
+    }
+  }
+});
 // Day summary across employees
 app.get('/api/attendance/day-summary', async (req, res) => {
   const { date } = req.query; // YYYY-MM-DD
