@@ -4374,7 +4374,8 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
                 </tr>
               ) : (
                 displayTasks.map((task) => (
-                  <tr key={`task-${task.id}-${tick}-${task.timer_started_at ? 'run' : 'stop'}-${task.logged_seconds ?? 0}`} className="hover:bg-gray-50">
+                  // Use a stable key so per-row UI state (like action menus) is not reset every tick
+                  <tr key={task.id} className="hover:bg-gray-50">
                     {columnOrder.map(columnKey => 
                       visibleColumns[columnKey] && (
                         <td key={columnKey} className="px-6 py-4" style={{ width: `${columnWidths[columnKey]}px` }}>
