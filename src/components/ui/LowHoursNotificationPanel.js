@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Bell, X, Clock, User, Building, Filter, Search, Download, ChevronDown, ChevronRight, Settings, Calendar } from 'lucide-react';
+import { Bell, X, Clock, User, Building, Filter, Search, Download, ChevronDown, ChevronRight, Settings, Calendar, Ticket } from 'lucide-react';
+import { useAuth } from '../../contexts/AuthContext';
 
 const LowHoursNotificationPanel = ({ 
   isOpen, 
@@ -11,6 +12,8 @@ const LowHoursNotificationPanel = ({
   onUpdateSelectedDate,
   onUpdateSettings
 }) => {
+  const { user } = useAuth();
+
   // Filter states
   const [filters, setFilters] = useState({
     searchTerm: '',
@@ -128,6 +131,42 @@ const LowHoursNotificationPanel = ({
     a.download = `low-hours-employees-${selectedDate}-${minHoursThreshold}h-threshold.csv`;
     a.click();
     window.URL.revokeObjectURL(url);
+  };
+
+  const canCreateLessHoursTickets = !!user && (
+    user.role === 'admin' ||
+    user.role === 'Admin' ||
+    user.permissions?.includes('all') ||
+    user.permissions?.includes('tickets_auto_less_hours')
+  );
+
+  const handleCreateLessHoursTickets = async () => {
+    if (!canCreateLessHoursTickets) return;
+    const confirmMessage = `Create \"Less hours logged\" tickets for ${filteredNotifications.length} employee(s) on ${selectedDate}?`;
+    if (!window.confirm(confirmMessage)) return;
+    try {
+      const response = await fetch('/api/tickets/auto-less-hours', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'user-role': user?.role || 'admin',
+          'user-permissions': JSON.stringify(user?.permissions || ['all'])
+        },
+        body: JSON.stringify({
+          date: selectedDate,
+          minHours: minHoursThreshold
+        })
+      });
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || 'Failed to auto-create less-hours tickets');
+      }
+      const result = await response.json();
+      alert(`Created ${result.ticketsCreated || 0} \"Less hours logged\" ticket(s) for ${result.date}.`);
+    } catch (err) {
+      console.error('Error auto-creating less-hours tickets:', err);
+      alert(err.message || 'Failed to auto-create less-hours tickets');
+    }
   };
 
   if (!isOpen) return null;
@@ -260,6 +299,16 @@ const LowHoursNotificationPanel = ({
                 <Download className="w-4 h-4" />
                 <span>Export CSV</span>
               </button>
+              {canCreateLessHoursTickets && (
+                <button
+                  onClick={handleCreateLessHoursTickets}
+                  className="flex items-center space-x-2 px-3 py-2 text-sm bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors"
+                  title="Create tickets for employees below threshold"
+                >
+                  <Ticket className="w-4 h-4" />
+                  <span>Create tickets</span>
+                </button>
+              )}
             </div>
           </div>
         </div>

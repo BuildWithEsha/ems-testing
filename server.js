@@ -9681,6 +9681,23 @@ app.get('/api/tickets', async (req, res) => {
   }
 });
 
+// Helper to generate a new ticket number (TKT-YYYYMMDD-XXX)
+async function generateTicketNumber(connection) {
+  const today = new Date();
+  const dateStr = today.getFullYear().toString() +
+    (today.getMonth() + 1).toString().padStart(2, '0') +
+    today.getDate().toString().padStart(2, '0');
+
+  const [countResult] = await connection.execute(
+    'SELECT COUNT(*) as count FROM tickets WHERE DATE(created_at) = CURDATE()'
+  );
+  const count = countResult[0].count + 1;
+  return {
+    ticketNumber: `TKT-${dateStr}-${count.toString().padStart(3, '0')}`,
+    dateStr
+  };
+}
+
 // Create new ticket
 app.post('/api/tickets', async (req, res) => {
   const { title, description, category, priority, assigned_to, department, created_by } = req.body;
@@ -9695,17 +9712,7 @@ app.post('/api/tickets', async (req, res) => {
     await connection.ping();
     
     // Generate ticket number (format: TKT-YYYYMMDD-XXX)
-    const today = new Date();
-    const dateStr = today.getFullYear().toString() + 
-                   (today.getMonth() + 1).toString().padStart(2, '0') + 
-                   today.getDate().toString().padStart(2, '0');
-    
-    // Get count of tickets for today
-    const [countResult] = await connection.execute(
-      'SELECT COUNT(*) as count FROM tickets WHERE DATE(created_at) = CURDATE()'
-    );
-    const count = countResult[0].count + 1;
-    const ticketNumber = `TKT-${dateStr}-${count.toString().padStart(3, '0')}`;
+    const { ticketNumber } = await generateTicketNumber(connection);
     
     // Insert ticket
     const insertQuery = `
@@ -9781,6 +9788,160 @@ app.post('/api/tickets', async (req, res) => {
     if (connection) {
       connection.release();
     }
+  }
+});
+
+// Helper: create less-hours tickets for a given date and threshold (in hours)
+async function createLessHoursTicketsForDate(targetDate, thresholdHours = 6) {
+  let connection;
+  try {
+    connection = await mysqlPool.getConnection();
+    await connection.ping();
+
+    const dateStr = (targetDate || new Date().toISOString().split('T')[0]).split('T')[0];
+    const minSeconds = parseFloat(thresholdHours) * 3600;
+    const startDate = `${dateStr} 00:00:00`;
+    const endDate = `${dateStr} 23:59:59`;
+
+    // Reuse the same low-hours query logic as /api/notifications/low-hours-employees
+    const query = `
+      SELECT 
+        e.id,
+        e.name,
+        e.employee_id,
+        e.department,
+        e.designation,
+        COALESCE(SUM(
+          CASE 
+            WHEN tt.hours_logged_seconds IS NOT NULL AND tt.hours_logged_seconds != 0 
+              THEN ABS(tt.hours_logged_seconds)
+            WHEN tt.hours_logged IS NOT NULL AND tt.hours_logged != 0 
+              THEN ABS(tt.hours_logged)
+            WHEN tt.start_time IS NOT NULL AND tt.end_time IS NOT NULL THEN 
+              ABS(TIMESTAMPDIFF(SECOND, tt.start_time, tt.end_time))
+            ELSE 0
+          END
+        ), 0) as total_seconds
+      FROM employees e
+      LEFT JOIN task_timesheet tt ON tt.employee_name = e.name
+        AND tt.start_time >= ? AND tt.start_time <= ?
+      WHERE e.status = 'Active'
+      GROUP BY e.id, e.name, e.employee_id, e.department, e.designation
+      HAVING total_seconds < ?
+      ORDER BY total_seconds ASC, e.department, e.name
+    `;
+
+    const [rows] = await connection.execute(query, [startDate, endDate, minSeconds]);
+
+    let ticketsCreated = 0;
+    for (const row of rows) {
+      const employeeId = row.id;
+      const department = row.department || null;
+
+      // Avoid duplicate tickets for same employee/date/category with open/in-progress status
+      const [existing] = await connection.execute(
+        `SELECT id FROM tickets 
+         WHERE category = 'Less hours logged' 
+           AND assigned_to = ? 
+           AND DATE(created_at) = ? 
+           AND status IN ('Open', 'In Progress')
+         LIMIT 1`,
+        [employeeId, dateStr]
+      );
+      if (existing.length > 0) {
+        continue;
+      }
+
+      // Generate a new ticket number
+      const { ticketNumber } = await generateTicketNumber(connection);
+
+      const insertQuery = `
+        INSERT INTO tickets (ticket_number, title, description, category, priority, status, assigned_to, department, created_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `;
+
+      const title = 'EMS less hours.';
+      const description = `This notification is to notify you that you have hours logged less than ${thresholdHours} in EMS for ${dateStr}.`;
+      const category = 'Less hours logged';
+      const priority = 'High';
+
+      const [result] = await connection.execute(insertQuery, [
+        ticketNumber,
+        title,
+        description,
+        category,
+        priority,
+        'Open',
+        employeeId,
+        department,
+        null
+      ]);
+
+      const ticketId = result.insertId;
+
+      // Create notification so employee sees the ticket in notifications
+      try {
+        await createNotification(
+          employeeId,
+          ticketId,
+          'less_hours_ticket',
+          'EMS less hours',
+          `You have logged less than ${thresholdHours} hours in EMS for ${dateStr}. A ticket has been created.`
+        );
+      } catch (notifyErr) {
+        console.warn('Failed to create less-hours ticket notification:', notifyErr);
+      }
+
+      ticketsCreated += 1;
+    }
+
+    return { date: dateStr, thresholdHours, ticketsCreated };
+  } finally {
+    if (connection) {
+      connection.release();
+    }
+  }
+}
+
+// Admin-only endpoint to auto-create less-hours tickets for a given date/threshold
+app.post('/api/tickets/auto-less-hours', async (req, res) => {
+  const userRole = req.headers['user-role'] || req.headers['x-user-role'] || 'employee';
+  const userPermissionsHeader = req.headers['user-permissions'] || req.headers['x-user-permissions'] || '[]';
+
+  let userPermissions = [];
+  try {
+    userPermissions = typeof userPermissionsHeader === 'string'
+      ? JSON.parse(userPermissionsHeader)
+      : [];
+  } catch (e) {
+    return res.status(400).json({ error: 'Invalid permissions format' });
+  }
+
+  const canRun =
+    userRole === 'admin' ||
+    userRole === 'Admin' ||
+    userPermissions.includes('all') ||
+    userPermissions.includes('tickets_auto_less_hours');
+
+  if (!canRun) {
+    return res.status(403).json({ error: 'Access denied: You do not have permission to auto-create less-hours tickets' });
+  }
+
+  const body = req.body || {};
+  const dateFromBody = body.date;
+  const minHoursFromBody = body.minHours;
+  const dateFromQuery = req.query.date;
+  const minHoursFromQuery = req.query.minHours;
+
+  const targetDate = (dateFromBody || dateFromQuery || new Date().toISOString().split('T')[0]).split('T')[0];
+  const thresholdHours = Number(minHoursFromBody || minHoursFromQuery || 6) || 6;
+
+  try {
+    const result = await createLessHoursTicketsForDate(targetDate, thresholdHours);
+    res.json(result);
+  } catch (err) {
+    console.error('Error auto-creating less-hours tickets:', err);
+    res.status(500).json({ error: 'Failed to auto-create less-hours tickets' });
   }
 });
 // Get single ticket

@@ -138,7 +138,12 @@ export default function Tickets() {
 
   // Ticket categories and priorities
   const ticketCategories = [
-    'Technical Support', 'HR Inquiry', 'General Support', 'Task Related', 'Feedback'
+    'Technical Support',
+    'HR Inquiry',
+    'General Support',
+    'Task Related',
+    'Feedback',
+    'Less hours logged'
   ];
   const ticketPriorities = ['Low', 'Medium', 'High', 'Critical'];
   const ticketStatuses = ['Open', 'In Progress', 'Resolved', 'Closed'];

@@ -103,16 +103,6 @@ const OverEstimateTaskNotificationPanel = ({
     };
   }, [notifications, filters]);
 
-  const handleApplyFilters = (e) => {
-    e.preventDefault();
-    const form = e.target.form || e.currentTarget.form || e.currentTarget;
-    const start = form.start?.value || startDate;
-    const end = form.end?.value || endDate;
-    const desig = form.designation?.value || '';
-    const minOver = parseInt(form.minOver?.value, 10) || minOverMinutes;
-    onUpdateFilters({ start, end, designation: desig, minOver });
-  };
-
   if (!isOpen) return null;
 
   const totalCount = Object.values(groupedByDepartment).reduce((sum, arr) => sum + arr.length, 0);
@@ -215,34 +205,6 @@ const OverEstimateTaskNotificationPanel = ({
           </div>
 
           <form className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
-            {/* Start Date */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
-              <div className="relative">
-                <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-                <input
-                  type="date"
-                  name="start"
-                  defaultValue={localStart}
-                  className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500"
-                />
-              </div>
-            </div>
-
-            {/* End Date */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">End Date</label>
-              <div className="relative">
-                <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-                <input
-                  type="date"
-                  name="end"
-                  defaultValue={localEnd}
-                  className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500"
-                />
-              </div>
-            </div>
-
             {/* Designation (backend filter) */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Designation</label>
@@ -260,21 +222,6 @@ const OverEstimateTaskNotificationPanel = ({
                     </option>
                   ))}
                 </select>
-              </div>
-            </div>
-
-            {/* Min Overrun */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Min Overrun (minutes)</label>
-              <div className="relative">
-                <ClockIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-                <input
-                  type="number"
-                  name="minOver"
-                  min="0"
-                  defaultValue={localMinOver}
-                  className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500"
-                />
               </div>
             </div>
 
@@ -321,18 +268,6 @@ const OverEstimateTaskNotificationPanel = ({
                   <option key={priority} value={priority}>{priority}</option>
                 ))}
               </select>
-            </div>
-
-            {/* Apply button (for date & threshold only; filters apply live) */}
-            <div className="md:col-span-4 flex justify-end mt-2">
-              <button
-                type="button"
-                onClick={handleApplyFilters}
-                className="inline-flex items-center space-x-2 px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors"
-              >
-                <Filter className="w-4 h-4" />
-                <span>Apply Date & Threshold</span>
-              </button>
             </div>
           </form>
         </div>
