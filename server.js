@@ -2430,7 +2430,6 @@ app.get('/api/notifications/tasks-over-estimate', async (req, res) => {
       DATE(tt.start_time) AS log_date,
       MAX(COALESCE(t.time_estimate_hours, 0)) AS time_estimate_hours,
       MAX(COALESCE(t.time_estimate_minutes, 0)) AS time_estimate_minutes,
-      MAX(COALESCE(t.time_estimate, 0)) AS time_estimate_fallback,
       SUM(
         CASE 
           WHEN tt.hours_logged_seconds IS NOT NULL AND tt.hours_logged_seconds != 0 
@@ -2465,15 +2464,12 @@ app.get('/api/notifications/tasks-over-estimate', async (req, res) => {
 
     // Map to a cleaner shape for the frontend
     const items = rows.map(row => {
-      // Compute estimateSeconds consistently with HAVING clause
+      // Compute estimateSeconds from hours and minutes only (no fallback column in this schema)
       const estHours = Number(row.time_estimate_hours) || 0;
       const estMinutes = Number(row.time_estimate_minutes) || 0;
-      const estFallback = Number(row.time_estimate_fallback) || 0;
       let estimateSeconds = 0;
       if (estHours > 0 || estMinutes > 0) {
         estimateSeconds = (estHours * 60 + estMinutes) * 60;
-      } else if (estFallback > 0) {
-        estimateSeconds = estFallback * 60;
       }
       const actualSeconds = Number(row.actual_seconds) || 0;
       const overrunSeconds = Math.max(0, actualSeconds - estimateSeconds);
