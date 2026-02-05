@@ -91,7 +91,10 @@ const Sidebar = ({ currentView, onViewChange }) => {
           { id: 'employees', label: 'Employees', icon: Users, permission: 'view_employees_submenu' },
           { id: 'errors', label: 'Errors', icon: AlertTriangle, permission: 'view_errors_submenu' },
           { id: 'issues', label: 'Issues', icon: AlertTriangle, permission: 'view_errors_submenu' },
+          // Leaves group header (collapsible)
           { id: 'leaves', label: 'Leaves', icon: Calendar, permission: 'view_leaves_submenu' },
+          // Main My Leaves entry under Leaves group
+          { id: 'leaves_main', label: 'My Leaves', icon: Calendar, permission: 'view_leaves_submenu' },
           // Manager/admin-only subsections under Leaves
           ...(isAdmin || isManager
             ? [
@@ -186,6 +189,7 @@ const Sidebar = ({ currentView, onViewChange }) => {
 
                       const isLeavesParent = child.id === 'leaves';
                       const leavesSubIds = [
+                        'leaves_main',
                         'leaves_department_pending',
                         'leaves_department_approved',
                         'leaves_department_rejected',
@@ -205,7 +209,6 @@ const Sidebar = ({ currentView, onViewChange }) => {
                           <div key="leaves-group" className="space-y-1">
                             <button
                               onClick={() => {
-                                onViewChange('leaves');
                                 setLeavesOpen((prev) => !prev);
                               }}
                               className={`w-full flex items-center justify-between px-2 py-2 text-left text-sm rounded ${

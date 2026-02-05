@@ -757,21 +757,12 @@ export default function Leaves({ initialTab, initialManagerSection }) {
       case TABS.APPLY:
         return renderApplyForm();
       case TABS.PENDING:
-        // Default: combined view for employees (and managers when coming via main Leaves tab)
+        // Default: personal-only view (main Leaves / My Leaves)
         if (!isManagerOrAdmin || !managerViewMode) {
           return (
             <div className="space-y-6">
               <h2 className="text-lg font-semibold text-gray-900">My pending leaves</h2>
               {renderLeaveTable(myLeaves.pending || [])}
-              {isManagerOrAdmin && (
-                <>
-                  <h2 className="text-lg font-semibold text-gray-900 mt-6">
-                    Department pending leaves
-                  </h2>
-                  {renderDepartmentTable(departmentLeaves.pending || [], true)}
-                  {renderMarkUninformedForm()}
-                </>
-              )}
             </div>
           );
         }
@@ -803,14 +794,6 @@ export default function Leaves({ initialTab, initialManagerSection }) {
             <div className="space-y-6">
               <h2 className="text-lg font-semibold text-gray-900">My recent approved leaves</h2>
               {renderLeaveTable(myLeaves.recent_approved || [])}
-              {isManagerOrAdmin && (
-                <>
-                  <h2 className="text-lg font-semibold text-gray-900 mt-6">
-                    Department recent approved leaves
-                  </h2>
-                  {renderDepartmentTable(departmentLeaves.recent_approved || [], false)}
-                </>
-              )}
             </div>
           );
         }
@@ -831,14 +814,6 @@ export default function Leaves({ initialTab, initialManagerSection }) {
             <div className="space-y-6">
               <h2 className="text-lg font-semibold text-gray-900">My recent rejected leaves</h2>
               {renderLeaveTable(myLeaves.recent_rejected || [])}
-              {isManagerOrAdmin && (
-                <>
-                  <h2 className="text-lg font-semibold text-gray-900 mt-6">
-                    Department recent rejected leaves
-                  </h2>
-                  {renderDepartmentTable(departmentLeaves.recent_rejected || [], false)}
-                </>
-              )}
             </div>
           );
         }

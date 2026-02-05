@@ -460,6 +460,12 @@ const AuthenticatedApp = () => {
             <Leaves />
           </Suspense>
         );
+      case 'leaves_main':
+        return (
+          <Suspense fallback={<LoadingFallback />}>
+            <Leaves />
+          </Suspense>
+        );
       case 'leaves_department_pending':
         return (
           <Suspense fallback={<LoadingFallback />}>
