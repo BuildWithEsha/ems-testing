@@ -126,10 +126,15 @@ export default function Leaves({ initialTab, initialManagerSection }) {
   const loadDepartmentLeaves = async () => {
     if (!isManagerOrAdmin) return;
     try {
-      const url = isAdmin && !departmentId
-        ? '/api/leaves/department'
-        : `/api/leaves/department?department_id=${departmentId}`;
-      const res = await fetch(url);
+      const url =
+        isAdmin && !departmentId
+          ? '/api/leaves/department'
+          : `/api/leaves/department?department_id=${departmentId}`;
+      const res = await fetch(url, {
+        headers: {
+          'user-role': user?.role || user?.user_role || (user?.designation || 'employee'),
+        },
+      });
       if (res.ok) {
         const data = await res.json();
         setDepartmentLeaves({
