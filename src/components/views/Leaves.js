@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 
 const TABS = {
@@ -63,6 +63,11 @@ export default function Leaves({ initialTab, initialManagerSection }) {
   const [uninformedEmployeeSearch, setUninformedEmployeeSearch] = useState('');
   const [uninformedDepartmentFilter, setUninformedDepartmentFilter] = useState('');
   const [selectedEmployeeReport, setSelectedEmployeeReport] = useState(null);
+  const [uninformedEmployeeDropdownOpen, setUninformedEmployeeDropdownOpen] = useState(false);
+  const uninformedEmployeeDropdownRef = useRef(null);
+
+  // Shared leave-details modal state for My Leaves & Department views
+  const [selectedLeaveForDetails, setSelectedLeaveForDetails] = useState(null);
 
   const loadMyLeaves = async () => {
     if (!employeeId) return;
@@ -485,6 +490,10 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     );
   };
 
+  const openLeaveDetails = (row) => {
+    setSelectedLeaveForDetails(row);
+  };
+
   const renderLeaveTable = (rows) => (
     <div className="bg-white border rounded p-4">
       {rows.length === 0 ? (
@@ -500,13 +509,15 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                 <th className="px-4 py-2 text-left font-medium text-gray-700">Paid</th>
                 <th className="px-4 py-2 text-left font-medium text-gray-700">Reason</th>
                 <th className="px-4 py-2 text-left font-medium text-gray-700">Decision</th>
+                <th className="px-4 py-2 text-left font-medium text-gray-700">Details</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
               {rows.map((row) => (
                 <tr key={row.id}>
                   <td className="px-4 py-2 text-gray-800">
-                    {row.start_date} {row.start_date !== row.end_date ? `→ ${row.end_date}` : ''}
+                    {formatDate(row.start_date)}{' '}
+                    {row.start_date !== row.end_date ? `→ ${formatDate(row.end_date)}` : ''}
                   </td>
                   <td className="px-4 py-2 text-gray-800">
                     {row.start_segment} → {row.end_segment}
@@ -517,6 +528,18 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                   <td className="px-4 py-2 text-gray-800">
                     {row.status}
                     {row.decision_reason ? ` – ${row.decision_reason}` : ''}
+                    {row.status !== 'pending' && row.decision_by_name
+                      ? ` (by ${row.decision_by_name})`
+                      : ''}
+                  </td>
+                  <td className="px-4 py-2 text-gray-800">
+                    <button
+                      type="button"
+                      onClick={() => openLeaveDetails(row)}
+                      className="px-2 py-1 text-xs rounded bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
+                    >
+                      View
+                    </button>
                   </td>
                 </tr>
               ))}
@@ -667,6 +690,9 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                 {showActions && (
                   <th className="px-4 py-2 text-left font-medium text-gray-700">Actions</th>
                 )}
+                {!showActions && (
+                  <th className="px-4 py-2 text-left font-medium text-gray-700">Details</th>
+                )}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
@@ -676,10 +702,16 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                     {row.employee_name || row.employee_id}
                   </td>
                   <td className="px-4 py-2 text-gray-800">
-                    {row.start_date} {row.start_date !== row.end_date ? `→ ${row.end_date}` : ''}
+                    {formatDate(row.start_date)}{' '}
+                    {row.start_date !== row.end_date ? `→ ${formatDate(row.end_date)}` : ''}
                   </td>
                   <td className="px-4 py-2 text-gray-800">{row.days_requested}</td>
-                  <td className="px-4 py-2 text-gray-800">{row.status}</td>
+                  <td className="px-4 py-2 text-gray-800">
+                    {row.status}
+                    {row.status !== 'pending' && row.decision_by_name
+                      ? ` (by ${row.decision_by_name})`
+                      : ''}
+                  </td>
                   {showActions && (
                     <td className="px-4 py-2 text-gray-800 space-x-2">
                       {row.status === 'pending' && (
@@ -706,6 +738,17 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                         className="px-2 py-1 text-xs rounded bg-yellow-500 text-white"
                       >
                         Mark Uninformed
+                      </button>
+                    </td>
+                  )}
+                  {!showActions && (
+                    <td className="px-4 py-2 text-gray-800">
+                      <button
+                        type="button"
+                        onClick={() => openLeaveDetails(row)}
+                        className="px-2 py-1 text-xs rounded bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
+                      >
+                        View
                       </button>
                     </td>
                   )}
@@ -917,7 +960,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
       <div className="bg-white border rounded p-6">
         <h2 className="text-lg font-semibold text-gray-900 mb-4">Mark Uninformed Leave</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
+          <div ref={uninformedEmployeeDropdownRef}>
             <label className="block text-sm font-medium text-gray-700 mb-1">Department</label>
             <select
               value={uninformedDepartmentFilter}
@@ -937,39 +980,89 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                 </option>
               ))}
             </select>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Search Employee</label>
-            <input
-              type="text"
-              value={uninformedEmployeeSearch}
-              onChange={(e) => setUninformedEmployeeSearch(e.target.value)}
-              placeholder="Type name to search..."
-              className="w-full border rounded px-3 py-2 mb-2"
-            />
             <label className="block text-sm font-medium text-gray-700 mb-1">Employee</label>
-            <select
-              name="employee_id"
-              value={markUninformedForm.employee_id}
-              onChange={handleMarkUninformedFormChange}
-              className="w-full border rounded px-3 py-2"
-            >
-              <option value="">Select employee</option>
-              {markUninformedEmployees
-                .filter((emp) => {
-                  const matchesDept =
-                    !uninformedDepartmentFilter || emp.department === uninformedDepartmentFilter;
-                  const matchesSearch =
-                    !uninformedEmployeeSearch ||
-                    (emp.name || '')
-                      .toLowerCase()
-                      .includes(uninformedEmployeeSearch.toLowerCase());
-                  return matchesDept && matchesSearch;
-                })
-                .map((emp) => (
-                  <option key={emp.id} value={emp.id}>
-                    {emp.name} {emp.department ? `(${emp.department})` : ''}
-                  </option>
-                ))}
-            </select>
+            <div className="relative">
+              <input
+                type="text"
+                value={
+                  uninformedEmployeeDropdownOpen
+                    ? uninformedEmployeeSearch
+                    : (() => {
+                        const selected = markUninformedEmployees.find(
+                          (emp) => String(emp.id) === String(markUninformedForm.employee_id)
+                        );
+                        return selected
+                          ? `${selected.name}${selected.department ? ` (${selected.department})` : ''}`
+                          : '';
+                      })()
+                }
+                onChange={(e) => {
+                  setUninformedEmployeeSearch(e.target.value);
+                  setUninformedEmployeeDropdownOpen(true);
+                  if (!e.target.value) {
+                    setMarkUninformedForm((prev) => ({ ...prev, employee_id: '' }));
+                    setSelectedEmployeeReport(null);
+                  }
+                }}
+                onFocus={() => {
+                  setUninformedEmployeeDropdownOpen(true);
+                  const selected = markUninformedEmployees.find(
+                    (emp) => String(emp.id) === String(markUninformedForm.employee_id)
+                  );
+                  setUninformedEmployeeSearch(selected?.name || '');
+                }}
+                placeholder="Type employee name..."
+                className="w-full border rounded px-3 py-2 pr-8"
+                autoComplete="off"
+              />
+              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">
+                ▼
+              </span>
+              {uninformedEmployeeDropdownOpen && (
+                <ul className="absolute z-20 mt-1 w-full max-h-60 overflow-auto bg-white border border-gray-300 rounded-lg shadow-lg py-1">
+                  {markUninformedEmployees
+                    .filter((emp) => {
+                      const matchesDept =
+                        !uninformedDepartmentFilter || emp.department === uninformedDepartmentFilter;
+                      const matchesSearch =
+                        !uninformedEmployeeSearch ||
+                        (emp.name || '')
+                          .toLowerCase()
+                          .includes(uninformedEmployeeSearch.toLowerCase());
+                      return matchesDept && matchesSearch;
+                    })
+                    .map((emp) => (
+                      <li
+                        key={emp.id}
+                        className="px-3 py-2 text-sm cursor-pointer hover:bg-indigo-50"
+                        onClick={() => {
+                          setMarkUninformedForm((prev) => ({
+                            ...prev,
+                            employee_id: String(emp.id),
+                          }));
+                          setUninformedEmployeeSearch('');
+                          setUninformedEmployeeDropdownOpen(false);
+                          loadEmployeeReport(Number(emp.id));
+                        }}
+                      >
+                        {emp.name} {emp.department ? `(${emp.department})` : ''}
+                      </li>
+                    ))}
+                  {markUninformedEmployees.filter((emp) => {
+                    const matchesDept =
+                      !uninformedDepartmentFilter || emp.department === uninformedDepartmentFilter;
+                    const matchesSearch =
+                      !uninformedEmployeeSearch ||
+                      (emp.name || '')
+                        .toLowerCase()
+                        .includes(uninformedEmployeeSearch.toLowerCase());
+                    return matchesDept && matchesSearch;
+                  }).length === 0 && (
+                    <li className="px-3 py-2 text-sm text-gray-500">No employees found</li>
+                  )}
+                </ul>
+              )}
+            </div>
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Reason</label>
@@ -1275,44 +1368,218 @@ export default function Leaves({ initialTab, initialManagerSection }) {
 
   if (mode === 'markUninformed') {
     return (
-      <div className="p-6">
-        <h1 className="text-2xl font-semibold text-gray-900 mb-4">Mark Uninformed Leaves</h1>
-        {renderMarkUninformedContent()}
-      </div>
+      <>
+        <div className="p-6">
+          <h1 className="text-2xl font-semibold text-gray-900 mb-4">Mark Uninformed Leaves</h1>
+          {renderMarkUninformedContent()}
+        </div>
+        {selectedLeaveForDetails && (
+          <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/30">
+            <div className="bg-white rounded-lg shadow-xl max-w-lg w-full mx-4 p-6">
+              <h2 className="text-lg font-semibold text-gray-900 mb-3">Leave Details</h2>
+              <div className="space-y-2 text-sm text-gray-700">
+                {selectedLeaveForDetails.employee_name && (
+                  <div>
+                    <span className="font-semibold">Employee:</span>{' '}
+                    {selectedLeaveForDetails.employee_name}
+                  </div>
+                )}
+                <div>
+                  <span className="font-semibold">Dates:</span>{' '}
+                  {formatDate(selectedLeaveForDetails.start_date)}
+                  {selectedLeaveForDetails.start_date !== selectedLeaveForDetails.end_date
+                    ? ` – ${formatDate(selectedLeaveForDetails.end_date)}`
+                    : ''}
+                </div>
+                {selectedLeaveForDetails.start_segment && (
+                  <div>
+                    <span className="font-semibold">Segments:</span>{' '}
+                    {selectedLeaveForDetails.start_segment} →{' '}
+                    {selectedLeaveForDetails.end_segment}
+                  </div>
+                )}
+                <div>
+                  <span className="font-semibold">Days:</span>{' '}
+                  {Number(selectedLeaveForDetails.days_requested).toFixed(2)}
+                </div>
+                {selectedLeaveForDetails.status && (
+                  <div>
+                    <span className="font-semibold">Status:</span>{' '}
+                    {selectedLeaveForDetails.status}
+                  </div>
+                )}
+                <div>
+                  <span className="font-semibold">Paid:</span>{' '}
+                  {selectedLeaveForDetails.is_paid ? 'Yes' : 'No'}
+                </div>
+                <div>
+                  <span className="font-semibold">Uninformed:</span>{' '}
+                  {selectedLeaveForDetails.is_uninformed ? 'Yes' : 'No'}
+                </div>
+                {selectedLeaveForDetails.reason && (
+                  <div>
+                    <span className="font-semibold">Reason:</span>{' '}
+                    {selectedLeaveForDetails.reason}
+                  </div>
+                )}
+                {selectedLeaveForDetails.decision_reason && (
+                  <div>
+                    <span className="font-semibold">Decision notes:</span>{' '}
+                    {selectedLeaveForDetails.decision_reason}
+                  </div>
+                )}
+                {selectedLeaveForDetails.created_at && (
+                  <div>
+                    <span className="font-semibold">Applied at:</span>{' '}
+                    {formatDateTime(selectedLeaveForDetails.created_at)}
+                  </div>
+                )}
+                {selectedLeaveForDetails.decision_at && (
+                  <div>
+                    <span className="font-semibold">Decided at:</span>{' '}
+                    {formatDateTime(selectedLeaveForDetails.decision_at)}
+                  </div>
+                )}
+              </div>
+              <div className="mt-4 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setSelectedLeaveForDetails(null)}
+                  className="px-4 py-2 text-sm rounded-md bg-gray-100 text-gray-800 hover:bg-gray-200"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </>
     );
   }
 
   // Default: "My Leaves" – self-service employee view (for employees, managers, admins)
   return (
-    <div className="p-6">
-      <h1 className="text-2xl font-semibold text-gray-900 mb-4">My Leaves</h1>
-      <div className="mb-4 border-b border-gray-200">
-        <nav className="-mb-px flex space-x-4" aria-label="Tabs">
-          {[
-            { id: TABS.APPLY, label: 'Apply for Leave' },
-            { id: TABS.PENDING, label: 'Pending Approval' },
-            { id: TABS.APPROVED, label: 'Recent Approved' },
-            { id: TABS.REJECTED, label: 'Recent Rejected' },
-            { id: TABS.POLICY, label: 'Leave Policy' },
-            { id: TABS.REPORT, label: 'My Leave Report' },
-          ].map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setActiveTab(tab.id)}
-              className={`whitespace-nowrap py-2 px-3 border-b-2 text-sm font-medium ${
-                activeTab === tab.id
-                  ? 'border-indigo-500 text-indigo-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </nav>
+    <>
+      <div className="p-6">
+        <h1 className="text-2xl font-semibold text-gray-900 mb-4">My Leaves</h1>
+        <div className="mb-4 border-b border-gray-200">
+          <nav className="-mb-px flex space-x-4" aria-label="Tabs">
+            {[
+              { id: TABS.APPLY, label: 'Apply for Leave' },
+              { id: TABS.PENDING, label: 'Pending Approval' },
+              { id: TABS.APPROVED, label: 'Recent Approved' },
+              { id: TABS.REJECTED, label: 'Recent Rejected' },
+              { id: TABS.POLICY, label: 'Leave Policy' },
+              { id: TABS.REPORT, label: 'My Leave Report' },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTab(tab.id)}
+                className={`whitespace-nowrap py-2 px-3 border-b-2 text-sm font-medium ${
+                  activeTab === tab.id
+                    ? 'border-indigo-500 text-indigo-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </nav>
+        </div>
+        {renderMyLeavesContent()}
       </div>
-      {renderMyLeavesContent()}
-    </div>
+      {selectedLeaveForDetails && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/30">
+          <div className="bg-white rounded-lg shadow-xl max-w-lg w-full mx-4 p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-3">Leave Details</h2>
+            <div className="space-y-2 text-sm text-gray-700">
+              <div>
+                <span className="font-semibold">Dates:</span>{' '}
+                {formatDate(selectedLeaveForDetails.start_date)}
+                {selectedLeaveForDetails.start_date !== selectedLeaveForDetails.end_date
+                  ? ` – ${formatDate(selectedLeaveForDetails.end_date)}`
+                  : ''}
+              </div>
+              {selectedLeaveForDetails.start_segment && (
+                <div>
+                  <span className="font-semibold">Segments:</span>{' '}
+                  {selectedLeaveForDetails.start_segment} →{' '}
+                  {selectedLeaveForDetails.end_segment}
+                </div>
+              )}
+              <div>
+                <span className="font-semibold">Days:</span>{' '}
+                {Number(selectedLeaveForDetails.days_requested).toFixed(2)}
+              </div>
+              {selectedLeaveForDetails.status && (
+                <div>
+                  <span className="font-semibold">Status:</span>{' '}
+                  {selectedLeaveForDetails.status}
+                </div>
+              )}
+              {selectedLeaveForDetails.status &&
+                selectedLeaveForDetails.status !== 'pending' &&
+                selectedLeaveForDetails.decision_by_name && (
+                  <div>
+                    <span className="font-semibold">Decided by:</span>{' '}
+                    {selectedLeaveForDetails.decision_by_name}
+                  </div>
+                )}
+              {selectedLeaveForDetails.status &&
+                selectedLeaveForDetails.status !== 'pending' &&
+                selectedLeaveForDetails.decision_by_name && (
+                  <div>
+                    <span className="font-semibold">Decided by:</span>{' '}
+                    {selectedLeaveForDetails.decision_by_name}
+                  </div>
+                )}
+              <div>
+                <span className="font-semibold">Paid:</span>{' '}
+                {selectedLeaveForDetails.is_paid ? 'Yes' : 'No'}
+              </div>
+              <div>
+                <span className="font-semibold">Uninformed:</span>{' '}
+                {selectedLeaveForDetails.is_uninformed ? 'Yes' : 'No'}
+              </div>
+              {selectedLeaveForDetails.reason && (
+                <div>
+                  <span className="font-semibold">Reason:</span>{' '}
+                  {selectedLeaveForDetails.reason}
+                </div>
+              )}
+              {selectedLeaveForDetails.decision_reason && (
+                <div>
+                  <span className="font-semibold">Decision notes:</span>{' '}
+                  {selectedLeaveForDetails.decision_reason}
+                </div>
+              )}
+              {selectedLeaveForDetails.created_at && (
+                <div>
+                  <span className="font-semibold">Applied at:</span>{' '}
+                  {formatDateTime(selectedLeaveForDetails.created_at)}
+                </div>
+              )}
+              {selectedLeaveForDetails.decision_at && (
+                <div>
+                  <span className="font-semibold">Decided at:</span>{' '}
+                  {formatDateTime(selectedLeaveForDetails.decision_at)}
+                </div>
+              )}
+            </div>
+            <div className="mt-4 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setSelectedLeaveForDetails(null)}
+                className="px-4 py-2 text-sm rounded-md bg-gray-100 text-gray-800 hover:bg-gray-200"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
