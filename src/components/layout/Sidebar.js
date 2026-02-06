@@ -95,12 +95,12 @@ const Sidebar = ({ currentView, onViewChange }) => {
           { id: 'leaves', label: 'Leaves', icon: Calendar, permission: 'view_leaves_submenu' },
           // Main My Leaves entry under Leaves group
           { id: 'leaves_main', label: 'My Leaves', icon: Calendar, permission: 'view_leaves_submenu' },
-          // Manager/admin-only subsections under Leaves
-          ...(isAdmin || isManager
+          { id: 'calendar', label: 'Calendar', icon: Calendar, permission: 'view_leaves_submenu' },
+          // Admin-only: acknowledge emergency leaves and history
+          ...(isAdmin
             ? [
-                { id: 'leaves_department_pending', label: 'Dept Pending Leaves', icon: Eye, permission: 'view_leaves_submenu' },
-                { id: 'leaves_department_approved', label: 'Dept Approved Leaves', icon: Eye, permission: 'view_leaves_submenu' },
-                { id: 'leaves_department_rejected', label: 'Dept Rejected Leaves', icon: Eye, permission: 'view_leaves_submenu' },
+                { id: 'leaves_acknowledge', label: 'Acknowledge', icon: Eye, permission: 'view_leaves_submenu' },
+                { id: 'leaves_acknowledge_history', label: 'Acknowledge history', icon: Eye, permission: 'view_leaves_submenu' },
               ]
             : []),
           { id: 'shiftRoster', label: 'Shift Roster', icon: Clock, permission: 'view_shift_roster_submenu' },
@@ -118,7 +118,7 @@ const Sidebar = ({ currentView, onViewChange }) => {
       { id: 'earnTrackWages', label: 'Wages Tracker', icon: DollarSign, adminOnly: true },
       { id: 'noticeBoard', label: 'Notice Board', icon: Megaphone, permission: 'view_notice_board_menu', isSpecial: true },
       { id: 'tickets', label: 'Tickets', icon: MessageSquare, permission: null, isSpecial: true },
-      { id: 'calendar', label: 'Calendar', icon: Calendar, permission: 'view_calendar_menu' },
+      { id: 'calendar', label: 'Calendar', icon: Calendar, permission: null },
       { id: 'settings', label: 'Settings', icon: Settings, permission: 'view_settings_menu' },
     ];
 
@@ -189,9 +189,9 @@ const Sidebar = ({ currentView, onViewChange }) => {
                       const isLeavesParent = child.id === 'leaves';
                       const leavesSubIds = [
                         'leaves_main',
-                        'leaves_department_pending',
-                        'leaves_department_approved',
-                        'leaves_department_rejected',
+                        'calendar',
+                        'leaves_acknowledge',
+                        'leaves_acknowledge_history',
                       ];
 
                       // Render Leaves as a collapsible group with its own arrow and subsections

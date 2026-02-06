@@ -467,22 +467,16 @@ const AuthenticatedApp = () => {
             <Leaves key="leaves_main" />
           </Suspense>
         );
-      case 'leaves_department_pending':
+      case 'leaves_acknowledge':
         return (
           <Suspense fallback={<LoadingFallback />}>
-            <Leaves key="leaves_department_pending" initialTab="pending" initialManagerSection="department" />
+            <Leaves key="leaves_acknowledge" initialTab="acknowledge" initialManagerSection="department" />
           </Suspense>
         );
-      case 'leaves_department_approved':
+      case 'leaves_acknowledge_history':
         return (
           <Suspense fallback={<LoadingFallback />}>
-            <Leaves key="leaves_department_approved" initialTab="approved" initialManagerSection="department" />
-          </Suspense>
-        );
-      case 'leaves_department_rejected':
-        return (
-          <Suspense fallback={<LoadingFallback />}>
-            <Leaves key="leaves_department_rejected" initialTab="rejected" initialManagerSection="department" />
+            <Leaves key="leaves_acknowledge_history" initialTab="ack_history" initialManagerSection="department" />
           </Suspense>
         );
       case 'shiftRoster':

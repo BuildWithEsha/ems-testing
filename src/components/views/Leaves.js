@@ -3,13 +3,11 @@ import { useAuth } from '../../contexts/AuthContext';
 
 const TABS = {
   APPLY: 'apply',
-  PENDING: 'pending',
-  APPROVED: 'approved',
-  REJECTED: 'rejected',
   FUTURE: 'future',
   PAST: 'past',
   POLICY: 'policy',
   REPORT: 'report',
+  ACKNOWLEDGE: 'acknowledge',
   ACK_HISTORY: 'ack_history',
 };
 
@@ -31,11 +29,11 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     initialTab && Object.values(TABS).includes(initialTab) ? initialTab : TABS.APPLY
   );
   const todayStr = () => new Date().toISOString().split('T')[0];
-  // Tab state for Department view (pending / approved / rejected / ack_history for admin)
+  // Tab state for Department view (acknowledge / ack_history only)
   const [departmentTab, setDepartmentTab] = useState(
-    initialTab && [TABS.PENDING, TABS.APPROVED, TABS.REJECTED, TABS.ACK_HISTORY].includes(initialTab)
+    initialTab && [TABS.ACKNOWLEDGE, TABS.ACK_HISTORY].includes(initialTab)
       ? initialTab
-      : TABS.PENDING
+      : TABS.ACKNOWLEDGE
   );
   const [ackHistoryRows, setAckHistoryRows] = useState([]);
   const [editingLeave, setEditingLeave] = useState(null);
@@ -1694,150 +1692,6 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     switch (activeTab) {
       case TABS.APPLY:
         return renderApplyForm();
-      case TABS.PENDING: {
-        const rows = filterByCommonCriteria(myLeaves.pending || [], myFilters);
-        return (
-          <div className="space-y-4">
-            <h2 className="text-lg font-semibold text-gray-900">My pending leaves</h2>
-            <div className="flex flex-wrap gap-3 text-xs text-gray-700 bg-white border rounded px-4 py-3">
-              <div>
-                <label className="block mb-1 font-medium">From</label>
-                <input
-                  type="date"
-                  value={myFilters.startDate}
-                  onChange={(e) => setMyFilters((f) => ({ ...f, startDate: e.target.value }))}
-                  className="border rounded px-2 py-1"
-                />
-              </div>
-              <div>
-                <label className="block mb-1 font-medium">To</label>
-                <input
-                  type="date"
-                  value={myFilters.endDate}
-                  onChange={(e) => setMyFilters((f) => ({ ...f, endDate: e.target.value }))}
-                  className="border rounded px-2 py-1"
-                />
-              </div>
-              <div>
-                <label className="block mb-1 font-medium">Min days</label>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.5"
-                  value={myFilters.minDays}
-                  onChange={(e) => setMyFilters((f) => ({ ...f, minDays: e.target.value }))}
-                  className="border rounded px-2 py-1 w-20"
-                />
-              </div>
-              <div>
-                <label className="block mb-1 font-medium">Max days</label>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.5"
-                  value={myFilters.maxDays}
-                  onChange={(e) => setMyFilters((f) => ({ ...f, maxDays: e.target.value }))}
-                  className="border rounded px-2 py-1 w-20"
-                />
-              </div>
-              <div>
-                <label className="block mb-1 font-medium">Type</label>
-                <select
-                  value={myFilters.type}
-                  onChange={(e) => setMyFilters((f) => ({ ...f, type: e.target.value }))}
-                  className="border rounded px-2 py-1"
-                >
-                <option value="all">All</option>
-                <option value="regular">Regular</option>
-                <option value="uninformed">Absent</option>
-                </select>
-              </div>
-              <button
-                type="button"
-                className="ml-auto text-[11px] text-indigo-600 underline"
-                onClick={() =>
-                  setMyFilters({ startDate: '', endDate: '', minDays: '', maxDays: '', type: 'all' })
-                }
-              >
-                Clear filters
-              </button>
-            </div>
-            {renderLeaveTable(rows)}
-          </div>
-        );
-      }
-      case TABS.APPROVED: {
-        const rows = filterByCommonCriteria(myLeaves.recent_approved || [], myFilters);
-        return (
-          <div className="space-y-4">
-            <h2 className="text-lg font-semibold text-gray-900">My recent approved leaves</h2>
-            <div className="flex flex-wrap gap-3 text-xs text-gray-700 bg-white border rounded px-4 py-3">
-              <div>
-                <label className="block mb-1 font-medium">From</label>
-                <input
-                  type="date"
-                  value={myFilters.startDate}
-                  onChange={(e) => setMyFilters((f) => ({ ...f, startDate: e.target.value }))}
-                  className="border rounded px-2 py-1"
-                />
-              </div>
-              <div>
-                <label className="block mb-1 font-medium">To</label>
-                <input
-                  type="date"
-                  value={myFilters.endDate}
-                  onChange={(e) => setMyFilters((f) => ({ ...f, endDate: e.target.value }))}
-                  className="border rounded px-2 py-1"
-                />
-              </div>
-              <div>
-                <label className="block mb-1 font-medium">Min days</label>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.5"
-                  value={myFilters.minDays}
-                  onChange={(e) => setMyFilters((f) => ({ ...f, minDays: e.target.value }))}
-                  className="border rounded px-2 py-1 w-20"
-                />
-              </div>
-              <div>
-                <label className="block mb-1 font-medium">Max days</label>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.5"
-                  value={myFilters.maxDays}
-                  onChange={(e) => setMyFilters((f) => ({ ...f, maxDays: e.target.value }))}
-                  className="border rounded px-2 py-1 w-20"
-                />
-              </div>
-              <div>
-                <label className="block mb-1 font-medium">Type</label>
-                <select
-                  value={myFilters.type}
-                  onChange={(e) => setMyFilters((f) => ({ ...f, type: e.target.value }))}
-                  className="border rounded px-2 py-1"
-                >
-                  <option value="all">All</option>
-                  <option value="regular">Regular</option>
-                  <option value="uninformed">Uninformed</option>
-                </select>
-              </div>
-              <button
-                type="button"
-                className="ml-auto text-[11px] text-indigo-600 underline"
-                onClick={() =>
-                  setMyFilters({ startDate: '', endDate: '', minDays: '', maxDays: '', type: 'all' })
-                }
-              >
-                Clear filters
-              </button>
-            </div>
-            {renderLeaveTable(rows, { showEditDates: true })}
-          </div>
-        );
-      }
       case TABS.FUTURE: {
         const today = todayStr();
         const futureApproved = (myLeaves.recent_approved || []).filter((r) => r.end_date >= today);
@@ -1994,78 +1848,6 @@ export default function Leaves({ initialTab, initialManagerSection }) {
           </div>
         );
       }
-      case TABS.REJECTED: {
-        const rows = filterByCommonCriteria(myLeaves.recent_rejected || [], myFilters);
-        return (
-          <div className="space-y-4">
-            <h2 className="text-lg font-semibold text-gray-900">My recent rejected leaves</h2>
-            <div className="flex flex-wrap gap-3 text-xs text-gray-700 bg-white border rounded px-4 py-3">
-              <div>
-                <label className="block mb-1 font-medium">From</label>
-                <input
-                  type="date"
-                  value={myFilters.startDate}
-                  onChange={(e) => setMyFilters((f) => ({ ...f, startDate: e.target.value }))}
-                  className="border rounded px-2 py-1"
-                />
-              </div>
-              <div>
-                <label className="block mb-1 font-medium">To</label>
-                <input
-                  type="date"
-                  value={myFilters.endDate}
-                  onChange={(e) => setMyFilters((f) => ({ ...f, endDate: e.target.value }))}
-                  className="border rounded px-2 py-1"
-                />
-              </div>
-              <div>
-                <label className="block mb-1 font-medium">Min days</label>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.5"
-                  value={myFilters.minDays}
-                  onChange={(e) => setMyFilters((f) => ({ ...f, minDays: e.target.value }))}
-                  className="border rounded px-2 py-1 w-20"
-                />
-              </div>
-              <div>
-                <label className="block mb-1 font-medium">Max days</label>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.5"
-                  value={myFilters.maxDays}
-                  onChange={(e) => setMyFilters((f) => ({ ...f, maxDays: e.target.value }))}
-                  className="border rounded px-2 py-1 w-20"
-                />
-              </div>
-              <div>
-                <label className="block mb-1 font-medium">Type</label>
-                <select
-                  value={myFilters.type}
-                  onChange={(e) => setMyFilters((f) => ({ ...f, type: e.target.value }))}
-                  className="border rounded px-2 py-1"
-                >
-                  <option value="all">All</option>
-                  <option value="regular">Regular</option>
-                  <option value="uninformed">Uninformed</option>
-                </select>
-              </div>
-              <button
-                type="button"
-                className="ml-auto text-[11px] text-indigo-600 underline"
-                onClick={() =>
-                  setMyFilters({ startDate: '', endDate: '', minDays: '', maxDays: '', type: 'all' })
-                }
-              >
-                Clear filters
-              </button>
-            </div>
-            {renderLeaveTable(rows)}
-          </div>
-        );
-      }
       case TABS.POLICY:
         return renderPolicy();
       case TABS.REPORT:
@@ -2075,30 +1857,66 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     }
   };
 
-  // Department view – managers/admins manage pending/approved/rejected for their department / all employees
+  // Department view – admin only: acknowledge emergency leaves and view acknowledge history
   const renderDepartmentContent = () => {
     switch (departmentTab) {
-      case TABS.PENDING:
+      case TABS.ACKNOWLEDGE: {
+        const list = pendingActions.acknowledgeRequests || [];
         return (
           <div className="space-y-6">
-            <h2 className="text-lg font-semibold text-gray-900">Department pending leaves</h2>
-            {renderDepartmentTable(departmentLeaves.pending || [], true)}
+            <h2 className="text-lg font-semibold text-gray-900">Acknowledge emergency leaves</h2>
+            <p className="text-sm text-gray-600">Leaves applied on important dates or after booker rejected swap. Approve as paid/other or reject.</p>
+            {list.length === 0 ? (
+              <div className="bg-white border rounded p-6 text-gray-500">No pending requests to acknowledge.</div>
+            ) : (
+              <div className="space-y-4">
+                {list.map((item) => (
+                  <div key={item.leave_id} className="bg-white border rounded p-4 flex flex-wrap items-center justify-between gap-3">
+                    <div className="text-sm">
+                      <span className="font-medium text-gray-900">{item.employee_name}</span>
+                      <span className="text-gray-600">
+                        {' '}– {item.start_date}
+                        {item.end_date !== item.start_date ? ` to ${item.end_date}` : ''}
+                        {item.emergency_type ? ` (${item.emergency_type})` : ''}
+                      </span>
+                    </div>
+                    <div className="flex gap-2 items-center">
+                      <select
+                        id={`ack-type-${item.leave_id}`}
+                        className="border rounded px-2 py-1.5 text-sm"
+                        defaultValue="paid"
+                      >
+                        <option value="paid">Paid</option>
+                        <option value="other">Other</option>
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const leaveType = document.getElementById(`ack-type-${item.leave_id}`)?.value || 'paid';
+                          handleAcknowledge(item.leave_id, false, leaveType);
+                        }}
+                        className="px-3 py-1.5 border border-gray-300 rounded text-sm text-gray-700 hover:bg-gray-50"
+                      >
+                        Reject
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const leaveType = document.getElementById(`ack-type-${item.leave_id}`)?.value || 'paid';
+                          handleAcknowledge(item.leave_id, true, leaveType);
+                        }}
+                        className="px-3 py-1.5 bg-indigo-600 text-white rounded text-sm hover:bg-indigo-700"
+                      >
+                        Acknowledge
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         );
-      case TABS.APPROVED:
-        return (
-          <div className="space-y-6">
-            <h2 className="text-lg font-semibold text-gray-900">Department recent approved leaves</h2>
-            {renderDepartmentTable(departmentLeaves.recent_approved || [], false)}
-          </div>
-        );
-      case TABS.REJECTED:
-        return (
-          <div className="space-y-6">
-            <h2 className="text-lg font-semibold text-gray-900">Department recent rejected leaves</h2>
-            {renderDepartmentTable(departmentLeaves.recent_rejected || [], false)}
-          </div>
-        );
+      }
       case TABS.ACK_HISTORY:
         return (
           <div className="space-y-6">
@@ -2426,15 +2244,8 @@ export default function Leaves({ initialTab, initialManagerSection }) {
         <h1 className="text-2xl font-semibold text-gray-900 mb-4">Department Leaves</h1>
         <div className="mb-4 border-b border-gray-200">
           <nav className="-mb-px flex space-x-4" aria-label="Tabs">
-            {[TABS.PENDING, TABS.APPROVED, TABS.REJECTED, ...(isAdmin ? [TABS.ACK_HISTORY] : [])].map((tabId) => {
-              const label =
-                tabId === TABS.PENDING
-                  ? 'Pending'
-                  : tabId === TABS.APPROVED
-                  ? 'Approved'
-                  : tabId === TABS.REJECTED
-                  ? 'Rejected'
-                  : 'Acknowledge history';
+            {[TABS.ACKNOWLEDGE, ...(isAdmin ? [TABS.ACK_HISTORY] : [])].map((tabId) => {
+              const label = tabId === TABS.ACKNOWLEDGE ? 'Acknowledge' : 'Acknowledge history';
               return (
                 <button
                   key={tabId}
@@ -2732,7 +2543,6 @@ export default function Leaves({ initialTab, initialManagerSection }) {
           <nav className="-mb-px flex space-x-4" aria-label="Tabs">
             {[
               { id: TABS.APPLY, label: 'Apply for Leave' },
-              { id: TABS.PENDING, label: 'Pending Approval' },
               { id: TABS.FUTURE, label: 'Future leaves' },
               { id: TABS.PAST, label: 'Past leaves' },
               { id: TABS.POLICY, label: 'Leave Policy' },
