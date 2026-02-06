@@ -101,8 +101,6 @@ const Sidebar = ({ currentView, onViewChange }) => {
                 { id: 'leaves_department_pending', label: 'Dept Pending Leaves', icon: Eye, permission: 'view_leaves_submenu' },
                 { id: 'leaves_department_approved', label: 'Dept Approved Leaves', icon: Eye, permission: 'view_leaves_submenu' },
                 { id: 'leaves_department_rejected', label: 'Dept Rejected Leaves', icon: Eye, permission: 'view_leaves_submenu' },
-                { id: 'leaves_department_on_behalf', label: 'Dept On Behalf', icon: Eye, permission: 'view_leaves_submenu' },
-                { id: 'leaves_mark_uninformed', label: 'Absentees', icon: EyeOff, permission: 'view_leaves_submenu' },
               ]
             : []),
           { id: 'shiftRoster', label: 'Shift Roster', icon: Clock, permission: 'view_shift_roster_submenu' },
@@ -194,8 +192,6 @@ const Sidebar = ({ currentView, onViewChange }) => {
                         'leaves_department_pending',
                         'leaves_department_approved',
                         'leaves_department_rejected',
-                        'leaves_department_on_behalf',
-                        'leaves_mark_uninformed',
                       ];
 
                       // Render Leaves as a collapsible group with its own arrow and subsections

@@ -430,6 +430,29 @@ const initializeDatabaseTables = async () => {
       )
     `);
 
+    // Leave requests: add columns for emergency/swap/acknowledge/important-date (ignore if already exist)
+    const leaveRequestNewColumns = [
+      ['emergency_type', 'VARCHAR(100) NULL'],
+      ['requested_swap_with_leave_id', 'INT NULL'],
+      ['swap_responded_at', 'DATETIME NULL'],
+      ['swap_accepted', 'TINYINT(1) NULL'],
+      ['acknowledged_by', 'INT NULL'],
+      ['acknowledged_at', 'DATETIME NULL'],
+      ['is_important_date_override', 'TINYINT(1) NOT NULL DEFAULT 0']
+    ];
+    for (const [colName, colDef] of leaveRequestNewColumns) {
+      try {
+        await connection.execute(`ALTER TABLE leave_requests ADD COLUMN ${colName} ${colDef}`);
+        console.log(`leave_requests.${colName} added`);
+      } catch (err) {
+        if (err.code === 'ER_DUP_FIELDNAME') {
+          // already exists
+        } else {
+          console.error(`Error adding leave_requests.${colName}:`, err.message);
+        }
+      }
+    }
+
     // Create errors table if it doesn't exist (schema matches existing DB: includes priority)
     await connection.execute(`
       CREATE TABLE IF NOT EXISTS errors (
@@ -11008,7 +11031,10 @@ app.post('/api/leaves/apply', async (req, res) => {
     end_segment,
     days_requested,
     confirm_exceed,
-    leave_type
+    leave_type,
+    emergency_type,
+    is_important_date_override,
+    requested_swap_with_leave_id
   } = req.body || {};
 
   if (!employee_id || !start_date || !end_date) {
@@ -11043,6 +11069,40 @@ app.post('/api/leaves/apply', async (req, res) => {
       }
       employeeName = empRows[0].name || '';
     }
+
+    // Blocked (important) date check: employee_id=0, reason='IMPORTANT_EVENT'
+    const [blockedRows] = await connection.execute(
+      `SELECT id FROM leave_requests WHERE employee_id = 0 AND reason = 'IMPORTANT_EVENT'
+       AND start_date <= ? AND end_date >= ? LIMIT 1`,
+      [end_date, start_date]
+    );
+    const isDateBlocked = blockedRows.length > 0;
+    if (isDateBlocked && !emergency_type) {
+      return res.status(200).json({
+        success: false,
+        date_blocked: true,
+        message: 'This date is an important event; you cannot apply for leave normally. Use emergency to request.'
+      });
+    }
+
+    // Already booked (another employee has approved/pending leave on this date)
+    const [bookedRows] = await connection.execute(
+      `SELECT id FROM leave_requests WHERE employee_id != 0 AND employee_id != ?
+       AND status IN ('pending','approved') AND start_date <= ? AND end_date >= ? LIMIT 1`,
+      [employee_id, end_date, start_date]
+    );
+    const existingLeaveId = bookedRows.length > 0 ? bookedRows[0].id : null;
+    if (existingLeaveId && !emergency_type) {
+      return res.status(200).json({
+        success: false,
+        date_booked: true,
+        existing_leave_id: existingLeaveId,
+        message: 'This date is already booked. Select an emergency reason to request leave.'
+      });
+    }
+    const swapLeaveId = emergency_type && existingLeaveId
+      ? (requested_swap_with_leave_id || existingLeaveId)
+      : (requested_swap_with_leave_id || null);
 
     // Department conflict check: overlapping dates in same department, pending/approved
     if (deptId) {
@@ -11110,6 +11170,9 @@ app.post('/api/leaves/apply', async (req, res) => {
     }
 
     const isPaid = isPaidLeaveType && !willExceedPaid ? 1 : 0;
+    const importantOverride = (isDateBlocked || is_important_date_override) ? 1 : 0;
+    // Auto-approve when date is available (green): no approval needed for paid/other on available dates
+    const initialStatus = (isDateBlocked || existingLeaveId) ? 'pending' : 'approved';
 
     const insertQuery = `
       INSERT INTO leave_requests (
@@ -11123,21 +11186,42 @@ app.post('/api/leaves/apply', async (req, res) => {
         end_segment,
         days_requested,
         is_paid,
-        is_uninformed
-      ) VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, 0)
+        is_uninformed,
+        emergency_type,
+        requested_swap_with_leave_id,
+        is_important_date_override
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
     `;
 
     const [result] = await connection.execute(insertQuery, [
       employee_id,
       deptId,
+      initialStatus,
       reason || '',
       start_date,
       end_date,
       start_segment || 'full_day',
       end_segment || 'full_day',
       requested,
-      isPaid
+      isPaid,
+      emergency_type || null,
+      swapLeaveId,
+      importantOverride
     ]);
+
+    if (initialStatus === 'approved') {
+      const { year, month } = getYearMonthFromDate(start_date);
+      const balance = await getOrCreateLeaveBalance(connection, employee_id, year, month);
+      const used = balance.paid_used || 0;
+      const deduction = balance.next_month_deduction || 0;
+      const effectiveQuota = Math.max(0, (balance.paid_quota || 2) - deduction);
+      const willExceedPaid = used + requested > effectiveQuota;
+      const newUsed = willExceedPaid ? used : used + requested;
+      await connection.execute(
+        'UPDATE leave_balances SET paid_used = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+        [newUsed, balance.id]
+      );
+    }
 
     res.status(201).json({
       success: true,
@@ -11145,14 +11229,17 @@ app.post('/api/leaves/apply', async (req, res) => {
       employee_id,
       employee_name: employeeName,
       department_id: deptId,
-      status: 'pending',
+      status: initialStatus,
       reason,
       start_date,
       end_date,
       start_segment: start_segment || 'full_day',
       end_segment: end_segment || 'full_day',
       days_requested: requested,
-      is_paid: isPaid
+      is_paid: isPaid,
+      emergency_type: emergency_type || null,
+      requested_swap_with_leave_id: swapLeaveId,
+      is_important_date_override: importantOverride === 1
     });
   } catch (err) {
     console.error('Error applying for leave:', err);
@@ -11161,6 +11248,463 @@ app.post('/api/leaves/apply', async (req, res) => {
     if (connection) {
       connection.release();
     }
+  }
+});
+
+// Date availability for a single date (red/green): blocked or booked
+app.get('/api/leaves/date-availability', async (req, res) => {
+  const { date } = req.query;
+  if (!date) return res.status(400).json({ error: 'date is required (YYYY-MM-DD)' });
+  let connection;
+  try {
+    connection = await mysqlPool.getConnection();
+    await connection.ping();
+    const [blocked] = await connection.execute(
+      `SELECT id FROM leave_requests WHERE employee_id = 0 AND reason = 'IMPORTANT_EVENT'
+       AND start_date <= ? AND end_date >= ? LIMIT 1`,
+      [date, date]
+    );
+    const [booked] = await connection.execute(
+      `SELECT lr.id, lr.employee_id, e.name AS employee_name FROM leave_requests lr
+       JOIN employees e ON e.id = lr.employee_id
+       WHERE lr.employee_id != 0 AND lr.status IN ('pending','approved')
+       AND lr.start_date <= ? AND lr.end_date >= ?`,
+      [date, date]
+    );
+    res.json({
+      date,
+      blocked: blocked.length > 0,
+      available: blocked.length === 0 && booked.length === 0,
+      bookedBy: booked.map((r) => ({ leave_id: r.id, employee_id: r.employee_id, employee_name: r.employee_name })),
+      bookedByCount: booked.length
+    });
+  } catch (err) {
+    console.error('Error checking date availability:', err);
+    res.status(500).json({ error: 'Database error' });
+  } finally {
+    if (connection) connection.release();
+  }
+});
+
+// Calendar data: leaves in range + blocked dates (all roles with calendar access)
+app.get('/api/leaves/calendar', async (req, res) => {
+  const { start, end } = req.query;
+  if (!start || !end) return res.status(400).json({ error: 'start and end are required (YYYY-MM-DD)' });
+  let connection;
+  try {
+    connection = await mysqlPool.getConnection();
+    await connection.ping();
+    const [employees] = await connection.execute(
+      `SELECT id, name FROM employees WHERE status = 'Active' ORDER BY name`
+    );
+    const [leaves] = await connection.execute(
+      `SELECT lr.id, lr.employee_id, e.name AS employee_name, lr.start_date, lr.end_date, lr.status,
+        lr.is_uninformed, lr.start_segment, lr.end_segment, lr.reason, lr.emergency_type,
+        lr.acknowledged_by, lr.acknowledged_at
+       FROM leave_requests lr
+       JOIN employees e ON e.id = lr.employee_id
+       WHERE lr.employee_id != 0 AND lr.start_date <= ? AND lr.end_date >= ?`,
+      [end, start]
+    );
+    const [blockedDates] = await connection.execute(
+      `SELECT start_date AS date, reason FROM leave_requests
+       WHERE employee_id = 0 AND reason LIKE 'IMPORTANT_EVENT%' AND start_date <= ? AND end_date >= ?`,
+      [end, start]
+    );
+    res.json({
+      employees: employees.map((r) => ({ id: r.id, name: r.name })),
+      leaves: leaves.map((r) => ({
+        id: r.id,
+        employee_id: r.employee_id,
+        employee_name: r.employee_name,
+        start_date: r.start_date,
+        end_date: r.end_date,
+        status: r.status,
+        is_uninformed: !!r.is_uninformed,
+        start_segment: r.start_segment,
+        end_segment: r.end_segment,
+        reason: r.reason,
+        emergency_type: r.emergency_type,
+        acknowledged_by: r.acknowledged_by,
+        acknowledged_at: r.acknowledged_at
+      })),
+      blockedDates: blockedDates.map((r) => ({
+        date: r.date,
+        label: r.reason && r.reason !== 'IMPORTANT_EVENT' ? String(r.reason).replace(/^IMPORTANT_EVENT:?/, '') : null
+      }))
+    });
+  } catch (err) {
+    console.error('Error fetching calendar:', err);
+    res.status(500).json({ error: 'Database error' });
+  } finally {
+    if (connection) connection.release();
+  }
+});
+
+// Mark date as important (admin only) - insert blocked row in leave_requests
+app.post('/api/leaves/blocked-dates', async (req, res) => {
+  const userRole = (req.headers['x-user-role'] || req.headers['user-role'] || '').toLowerCase();
+  if (userRole !== 'admin') return res.status(403).json({ error: 'Only admins can mark important dates.' });
+  const { date, label } = req.body || {};
+  if (!date) return res.status(400).json({ error: 'date is required (YYYY-MM-DD)' });
+  let connection;
+  try {
+    connection = await mysqlPool.getConnection();
+    await connection.ping();
+    const [existing] = await connection.execute(
+      `SELECT id FROM leave_requests WHERE employee_id = 0 AND reason = 'IMPORTANT_EVENT' AND start_date = ? AND end_date = ?`,
+      [date, date]
+    );
+    if (existing.length > 0) {
+      return res.status(200).json({ success: true, message: 'Date already marked as important.' });
+    }
+    const reason = label ? `IMPORTANT_EVENT:${label}` : 'IMPORTANT_EVENT';
+    await connection.execute(
+      `INSERT INTO leave_requests (employee_id, department_id, status, reason, start_date, end_date, start_segment, end_segment, days_requested, is_paid, is_uninformed)
+       VALUES (0, NULL, 'approved', ?, ?, ?, 'full_day', 'full_day', 0, 0, 0)`,
+      [reason, date, date]
+    );
+    res.status(201).json({ success: true, date, label: label || null });
+  } catch (err) {
+    console.error('Error marking blocked date:', err);
+    res.status(500).json({ error: 'Database error' });
+  } finally {
+    if (connection) connection.release();
+  }
+});
+
+// Unmark important date (admin only)
+app.delete('/api/leaves/blocked-dates/:date', async (req, res) => {
+  const userRole = (req.headers['x-user-role'] || req.headers['user-role'] || '').toLowerCase();
+  if (userRole !== 'admin') return res.status(403).json({ error: 'Only admins can unmark important dates.' });
+  const { date } = req.params;
+  if (!date) return res.status(400).json({ error: 'date is required' });
+  let connection;
+  try {
+    connection = await mysqlPool.getConnection();
+    const [result] = await connection.execute(
+      `DELETE FROM leave_requests WHERE employee_id = 0 AND reason LIKE 'IMPORTANT_EVENT%' AND start_date = ? AND end_date = ?`,
+      [date, date]
+    );
+    res.json({ success: true, date, deleted: result.affectedRows > 0 });
+  } catch (err) {
+    console.error('Error unmarking blocked date:', err);
+    res.status(500).json({ error: 'Database error' });
+  } finally {
+    if (connection) connection.release();
+  }
+});
+
+// Sync absent: create uninformed leave for employees who logged < minHours on date (cron-callable)
+app.post('/api/leaves/sync-absent', async (req, res) => {
+  const userRole = (req.headers['x-user-role'] || req.headers['user-role'] || '').toLowerCase();
+  if (userRole !== 'admin') return res.status(403).json({ error: 'Only admins can run sync-absent.' });
+  const { date, minHours = 4 } = req.body || req.query || {};
+  const targetDate = date || new Date().toISOString().split('T')[0];
+  const minSeconds = parseFloat(minHours) * 3600;
+  const startDate = `${targetDate} 00:00:00`;
+  const endDate = `${targetDate} 23:59:59`;
+  let connection;
+  try {
+    connection = await mysqlPool.getConnection();
+    await connection.ping();
+    const [rows] = await connection.execute(
+      `SELECT e.id, e.name, e.department_id,
+        COALESCE(SUM(
+          CASE WHEN tt.hours_logged_seconds IS NOT NULL AND tt.hours_logged_seconds != 0 THEN ABS(tt.hours_logged_seconds)
+               WHEN tt.hours_logged IS NOT NULL AND tt.hours_logged != 0 THEN ABS(tt.hours_logged)
+               WHEN tt.start_time IS NOT NULL AND tt.end_time IS NOT NULL THEN ABS(TIMESTAMPDIFF(SECOND, tt.start_time, tt.end_time))
+               ELSE 0 END
+        ), 0) AS total_seconds
+       FROM employees e
+       LEFT JOIN task_timesheet tt ON tt.employee_name = e.name AND tt.start_time >= ? AND tt.start_time <= ?
+       WHERE e.status = 'Active'
+       GROUP BY e.id, e.name, e.department_id
+       HAVING total_seconds < ?`,
+      [startDate, endDate, minSeconds]
+    );
+    let created = 0;
+    for (const row of rows) {
+      const [existing] = await connection.execute(
+        `SELECT id FROM leave_requests WHERE employee_id = ? AND is_uninformed = 1 AND status = 'approved' AND start_date = ? AND end_date = ?`,
+        [row.id, targetDate, targetDate]
+      );
+      if (existing.length === 0) {
+        await connection.execute(
+          `INSERT INTO leave_requests (employee_id, department_id, status, reason, start_date, end_date, start_segment, end_segment, days_requested, is_paid, is_uninformed)
+           VALUES (?, ?, 'approved', 'Absent', ?, ?, 'full_day', 'full_day', 1, 0, 1)`,
+          [row.id, row.department_id || null, targetDate, targetDate]
+        );
+        created++;
+      }
+    }
+    res.json({ success: true, date: targetDate, minHours, markedCount: rows.length, created });
+  } catch (err) {
+    console.error('Error syncing absent:', err);
+    res.status(500).json({ error: 'Database error' });
+  } finally {
+    if (connection) connection.release();
+  }
+});
+
+// Pending actions: swap requests (for booker) and acknowledge requests (for admin)
+app.get('/api/leaves/pending-actions', async (req, res) => {
+  const { employee_id } = req.query;
+  const userRole = (req.headers['x-user-role'] || req.headers['user-role'] || '').toLowerCase();
+  const isAdmin = userRole === 'admin';
+  if (!employee_id) return res.status(400).json({ error: 'employee_id is required' });
+  const currentUserId = Number(employee_id);
+  let connection;
+  try {
+    connection = await mysqlPool.getConnection();
+    await connection.ping();
+
+    // Swap requests: leaves I own that are referenced by another pending leave's requested_swap_with_leave_id (not yet responded)
+    const [swapRows] = await connection.execute(
+      `SELECT req.id AS requesting_leave_id, req.start_date, req.end_date, req.emergency_type, req.reason,
+              my.id AS my_leave_id, my.start_date AS my_start, my.end_date AS my_end
+       FROM leave_requests req
+       JOIN leave_requests my ON my.id = req.requested_swap_with_leave_id
+       WHERE req.requested_swap_with_leave_id IS NOT NULL AND req.status = 'pending'
+         AND req.swap_responded_at IS NULL AND my.employee_id = ?`,
+      [currentUserId]
+    );
+    const swapRequests = swapRows.map((r) => ({
+      type: 'swap',
+      requesting_leave_id: r.requesting_leave_id,
+      my_leave_id: r.my_leave_id,
+      start_date: r.start_date,
+      end_date: r.end_date,
+      emergency_type: r.emergency_type || r.reason,
+      my_start_date: r.my_start,
+      my_end_date: r.my_end
+    }));
+
+    let acknowledgeRequests = [];
+    if (isAdmin) {
+      const [ackRows] = await connection.execute(
+        `SELECT lr.id, lr.employee_id, lr.start_date, lr.end_date, lr.emergency_type, lr.reason,
+                lr.is_important_date_override, lr.requested_swap_with_leave_id, lr.swap_responded_at, lr.swap_accepted,
+                e.name AS employee_name
+         FROM leave_requests lr
+         JOIN employees e ON e.id = lr.employee_id
+         WHERE lr.status = 'pending' AND lr.employee_id != 0
+           AND (
+             (lr.is_important_date_override = 1)
+             OR (lr.requested_swap_with_leave_id IS NOT NULL AND lr.swap_responded_at IS NOT NULL AND lr.swap_accepted = 0)
+           )
+         ORDER BY lr.created_at DESC LIMIT 50`
+      );
+      acknowledgeRequests = ackRows.map((r) => ({
+        type: 'acknowledge',
+        leave_id: r.id,
+        employee_id: r.employee_id,
+        employee_name: r.employee_name,
+        start_date: r.start_date,
+        end_date: r.end_date,
+        emergency_type: r.emergency_type || r.reason,
+        is_important_date_override: !!r.is_important_date_override
+      }));
+    }
+
+    res.json({ swapRequests, acknowledgeRequests });
+  } catch (err) {
+    console.error('Error fetching pending actions:', err);
+    res.status(500).json({ error: 'Database error' });
+  } finally {
+    if (connection) connection.release();
+  }
+});
+
+// Booker responds to swap request (accept or reject)
+app.post('/api/leaves/:id/respond-swap', async (req, res) => {
+  const { id } = req.params;
+  const { accept, employee_id: bodyEmployeeId } = req.body || {};
+  const currentUserId = Number(
+    req.headers['x-user-id'] || req.headers['user-id'] || bodyEmployeeId || req.query.employee_id || 0
+  );
+  if (!currentUserId) return res.status(400).json({ error: 'Current user (employee_id) required' });
+  let connection;
+  try {
+    connection = await mysqlPool.getConnection();
+    await connection.ping();
+    const [rows] = await connection.execute('SELECT * FROM leave_requests WHERE id = ?', [id]);
+    if (rows.length === 0) return res.status(404).json({ error: 'Leave request not found' });
+    const emergencyLeave = rows[0];
+    if (!emergencyLeave.requested_swap_with_leave_id) return res.status(400).json({ error: 'This leave has no swap request' });
+    if (emergencyLeave.swap_responded_at) return res.status(400).json({ error: 'Swap already responded' });
+    const [myLeave] = await connection.execute('SELECT id, employee_id FROM leave_requests WHERE id = ?', [emergencyLeave.requested_swap_with_leave_id]);
+    if (myLeave.length === 0 || myLeave[0].employee_id !== currentUserId) return res.status(403).json({ error: 'You are not the booker for this swap request' });
+    await connection.execute(
+      'UPDATE leave_requests SET swap_responded_at = NOW(), swap_accepted = ? WHERE id = ?',
+      [accept ? 1 : 0, id]
+    );
+    if (accept) {
+      // Booker accepted: they will edit their leave in UI; we could auto-approve the emergency leave once they free the date (handled elsewhere or on next apply). For now just record response.
+      // Optionally auto-approve emergency leave when booker has accepted (plan says booker edits date then applicant gets "you can apply now" - so we don't auto-approve here; we approve when booker has moved their leave)
+    }
+    res.json({ success: true, leave_id: id, swap_accepted: !!accept });
+  } catch (err) {
+    console.error('Error responding to swap:', err);
+    res.status(500).json({ error: 'Database error' });
+  } finally {
+    if (connection) connection.release();
+  }
+});
+
+// Admin acknowledges emergency leave (approve as paid/other or reject)
+app.post('/api/leaves/:id/acknowledge', async (req, res) => {
+  const { id } = req.params;
+  const { approved, leave_type, decision_by } = req.body || {};
+  const userRole = (req.headers['x-user-role'] || req.headers['user-role'] || '').toLowerCase();
+  const adminId = Number(req.headers['x-user-id'] || req.headers['user-id'] || decision_by || 0);
+  if (userRole !== 'admin') return res.status(403).json({ error: 'Only admins can acknowledge' });
+  let connection;
+  try {
+    connection = await mysqlPool.getConnection();
+    await connection.ping();
+    await connection.beginTransaction();
+    const [rows] = await connection.execute('SELECT * FROM leave_requests WHERE id = ? FOR UPDATE', [id]);
+    if (rows.length === 0) {
+      await connection.rollback();
+      return res.status(404).json({ error: 'Leave request not found' });
+    }
+    const request = rows[0];
+    if (request.status !== 'pending') {
+      await connection.rollback();
+      return res.status(400).json({ error: 'Only pending requests can be acknowledged' });
+    }
+    const isPaid = approved && (leave_type || 'paid') === 'paid' ? 1 : 0;
+    await connection.execute(
+      'UPDATE leave_requests SET acknowledged_by = ?, acknowledged_at = NOW(), status = ?, decision_by = ?, decision_at = NOW(), is_paid = ? WHERE id = ?',
+      [adminId, approved ? 'approved' : 'rejected', adminId, isPaid, id]
+    );
+    if (approved) {
+      const { year, month } = getYearMonthFromDate(request.start_date);
+      const balance = await getOrCreateLeaveBalance(connection, request.employee_id, year, month);
+      const used = balance.paid_used || 0;
+      const deduction = balance.next_month_deduction || 0;
+      const effectiveQuota = Math.max(0, (balance.paid_quota || 2) - deduction);
+      const requestedDays = Number(request.days_requested) || 1;
+      const willExceedPaid = used + requestedDays > effectiveQuota;
+      const newUsed = willExceedPaid ? used : used + requestedDays;
+      await connection.execute(
+        'UPDATE leave_balances SET paid_used = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+        [newUsed, balance.id]
+      );
+    }
+    await connection.commit();
+    res.json({ success: true, id: Number(id), acknowledged: true, status: approved ? 'approved' : 'rejected' });
+  } catch (err) {
+    if (connection) try { await connection.rollback(); } catch (_) {}
+    console.error('Error acknowledging leave:', err);
+    res.status(500).json({ error: 'Database error' });
+  } finally {
+    if (connection) connection.release();
+  }
+});
+
+// Update own leave dates (for booker who accepted swap - move their leave so emergency applicant can be approved)
+app.patch('/api/leaves/:id', async (req, res) => {
+  const { id } = req.params;
+  const { start_date, end_date, start_segment, end_segment, employee_id } = req.body || {};
+  const currentUserId = Number(employee_id || req.headers['x-user-id'] || req.headers['user-id'] || 0);
+  if (!currentUserId) return res.status(400).json({ error: 'employee_id is required' });
+  if (!start_date || !end_date) return res.status(400).json({ error: 'start_date and end_date are required' });
+  let connection;
+  try {
+    connection = await mysqlPool.getConnection();
+    await connection.ping();
+    await connection.beginTransaction();
+    const [rows] = await connection.execute('SELECT * FROM leave_requests WHERE id = ? FOR UPDATE', [id]);
+    if (rows.length === 0) {
+      await connection.rollback();
+      return res.status(404).json({ error: 'Leave not found' });
+    }
+    const leave = rows[0];
+    if (leave.employee_id !== currentUserId) {
+      await connection.rollback();
+      return res.status(403).json({ error: 'You can only update your own leave' });
+    }
+    if (leave.status !== 'approved' && leave.status !== 'pending') {
+      await connection.rollback();
+      return res.status(400).json({ error: 'Only approved or pending leaves can be updated' });
+    }
+    const daysRequested = Math.max(1, Math.ceil((new Date(end_date) - new Date(start_date)) / (24 * 3600 * 1000)) + 1);
+    await connection.execute(
+      `UPDATE leave_requests SET start_date = ?, end_date = ?, start_segment = ?, end_segment = ?,
+        days_requested = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+      [start_date, end_date, start_segment || leave.start_segment, end_segment || leave.end_segment, daysRequested, id]
+    );
+    // If this leave was the target of a swap request, check if any pending leave B has requested_swap_with_leave_id = id and no longer overlaps; if so auto-approve B
+    const [pendingSwap] = await connection.execute(
+      `SELECT id, employee_id, start_date, end_date, is_paid, days_requested FROM leave_requests
+       WHERE requested_swap_with_leave_id = ? AND status = 'pending' AND swap_responded_at IS NOT NULL AND swap_accepted = 1`,
+      [id]
+    );
+    for (const B of pendingSwap) {
+      const overlap = B.start_date <= end_date && B.end_date >= start_date;
+      if (!overlap) {
+        const { year, month } = getYearMonthFromDate(B.start_date);
+        const balance = await getOrCreateLeaveBalance(connection, B.employee_id, year, month);
+        const used = balance.paid_used || 0;
+        const deduction = balance.next_month_deduction || 0;
+        const effectiveQuota = Math.max(0, (balance.paid_quota || 2) - deduction);
+        const reqDays = Number(B.days_requested) || 1;
+        const willExceedPaid = used + reqDays > effectiveQuota;
+        const newUsed = willExceedPaid ? used : used + reqDays;
+        await connection.execute(
+          'UPDATE leave_balances SET paid_used = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+          [newUsed, balance.id]
+        );
+        await connection.execute(
+          `UPDATE leave_requests SET status = 'approved', decision_at = NOW(), requested_swap_with_leave_id = NULL, is_paid = ? WHERE id = ?`,
+          [willExceedPaid ? 0 : (B.is_paid || 0), B.id]
+        );
+      }
+    }
+    await connection.commit();
+    res.json({ success: true, id: Number(id), start_date, end_date });
+  } catch (err) {
+    if (connection) try { await connection.rollback(); } catch (_) {}
+    console.error('Error updating leave:', err);
+    res.status(500).json({ error: 'Database error' });
+  } finally {
+    if (connection) connection.release();
+  }
+});
+
+// Acknowledge history: leaves where acknowledged_by IS NOT NULL (admin only)
+app.get('/api/leaves/acknowledged-history', async (req, res) => {
+  const userRole = (req.headers['x-user-role'] || req.headers['user-role'] || '').toLowerCase();
+  if (userRole !== 'admin') return res.status(403).json({ error: 'Access denied. Only admins can view acknowledge history.' });
+  const { department_id } = req.query;
+  let connection;
+  try {
+    connection = await mysqlPool.getConnection();
+    await connection.ping();
+    let query = `
+      SELECT lr.id, lr.employee_id, lr.start_date, lr.end_date, lr.status, lr.emergency_type, lr.reason,
+             lr.acknowledged_by, lr.acknowledged_at, lr.is_important_date_override,
+             e.name AS employee_name, ack.name AS acknowledged_by_name
+      FROM leave_requests lr
+      JOIN employees e ON e.id = lr.employee_id
+      LEFT JOIN employees ack ON ack.id = lr.acknowledged_by
+      WHERE lr.acknowledged_by IS NOT NULL
+    `;
+    const params = [];
+    if (department_id) {
+      query += ' AND lr.department_id = ?';
+      params.push(department_id);
+    }
+    query += ' ORDER BY lr.acknowledged_at DESC LIMIT 200';
+    const [rows] = await connection.execute(query, params);
+    res.json(rows);
+  } catch (err) {
+    console.error('Error fetching acknowledged history:', err);
+    res.status(500).json({ error: 'Database error' });
+  } finally {
+    if (connection) connection.release();
   }
 });
 

@@ -31,6 +31,7 @@ const Settings = lazy(() => import('./components/views/Settings'));
 const Leaves = lazy(() => import('./components/views/Leaves'));
 const ShiftRoster = lazy(() => import('./components/views/ShiftRoster'));
 const Holiday = lazy(() => import('./components/views/Holiday'));
+const LeavesCalendar = lazy(() => import('./components/views/LeavesCalendar'));
 const HealthDashboard = lazy(() => import('./components/views/HealthDashboard'));
 const EmployeeHealth = lazy(() => import('./components/views/EmployeeHealth'));
 const TaskConfiguration = lazy(() => import('./components/views/TaskConfiguration'));
@@ -484,22 +485,6 @@ const AuthenticatedApp = () => {
             <Leaves key="leaves_department_rejected" initialTab="rejected" initialManagerSection="department" />
           </Suspense>
         );
-      case 'leaves_department_on_behalf':
-        return (
-          <Suspense fallback={<LoadingFallback />}>
-            <Leaves
-              key="leaves_department_on_behalf"
-              initialTab="dept_on_behalf"
-              initialManagerSection="department"
-            />
-          </Suspense>
-        );
-      case 'leaves_mark_uninformed':
-        return (
-          <Suspense fallback={<LoadingFallback />}>
-            <Leaves key="leaves_mark_uninformed" initialTab="pending" initialManagerSection="markUninformed" />
-          </Suspense>
-        );
       case 'shiftRoster':
         return (
           <Suspense fallback={<LoadingFallback />}>
@@ -598,7 +583,11 @@ const AuthenticatedApp = () => {
           </Suspense>
         );
       case 'calendar':
-        return <div className="p-6">Calendar view - Coming soon</div>;
+        return (
+          <Suspense fallback={<LoadingFallback />}>
+            <LeavesCalendar />
+          </Suspense>
+        );
       case 'settings':
         return (
           <Suspense fallback={<LoadingFallback />}>
