@@ -4,12 +4,12 @@ import { ChevronLeft, ChevronRight, Lock, Unlock } from 'lucide-react';
 
 const CELL_COLORS = {
   holiday: 'bg-sky-200',
+  important: 'bg-red-400',
   rejected: 'bg-red-400',
   awol: 'bg-purple-400',
   full_day: 'bg-green-300',
   first_half: 'bg-yellow-300',
   second_half: 'bg-green-600',
-  blocked: 'bg-gray-300 bg-opacity-80',
 };
 
 function getCellStyle(leave, dateStr) {
@@ -40,24 +40,36 @@ export default function LeavesCalendar() {
   const { user } = useAuth();
   const [year, setYear] = useState(() => new Date().getFullYear());
   const [month, setMonth] = useState(() => new Date().getMonth() + 1);
-  const [data, setData] = useState({ employees: [], leaves: [], blockedDates: [] });
+  const [data, setData] = useState({ employees: [], leaves: [], blockedDates: [], importantDates: [], holidayDates: [] });
   const [loading, setLoading] = useState(true);
+  const [bulkFrom, setBulkFrom] = useState('');
+  const [bulkTo, setBulkTo] = useState('');
+  const [bulkType, setBulkType] = useState('important');
+  const [bulkLabel, setBulkLabel] = useState('');
+  const [bulkSubmitting, setBulkSubmitting] = useState(false);
   const isAdmin = user?.role === 'admin' || user?.role === 'Admin';
 
   const start = `${year}-${String(month).padStart(2, '0')}-01`;
   const lastDay = new Date(year, month, 0).getDate();
   const end = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
 
+  const loadCalendar = () => {
+    fetch(`/api/leaves/calendar?start=${start}&end=${end}`)
+      .then((res) => res.ok ? res.json() : { employees: [], leaves: [], blockedDates: [], importantDates: [], holidayDates: [] })
+      .then(setData)
+      .catch(() => setData({ employees: [], leaves: [], blockedDates: [], importantDates: [], holidayDates: [] }));
+  };
+
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     fetch(`/api/leaves/calendar?start=${start}&end=${end}`)
-      .then((res) => res.ok ? res.json() : { employees: [], leaves: [], blockedDates: [] })
+      .then((res) => res.ok ? res.json() : { employees: [], leaves: [], blockedDates: [], importantDates: [], holidayDates: [] })
       .then((d) => {
         if (!cancelled) setData(d);
       })
       .catch(() => {
-        if (!cancelled) setData({ employees: [], leaves: [], blockedDates: [] });
+        if (!cancelled) setData({ employees: [], leaves: [], blockedDates: [], importantDates: [], holidayDates: [] });
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -66,9 +78,20 @@ export default function LeavesCalendar() {
   }, [start, end]);
 
   const days = getDaysInMonth(year, month);
-  const blockedSet = new Set((data.blockedDates || []).map((b) => b.date));
+  const blockedDates = data.blockedDates || [];
+  const importantSet = new Set(
+    (data.importantDates || []).map((b) => b.date).concat(
+      blockedDates.filter((b) => b.type === 'important').map((b) => b.date)
+    )
+  );
+  const holidaySet = new Set(
+    (data.holidayDates || []).map((b) => b.date).concat(
+      blockedDates.filter((b) => b.type === 'holiday').map((b) => b.date)
+    )
+  );
+  const isSunday = (dateStr) => new Date(dateStr + 'T12:00:00').getDay() === 0;
 
-  const markImportant = async (date) => {
+  const markDate = async (date, type = 'important') => {
     if (!isAdmin) return;
     try {
       const res = await fetch('/api/leaves/blocked-dates', {
@@ -77,36 +100,63 @@ export default function LeavesCalendar() {
           'Content-Type': 'application/json',
           'x-user-role': user?.role || 'employee',
         },
-        body: JSON.stringify({ date }),
+        body: JSON.stringify({ date, type }),
       });
       const d = await res.json().catch(() => ({}));
-      if (res.ok && d.success) {
-        setData((prev) => ({
-          ...prev,
-          blockedDates: [...(prev.blockedDates || []), { date, label: null }],
-        }));
-      }
+      if (res.ok && d.success) loadCalendar();
     } catch (e) {
       console.error(e);
     }
   };
 
-  const unmarkImportant = async (date) => {
+  const unmarkDate = async (date, type) => {
     if (!isAdmin) return;
     try {
-      const res = await fetch(`/api/leaves/blocked-dates/${date}`, {
+      const url = type ? `/api/leaves/blocked-dates/${date}?type=${type}` : `/api/leaves/blocked-dates/${date}`;
+      const res = await fetch(url, {
         method: 'DELETE',
         headers: { 'x-user-role': user?.role || 'employee' },
       });
       const d = await res.json().catch(() => ({}));
-      if (res.ok && d.success) {
-        setData((prev) => ({
-          ...prev,
-          blockedDates: (prev.blockedDates || []).filter((b) => b.date !== date),
-        }));
+      if (res.ok && d.success) loadCalendar();
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleBulkMark = async () => {
+    if (!isAdmin || (!bulkFrom && !bulkTo)) return;
+    const from = bulkFrom || bulkTo;
+    const to = bulkTo || bulkFrom;
+    if (!from || !to) return;
+    const fromD = new Date(from);
+    const toD = new Date(to);
+    if (fromD > toD) return;
+    const dates = [];
+    for (let d = new Date(fromD); d <= toD; d.setDate(d.getDate() + 1)) {
+      dates.push(d.toISOString().split('T')[0]);
+    }
+    setBulkSubmitting(true);
+    try {
+      const res = await fetch('/api/leaves/blocked-dates', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-role': user?.role || 'employee',
+        },
+        body: JSON.stringify({ dates, type: bulkType, label: bulkLabel || undefined }),
+      });
+      const result = await res.json().catch(() => ({}));
+      if (res.ok && result.success) {
+        setBulkFrom('');
+        setBulkTo('');
+        setBulkLabel('');
+        loadCalendar();
       }
     } catch (e) {
       console.error(e);
+    } finally {
+      setBulkSubmitting(false);
     }
   };
 
@@ -172,6 +222,10 @@ export default function LeavesCalendar() {
             <span className="text-sm text-gray-700">Holiday</span>
           </div>
           <div className="flex items-center gap-2">
+            <span className={`w-6 h-6 rounded ${CELL_COLORS.important}`} />
+            <span className="text-sm text-gray-700">Important (no leave)</span>
+          </div>
+          <div className="flex items-center gap-2">
             <span className={`w-6 h-6 rounded ${CELL_COLORS.rejected}`} />
             <span className="text-sm text-gray-700">Rejected</span>
           </div>
@@ -191,56 +245,113 @@ export default function LeavesCalendar() {
             <span className={`w-6 h-6 rounded ${CELL_COLORS.second_half}`} />
             <span className="text-sm text-gray-700">2nd-half</span>
           </div>
-          <div className="flex items-center gap-2">
-            <span className={`w-6 h-6 rounded ${CELL_COLORS.blocked}`} />
-            <span className="text-sm text-gray-700">Important (no leave)</span>
-          </div>
         </div>
+        <p className="text-xs text-gray-500 mt-2">Sundays are always treated as holidays.</p>
       </div>
 
-      <div className="overflow-x-auto bg-white border rounded-lg shadow-sm">
+      {isAdmin && (
+        <div className="mb-4 p-4 bg-white border rounded-lg shadow-sm">
+          <h2 className="text-sm font-semibold text-gray-700 mb-2">Mark dates (admin)</h2>
+          <div className="flex flex-wrap items-end gap-3">
+            <div>
+              <label className="block text-xs text-gray-500 mb-0.5">From</label>
+              <input
+                type="date"
+                value={bulkFrom}
+                onChange={(e) => setBulkFrom(e.target.value)}
+                className="border rounded px-2 py-1.5 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-0.5">To</label>
+              <input
+                type="date"
+                value={bulkTo}
+                onChange={(e) => setBulkTo(e.target.value)}
+                className="border rounded px-2 py-1.5 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-0.5">Mark as</label>
+              <select
+                value={bulkType}
+                onChange={(e) => setBulkType(e.target.value)}
+                className="border rounded px-2 py-1.5 text-sm"
+              >
+                <option value="important">Important (no leave)</option>
+                <option value="holiday">Holiday</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-0.5">Label (optional)</label>
+              <input
+                type="text"
+                value={bulkLabel}
+                onChange={(e) => setBulkLabel(e.target.value)}
+                placeholder="e.g. Company event"
+                className="border rounded px-2 py-1.5 text-sm w-36"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={handleBulkMark}
+              disabled={bulkSubmitting || (!bulkFrom && !bulkTo)}
+              className="px-3 py-1.5 bg-indigo-600 text-white rounded text-sm hover:bg-indigo-700 disabled:opacity-50"
+            >
+              {bulkSubmitting ? 'Applying...' : 'Apply'}
+            </button>
+          </div>
+          <p className="text-xs text-gray-500 mt-2">Or click lock on a date to mark as important; unlock to remove.</p>
+        </div>
+      )}
+
+      <div className="overflow-x-auto overflow-y-auto max-h-[70vh] bg-white border rounded-lg shadow-sm">
         <table className="min-w-full border-collapse text-sm">
           <thead>
             <tr className="bg-gray-50 border-b border-gray-200">
               <th className="sticky left-0 z-10 min-w-[140px] px-3 py-2 text-left font-medium text-gray-700 bg-gray-50 border-r border-gray-200">
                 Employee
               </th>
-              {days.map((d) => (
-                <th
-                  key={d}
-                  className={`px-1 py-2 text-center font-medium w-8 ${
-                    blockedSet.has(d) ? 'bg-gray-300 text-gray-700' : 'text-gray-700'
-                  }`}
-                  title={blockedSet.has(d) ? 'Important date' : ''}
-                >
-                  <div className="flex flex-col items-center">
-                    <span>{new Date(d).getDate()}</span>
-                    {isAdmin && (
-                      <span className="mt-1">
-                        {blockedSet.has(d) ? (
-                          <button
-                            type="button"
-                            onClick={() => unmarkImportant(d)}
-                            className="p-0.5 rounded hover:bg-gray-400 text-gray-600"
-                            title="Unmark important"
-                          >
-                            <Unlock className="w-3.5 h-3.5" />
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => markImportant(d)}
-                            className="p-0.5 rounded hover:bg-gray-200 text-gray-500"
-                            title="Mark as important (no leave)"
-                          >
-                            <Lock className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </span>
-                    )}
-                  </div>
-                </th>
-              ))}
+              {days.map((d) => {
+                const isImportant = importantSet.has(d);
+                const isHoliday = holidaySet.has(d) || isSunday(d);
+                const headerBg = isImportant ? 'bg-red-400 text-white' : isHoliday ? 'bg-sky-200 text-gray-800' : 'text-gray-700';
+                const isMarked = isImportant || holidaySet.has(d);
+                return (
+                  <th
+                    key={d}
+                    className={`sticky top-0 z-10 px-1 py-2 text-center font-medium w-8 ${headerBg}`}
+                    title={isImportant ? 'Important (no leave)' : isHoliday ? 'Holiday' : ''}
+                  >
+                    <div className="flex flex-col items-center">
+                      <span>{new Date(d + 'T12:00:00').getDate()}</span>
+                      {isAdmin && (
+                        <span className="mt-1">
+                          {isMarked ? (
+                            <button
+                              type="button"
+                              onClick={() => unmarkDate(d, isImportant ? 'important' : 'holiday')}
+                              className="p-0.5 rounded hover:bg-black/10"
+                              title="Unmark"
+                            >
+                              <Unlock className="w-3.5 h-3.5" />
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => markDate(d, 'important')}
+                              className="p-0.5 rounded hover:bg-gray-200 text-gray-500"
+                              title="Mark as important (no leave)"
+                            >
+                              <Lock className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </span>
+                      )}
+                    </div>
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody>
@@ -255,14 +366,23 @@ export default function LeavesCalendar() {
                     const leave = empLeaves.find(
                       (l) => l.start_date <= dateStr && l.end_date >= dateStr
                     );
-                    const style = getCellStyle(leave, dateStr);
+                    let style = getCellStyle(leave, dateStr);
+                    if (!style) {
+                      if (importantSet.has(dateStr)) style = CELL_COLORS.important;
+                      else if (holidaySet.has(dateStr) || isSunday(dateStr)) style = CELL_COLORS.holiday;
+                      else style = 'bg-gray-50';
+                    }
                     return (
                       <td
                         key={dateStr}
-                        className={`w-8 h-8 p-0 align-middle ${style || 'bg-gray-50'}`}
+                        className={`w-8 h-8 p-0 align-middle ${style}`}
                         title={
                           leave
                             ? `${leave.status} ${leave.start_segment || ''}-${leave.end_segment || ''}`
+                            : importantSet.has(dateStr)
+                            ? 'Important (no leave)'
+                            : holidaySet.has(dateStr) || isSunday(dateStr)
+                            ? 'Holiday'
                             : ''
                         }
                       />
@@ -274,11 +394,6 @@ export default function LeavesCalendar() {
           </tbody>
         </table>
       </div>
-      {isAdmin && (
-        <p className="mt-3 text-xs text-gray-500">
-          Click the lock icon on a date to mark it as important (no leave allowed). Click the unlock icon to remove.
-        </p>
-      )}
     </div>
   );
 }

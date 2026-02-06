@@ -5,10 +5,13 @@ const TABS = {
   APPLY: 'apply',
   FUTURE: 'future',
   PAST: 'past',
+  MY_ACK: 'my_ack',
   POLICY: 'policy',
   REPORT: 'report',
   ACKNOWLEDGE: 'acknowledge',
   ACK_HISTORY: 'ack_history',
+  ALL_FUTURE: 'all_future',
+  ALL_PAST: 'all_past',
 };
 
 // initialManagerSection determines which completely separate UI to show:
@@ -52,7 +55,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
   const [pendingActions, setPendingActions] = useState({ swapRequests: [], acknowledgeRequests: [] });
   const [pendingActionModal, setPendingActionModal] = useState(null); // { type: 'swap'|'ack', data }
   const EMERGENCY_OPTIONS = ['Medical', 'Family emergency', 'Bereavement', 'Other'];
-  const [myLeaves, setMyLeaves] = useState({ pending: [], recent_approved: [], recent_rejected: [] });
+  const [myLeaves, setMyLeaves] = useState({ pending: [], recent_approved: [], recent_rejected: [], acknowledged: [] });
   const [policy, setPolicy] = useState(null);
   const [report, setReport] = useState(null);
   const [departmentLeaves, setDepartmentLeaves] = useState({
@@ -60,6 +63,8 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     recent_approved: [],
     recent_rejected: [],
   });
+  const [allFutureLeaves, setAllFutureLeaves] = useState([]);
+  const [allPastLeaves, setAllPastLeaves] = useState([]);
   const [departmentSearch, setDepartmentSearch] = useState('');
   const isAdmin = user?.role === 'admin' || user?.role === 'Admin';
   const isManagerOrAdmin = isAdmin || user?.is_manager;
@@ -130,6 +135,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
           pending: data.pending || [],
           recent_approved: data.recent_approved || [],
           recent_rejected: data.recent_rejected || [],
+          acknowledged: data.acknowledged || [],
         });
       }
     } catch (err) {
@@ -196,6 +202,25 @@ export default function Leaves({ initialTab, initialManagerSection }) {
       }
     } catch (err) {
       console.error('Error loading department leaves', err);
+    }
+  };
+
+  const loadAllLeaves = async (filter) => {
+    if (!isAdmin) return;
+    try {
+      const url = departmentId
+        ? `/api/leaves/all?filter=${filter}&department_id=${departmentId}`
+        : `/api/leaves/all?filter=${filter}`;
+      const res = await fetch(url, {
+        headers: { 'x-user-role': user?.role || 'admin' },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (filter === 'future') setAllFutureLeaves(Array.isArray(data) ? data : []);
+        else if (filter === 'past') setAllPastLeaves(Array.isArray(data) ? data : []);
+      }
+    } catch (err) {
+      console.error('Error loading all leaves', err);
     }
   };
 
@@ -303,7 +328,11 @@ export default function Leaves({ initialTab, initialManagerSection }) {
   }, [form.start_date]);
 
   useEffect(() => {
-    if (mode === 'department' && departmentTab === TABS.ACK_HISTORY && isAdmin) loadAckHistory();
+    if (mode === 'department' && isAdmin) {
+      if (departmentTab === TABS.ACK_HISTORY) loadAckHistory();
+      else if (departmentTab === TABS.ALL_FUTURE) loadAllLeaves('future');
+      else if (departmentTab === TABS.ALL_PAST) loadAllLeaves('past');
+    }
   }, [mode, departmentTab, isAdmin]);
 
   useEffect(() => {
@@ -743,8 +772,27 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     });
   };
 
+  const handleCancelLeave = async (leaveId) => {
+    if (!window.confirm('Cancel this leave? This cannot be undone.')) return;
+    try {
+      const res = await fetch(`/api/leaves/${leaveId}`, {
+        method: 'DELETE',
+        headers: { 'x-user-id': String(employeeId || '') },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.error || 'Failed to cancel leave');
+        return;
+      }
+      await loadMyLeaves();
+      await loadPendingActions();
+    } catch (e) {
+      alert('Failed to cancel leave');
+    }
+  };
+
   const renderLeaveTable = (rows, options = {}) => {
-    const { showEditDates } = options;
+    const { showEditDates, showCancel } = options;
     return (
       <div className="bg-white border rounded p-4">
         {rows.length === 0 ? (
@@ -814,6 +862,15 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                           className="px-2 py-1 text-xs rounded bg-amber-50 text-amber-700 hover:bg-amber-100"
                         >
                           Edit dates
+                        </button>
+                      )}
+                      {showCancel && row.employee_id === employeeId && !row.is_uninformed && (
+                        <button
+                          type="button"
+                          onClick={() => handleCancelLeave(row.id)}
+                          className="px-2 py-1 text-xs rounded bg-red-50 text-red-700 hover:bg-red-100"
+                        >
+                          Cancel
                         </button>
                       )}
                     </div>
@@ -1766,7 +1823,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                 Clear filters
               </button>
             </div>
-            {renderLeaveTable(futureRows, { showEditDates: true })}
+            {renderLeaveTable(futureRows, { showEditDates: true, showCancel: true })}
           </div>
         );
       }
@@ -1848,6 +1905,20 @@ export default function Leaves({ initialTab, initialManagerSection }) {
           </div>
         );
       }
+      case TABS.MY_ACK: {
+        const ackRows = (myLeaves.acknowledged || []).filter((r) => r.acknowledged_by != null);
+        return (
+          <div className="space-y-6">
+            <h2 className="text-lg font-semibold text-gray-900">Acknowledged leaves</h2>
+            <p className="text-sm text-gray-600">Leaves that were acknowledged by admin (e.g. emergency on important or booked dates).</p>
+            {ackRows.length === 0 ? (
+              <div className="bg-white border rounded p-6 text-gray-500">No acknowledged leaves.</div>
+            ) : (
+              renderLeaveTable(ackRows)
+            )}
+          </div>
+        );
+      }
       case TABS.POLICY:
         return renderPolicy();
       case TABS.REPORT:
@@ -1857,9 +1928,23 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     }
   };
 
-  // Department view – admin only: acknowledge emergency leaves and view acknowledge history
+  // Department view – admin: all future/past leaves, acknowledge, acknowledge history
   const renderDepartmentContent = () => {
     switch (departmentTab) {
+      case TABS.ALL_FUTURE:
+        return (
+          <div className="space-y-6">
+            <h2 className="text-lg font-semibold text-gray-900">All employees – Future leaves</h2>
+            {renderDepartmentTable(allFutureLeaves, false)}
+          </div>
+        );
+      case TABS.ALL_PAST:
+        return (
+          <div className="space-y-6">
+            <h2 className="text-lg font-semibold text-gray-900">All employees – Past leaves</h2>
+            {renderDepartmentTable(allPastLeaves, false)}
+          </div>
+        );
       case TABS.ACKNOWLEDGE: {
         const list = pendingActions.acknowledgeRequests || [];
         return (
@@ -2244,8 +2329,13 @@ export default function Leaves({ initialTab, initialManagerSection }) {
         <h1 className="text-2xl font-semibold text-gray-900 mb-4">Department Leaves</h1>
         <div className="mb-4 border-b border-gray-200">
           <nav className="-mb-px flex space-x-4" aria-label="Tabs">
-            {[TABS.ACKNOWLEDGE, ...(isAdmin ? [TABS.ACK_HISTORY] : [])].map((tabId) => {
-              const label = tabId === TABS.ACKNOWLEDGE ? 'Acknowledge' : 'Acknowledge history';
+            {[
+              ...(isAdmin ? [TABS.ALL_FUTURE, TABS.ALL_PAST] : []),
+              TABS.ACKNOWLEDGE,
+              ...(isAdmin ? [TABS.ACK_HISTORY] : []),
+            ].map((tabId) => {
+              const label =
+                tabId === TABS.ALL_FUTURE ? 'Future' : tabId === TABS.ALL_PAST ? 'Past' : tabId === TABS.ACKNOWLEDGE ? 'Acknowledge' : 'Acknowledge history';
               return (
                 <button
                   key={tabId}
@@ -2411,7 +2501,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
       await loadPendingActions();
       await loadDepartmentLeaves();
       await loadMyLeaves();
-      alert(approved ? 'Leave acknowledged and approved.' : 'Leave rejected.');
+      alert(approved ? 'Leave acknowledged and approved.' : 'Leave has been rejected. Please contact administration.');
     } catch (err) {
       console.error('Error acknowledging', err);
       alert('Failed to acknowledge');
@@ -2545,6 +2635,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
               { id: TABS.APPLY, label: 'Apply for Leave' },
               { id: TABS.FUTURE, label: 'Future leaves' },
               { id: TABS.PAST, label: 'Past leaves' },
+              { id: TABS.MY_ACK, label: 'Acknowledged' },
               { id: TABS.POLICY, label: 'Leave Policy' },
               { id: TABS.REPORT, label: 'My Leave Report' },
             ].map((tab) => (

@@ -11046,33 +11046,25 @@ app.post('/api/leaves/apply', async (req, res) => {
     connection = await mysqlPool.getConnection();
     await connection.ping();
 
-    // Resolve department if not provided
+    // Resolve department: employees table has department (name), not department_id; resolve from departments table
     let deptId = department_id || null;
     let employeeName = '';
-    if (!deptId) {
-      const [empRows] = await connection.execute(
-        'SELECT id, name, department_id, designation FROM employees WHERE id = ?',
-        [employee_id]
-      );
-      if (empRows.length === 0) {
-        return res.status(404).json({ error: 'Employee not found' });
-      }
-      deptId = empRows[0].department_id || null;
-      employeeName = empRows[0].name || '';
-    } else {
-      const [empRows] = await connection.execute(
-        'SELECT id, name, department_id, designation FROM employees WHERE id = ?',
-        [employee_id]
-      );
-      if (empRows.length === 0) {
-        return res.status(404).json({ error: 'Employee not found' });
-      }
-      employeeName = empRows[0].name || '';
+    const [empRows] = await connection.execute(
+      'SELECT id, name, department, designation FROM employees WHERE id = ?',
+      [employee_id]
+    );
+    if (empRows.length === 0) {
+      return res.status(404).json({ error: 'Employee not found' });
+    }
+    employeeName = empRows[0].name || '';
+    if (!deptId && empRows[0].department) {
+      const [dRows] = await connection.execute('SELECT id FROM departments WHERE name = ? LIMIT 1', [empRows[0].department]);
+      deptId = dRows.length ? dRows[0].id : null;
     }
 
-    // Blocked (important) date check: employee_id=0, reason='IMPORTANT_EVENT'
+    // Blocked (important or holiday) date check: employee_id=0, reason LIKE 'IMPORTANT_EVENT%' or 'HOLIDAY%'
     const [blockedRows] = await connection.execute(
-      `SELECT id FROM leave_requests WHERE employee_id = 0 AND reason = 'IMPORTANT_EVENT'
+      `SELECT id FROM leave_requests WHERE employee_id = 0 AND (reason LIKE 'IMPORTANT_EVENT%' OR reason LIKE 'HOLIDAY%')
        AND start_date <= ? AND end_date >= ? LIMIT 1`,
       [end_date, start_date]
     );
@@ -11260,7 +11252,7 @@ app.get('/api/leaves/date-availability', async (req, res) => {
     connection = await mysqlPool.getConnection();
     await connection.ping();
     const [blocked] = await connection.execute(
-      `SELECT id FROM leave_requests WHERE employee_id = 0 AND reason = 'IMPORTANT_EVENT'
+      `SELECT id FROM leave_requests WHERE employee_id = 0 AND (reason LIKE 'IMPORTANT_EVENT%' OR reason LIKE 'HOLIDAY%')
        AND start_date <= ? AND end_date >= ? LIMIT 1`,
       [date, date]
     );
@@ -11306,11 +11298,22 @@ app.get('/api/leaves/calendar', async (req, res) => {
        WHERE lr.employee_id != 0 AND lr.start_date <= ? AND lr.end_date >= ?`,
       [end, start]
     );
-    const [blockedDates] = await connection.execute(
+    const [blockedRows] = await connection.execute(
       `SELECT start_date AS date, reason FROM leave_requests
-       WHERE employee_id = 0 AND reason LIKE 'IMPORTANT_EVENT%' AND start_date <= ? AND end_date >= ?`,
+       WHERE employee_id = 0 AND (reason LIKE 'IMPORTANT_EVENT%' OR reason LIKE 'HOLIDAY%') AND start_date <= ? AND end_date >= ?`,
       [end, start]
     );
+    const importantDates = [];
+    const holidayDates = [];
+    for (const r of blockedRows) {
+      const label = r.reason && r.reason !== 'IMPORTANT_EVENT' && r.reason !== 'HOLIDAY'
+        ? String(r.reason).replace(/^(IMPORTANT_EVENT|HOLIDAY):?/, '') : null;
+      if (String(r.reason || '').startsWith('IMPORTANT_EVENT')) {
+        importantDates.push({ date: r.date, label });
+      } else {
+        holidayDates.push({ date: r.date, label });
+      }
+    }
     res.json({
       employees: employees.map((r) => ({ id: r.id, name: r.name })),
       leaves: leaves.map((r) => ({
@@ -11328,10 +11331,14 @@ app.get('/api/leaves/calendar', async (req, res) => {
         acknowledged_by: r.acknowledged_by,
         acknowledged_at: r.acknowledged_at
       })),
-      blockedDates: blockedDates.map((r) => ({
+      blockedDates: blockedRows.map((r) => ({
         date: r.date,
-        label: r.reason && r.reason !== 'IMPORTANT_EVENT' ? String(r.reason).replace(/^IMPORTANT_EVENT:?/, '') : null
-      }))
+        type: String(r.reason || '').startsWith('IMPORTANT_EVENT') ? 'important' : 'holiday',
+        label: r.reason && r.reason !== 'IMPORTANT_EVENT' && r.reason !== 'HOLIDAY'
+          ? String(r.reason).replace(/^(IMPORTANT_EVENT|HOLIDAY):?/, '') : null
+      })),
+      importantDates,
+      holidayDates
     });
   } catch (err) {
     console.error('Error fetching calendar:', err);
@@ -11341,49 +11348,62 @@ app.get('/api/leaves/calendar', async (req, res) => {
   }
 });
 
-// Mark date as important (admin only) - insert blocked row in leave_requests
+// Mark date(s) as important or holiday (admin only). Accept single date or bulk dates[].
 app.post('/api/leaves/blocked-dates', async (req, res) => {
   const userRole = (req.headers['x-user-role'] || req.headers['user-role'] || '').toLowerCase();
-  if (userRole !== 'admin') return res.status(403).json({ error: 'Only admins can mark important dates.' });
-  const { date, label } = req.body || {};
-  if (!date) return res.status(400).json({ error: 'date is required (YYYY-MM-DD)' });
+  if (userRole !== 'admin') return res.status(403).json({ error: 'Only admins can mark dates.' });
+  const { date, dates, type, label } = req.body || {};
+  const typeVal = (type || 'important').toLowerCase() === 'holiday' ? 'holiday' : 'important';
+  const reasonPrefix = typeVal === 'important' ? 'IMPORTANT_EVENT' : 'HOLIDAY';
+  const dateList = Array.isArray(dates) && dates.length > 0
+    ? dates.filter((d) => d && String(d).match(/^\d{4}-\d{2}-\d{2}$/))
+    : (date && String(date).match(/^\d{4}-\d{2}-\d{2}$/) ? [date] : []);
+  if (dateList.length === 0) return res.status(400).json({ error: 'date or dates (array) is required (YYYY-MM-DD)' });
   let connection;
   try {
     connection = await mysqlPool.getConnection();
     await connection.ping();
-    const [existing] = await connection.execute(
-      `SELECT id FROM leave_requests WHERE employee_id = 0 AND reason = 'IMPORTANT_EVENT' AND start_date = ? AND end_date = ?`,
-      [date, date]
-    );
-    if (existing.length > 0) {
-      return res.status(200).json({ success: true, message: 'Date already marked as important.' });
+    let inserted = 0;
+    for (const d of dateList) {
+      const [existing] = await connection.execute(
+        `SELECT id FROM leave_requests WHERE employee_id = 0 AND (reason LIKE 'IMPORTANT_EVENT%' OR reason LIKE 'HOLIDAY%') AND start_date = ? AND end_date = ?`,
+        [d, d]
+      );
+      if (existing.length > 0) continue;
+      const reason = label ? `${reasonPrefix}:${label}` : reasonPrefix;
+      await connection.execute(
+        `INSERT INTO leave_requests (employee_id, department_id, status, reason, start_date, end_date, start_segment, end_segment, days_requested, is_paid, is_uninformed)
+         VALUES (0, NULL, 'approved', ?, ?, ?, 'full_day', 'full_day', 0, 0, 0)`,
+        [reason, d, d]
+      );
+      inserted++;
     }
-    const reason = label ? `IMPORTANT_EVENT:${label}` : 'IMPORTANT_EVENT';
-    await connection.execute(
-      `INSERT INTO leave_requests (employee_id, department_id, status, reason, start_date, end_date, start_segment, end_segment, days_requested, is_paid, is_uninformed)
-       VALUES (0, NULL, 'approved', ?, ?, ?, 'full_day', 'full_day', 0, 0, 0)`,
-      [reason, date, date]
-    );
-    res.status(201).json({ success: true, date, label: label || null });
+    res.status(201).json({ success: true, dates: dateList, type: typeVal, inserted, label: label || null });
   } catch (err) {
-    console.error('Error marking blocked date:', err);
+    console.error('Error marking blocked date(s):', err);
     res.status(500).json({ error: 'Database error' });
   } finally {
     if (connection) connection.release();
   }
 });
 
-// Unmark important date (admin only)
+// Unmark important or holiday date (admin only). Query ?type=important|holiday to delete only that type.
 app.delete('/api/leaves/blocked-dates/:date', async (req, res) => {
   const userRole = (req.headers['x-user-role'] || req.headers['user-role'] || '').toLowerCase();
-  if (userRole !== 'admin') return res.status(403).json({ error: 'Only admins can unmark important dates.' });
+  if (userRole !== 'admin') return res.status(403).json({ error: 'Only admins can unmark dates.' });
   const { date } = req.params;
+  const typeFilter = (req.query.type || '').toLowerCase();
   if (!date) return res.status(400).json({ error: 'date is required' });
   let connection;
   try {
     connection = await mysqlPool.getConnection();
+    const condition = typeFilter === 'holiday'
+      ? `employee_id = 0 AND reason LIKE 'HOLIDAY%' AND start_date = ? AND end_date = ?`
+      : typeFilter === 'important'
+      ? `employee_id = 0 AND reason LIKE 'IMPORTANT_EVENT%' AND start_date = ? AND end_date = ?`
+      : `employee_id = 0 AND (reason LIKE 'IMPORTANT_EVENT%' OR reason LIKE 'HOLIDAY%') AND start_date = ? AND end_date = ?`;
     const [result] = await connection.execute(
-      `DELETE FROM leave_requests WHERE employee_id = 0 AND reason LIKE 'IMPORTANT_EVENT%' AND start_date = ? AND end_date = ?`,
+      `DELETE FROM leave_requests WHERE ${condition}`,
       [date, date]
     );
     res.json({ success: true, date, deleted: result.affectedRows > 0 });
@@ -11405,7 +11425,7 @@ async function runSyncAbsentForDate(targetDate, minHours = 4) {
     connection = await mysqlPool.getConnection();
     await connection.ping();
     const [rows] = await connection.execute(
-      `SELECT e.id, e.name, e.department_id,
+      `SELECT e.id, e.name, e.department,
         COALESCE(SUM(
           CASE WHEN tt.hours_logged_seconds IS NOT NULL AND tt.hours_logged_seconds != 0 THEN ABS(tt.hours_logged_seconds)
                WHEN tt.hours_logged IS NOT NULL AND tt.hours_logged != 0 THEN ABS(tt.hours_logged)
@@ -11415,12 +11435,17 @@ async function runSyncAbsentForDate(targetDate, minHours = 4) {
        FROM employees e
        LEFT JOIN task_timesheet tt ON tt.employee_name = e.name AND tt.start_time >= ? AND tt.start_time <= ?
        WHERE e.status = 'Active'
-       GROUP BY e.id, e.name, e.department_id
+       GROUP BY e.id, e.name, e.department
        HAVING total_seconds < ?`,
       [startDate, endDate, minSeconds]
     );
     let created = 0;
     for (const row of rows) {
+      let rowDeptId = null;
+      if (row.department) {
+        const [dRows] = await connection.execute('SELECT id FROM departments WHERE name = ? LIMIT 1', [row.department]);
+        rowDeptId = dRows.length ? dRows[0].id : null;
+      }
       const [existing] = await connection.execute(
         `SELECT id FROM leave_requests WHERE employee_id = ? AND is_uninformed = 1 AND status = 'approved' AND start_date = ? AND end_date = ?`,
         [row.id, targetDate, targetDate]
@@ -11429,7 +11454,7 @@ async function runSyncAbsentForDate(targetDate, minHours = 4) {
         await connection.execute(
           `INSERT INTO leave_requests (employee_id, department_id, status, reason, start_date, end_date, start_segment, end_segment, days_requested, is_paid, is_uninformed)
            VALUES (?, ?, 'approved', 'Absent', ?, ?, 'full_day', 'full_day', 1, 0, 1)`,
-          [row.id, row.department_id || null, targetDate, targetDate]
+          [row.id, rowDeptId, targetDate, targetDate]
         );
         created++;
       }
@@ -11703,6 +11728,36 @@ app.patch('/api/leaves/:id', async (req, res) => {
   }
 });
 
+// Cancel own future leave (employee only: pending or approved, end_date >= today, not uninformed)
+app.delete('/api/leaves/:id', async (req, res) => {
+  const { id } = req.params;
+  const currentUserId = Number(req.headers['x-user-id'] || req.headers['user-id'] || req.query.employee_id || req.body?.employee_id || 0);
+  if (!currentUserId) return res.status(400).json({ error: 'employee_id is required (header or body)' });
+  const today = new Date().toISOString().split('T')[0];
+  let connection;
+  try {
+    connection = await mysqlPool.getConnection();
+    await connection.ping();
+    const [rows] = await connection.execute(
+      'SELECT id, employee_id, status, end_date, is_uninformed FROM leave_requests WHERE id = ?',
+      [id]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: 'Leave not found' });
+    const leave = rows[0];
+    if (leave.employee_id !== currentUserId) return res.status(403).json({ error: 'You can only cancel your own leave' });
+    if (leave.is_uninformed) return res.status(400).json({ error: 'Uninformed leaves cannot be cancelled here' });
+    if (leave.status !== 'pending' && leave.status !== 'approved') return res.status(400).json({ error: 'Only pending or approved leaves can be cancelled' });
+    if (leave.end_date < today) return res.status(400).json({ error: 'Past leaves cannot be cancelled' });
+    await connection.execute('DELETE FROM leave_requests WHERE id = ?', [id]);
+    res.json({ success: true, id: Number(id) });
+  } catch (err) {
+    console.error('Error cancelling leave:', err);
+    res.status(500).json({ error: 'Database error' });
+  } finally {
+    if (connection) connection.release();
+  }
+});
+
 // Acknowledge history: leaves where acknowledged_by IS NOT NULL (admin only)
 app.get('/api/leaves/acknowledged-history', async (req, res) => {
   const userRole = (req.headers['x-user-role'] || req.headers['user-role'] || '').toLowerCase();
@@ -11737,6 +11792,50 @@ app.get('/api/leaves/acknowledged-history', async (req, res) => {
   }
 });
 
+// Admin only: all employees' leaves by filter (future | past | acknowledged)
+app.get('/api/leaves/all', async (req, res) => {
+  const userRole = (req.headers['x-user-role'] || req.headers['user-role'] || '').toLowerCase();
+  if (userRole !== 'admin') return res.status(403).json({ error: 'Only admins can view all leaves.' });
+  const { filter, department_id } = req.query;
+  if (!filter || !['future', 'past', 'acknowledged'].includes(filter)) {
+    return res.status(400).json({ error: 'filter is required and must be future, past, or acknowledged' });
+  }
+  let connection;
+  try {
+    connection = await mysqlPool.getConnection();
+    await connection.ping();
+    let query = `
+      SELECT lr.*, e.name AS employee_name, e.department AS department_name,
+             approver.name AS decision_by_name, ack.name AS acknowledged_by_name
+      FROM leave_requests lr
+      JOIN employees e ON e.id = lr.employee_id
+      LEFT JOIN employees approver ON approver.id = lr.decision_by
+      LEFT JOIN employees ack ON ack.id = lr.acknowledged_by
+      WHERE lr.employee_id != 0
+    `;
+    const params = [];
+    if (department_id) {
+      query += ' AND lr.department_id = ?';
+      params.push(department_id);
+    }
+    if (filter === 'future') {
+      query += " AND lr.end_date >= CURDATE() AND lr.status IN ('pending','approved') AND (lr.is_uninformed = 0 OR lr.is_uninformed IS NULL)";
+    } else if (filter === 'past') {
+      query += " AND (lr.end_date < CURDATE() OR lr.status = 'rejected')";
+    } else {
+      query += ' AND lr.acknowledged_by IS NOT NULL';
+    }
+    query += ' ORDER BY lr.start_date DESC, lr.created_at DESC LIMIT 500';
+    const [rows] = await connection.execute(query, params);
+    res.json(rows);
+  } catch (err) {
+    console.error('Error fetching all leaves:', err);
+    res.status(500).json({ error: 'Database error' });
+  } finally {
+    if (connection) connection.release();
+  }
+});
+
 // Get current user's leaves grouped by status
 app.get('/api/leaves/my', async (req, res) => {
   const { employee_id } = req.query;
@@ -11764,7 +11863,11 @@ app.get('/api/leaves/my', async (req, res) => {
     const pending = [];
     const approved = [];
     const rejected = [];
+    const acknowledged = [];
     rows.forEach((row) => {
+      if (row.acknowledged_by != null) {
+        acknowledged.push(row);
+      }
       if (row.status === 'pending') {
         pending.push(row);
       } else if (row.status === 'approved') {
@@ -11780,7 +11883,8 @@ app.get('/api/leaves/my', async (req, res) => {
     res.json({
       pending,
       recent_approved: approved,
-      recent_rejected: rejected
+      recent_rejected: rejected,
+      acknowledged
     });
   } catch (err) {
     console.error('Error fetching my leaves:', err);
@@ -12062,13 +12166,9 @@ app.post('/api/leaves/mark-uninformed', async (req, res) => {
     await connection.ping();
     await connection.beginTransaction();
 
-    // Employee table does not have a numeric department_id column in this schema,
-    // only a text "department" field. We don't need a strict FK here for uninformed
-    // records, so we store NULL for department_id and avoid selecting a non-existent column.
-    // Fetch employee along with department_id so uninformed leaves participate
-    // correctly in department-level views and reports.
+    // Employees table has department (name), not department_id; resolve from departments table
     const [empRows] = await connection.execute(
-      'SELECT id, name, department_id FROM employees WHERE id = ?',
+      'SELECT id, name, department FROM employees WHERE id = ?',
       [employee_id]
     );
     if (empRows.length === 0) {
@@ -12076,6 +12176,11 @@ app.post('/api/leaves/mark-uninformed', async (req, res) => {
       return res.status(404).json({ error: 'Employee not found' });
     }
     const emp = empRows[0];
+    let empDeptId = null;
+    if (emp.department) {
+      const [dRows] = await connection.execute('SELECT id FROM departments WHERE name = ? LIMIT 1', [emp.department]);
+      empDeptId = dRows.length ? dRows[0].id : null;
+    }
 
     const { year, month } = getYearMonthFromDate(effectiveStartDate);
     const balance = await getOrCreateLeaveBalance(connection, employee_id, year, month);
@@ -12099,7 +12204,7 @@ app.post('/api/leaves/mark-uninformed', async (req, res) => {
 
     const [result] = await connection.execute(insertQuery, [
       employee_id,
-      emp.department_id || null,
+      empDeptId,
       reason || 'Uninformed leave',
       effectiveStartDate,
       effectiveEndDate,
