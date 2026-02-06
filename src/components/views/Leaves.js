@@ -60,6 +60,8 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     reason: 'Uninformed leave',
   });
   const [markUninformedEmployees, setMarkUninformedEmployees] = useState([]);
+  const [uninformedEmployeeSearch, setUninformedEmployeeSearch] = useState('');
+  const [uninformedDepartmentFilter, setUninformedDepartmentFilter] = useState('');
   const [selectedEmployeeReport, setSelectedEmployeeReport] = useState(null);
 
   const loadMyLeaves = async () => {
@@ -816,6 +818,33 @@ export default function Leaves({ initialTab, initialManagerSection }) {
         <h2 className="text-lg font-semibold text-gray-900 mb-4">Mark Uninformed Leave</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Department</label>
+            <select
+              value={uninformedDepartmentFilter}
+              onChange={(e) => setUninformedDepartmentFilter(e.target.value)}
+              className="w-full border rounded px-3 py-2 mb-2"
+            >
+              <option value="">All departments</option>
+              {Array.from(
+                new Set(
+                  markUninformedEmployees
+                    .map((emp) => emp.department)
+                    .filter((d) => d && d.trim().length > 0)
+                )
+              ).map((dept) => (
+                <option key={dept} value={dept}>
+                  {dept}
+                </option>
+              ))}
+            </select>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Search Employee</label>
+            <input
+              type="text"
+              value={uninformedEmployeeSearch}
+              onChange={(e) => setUninformedEmployeeSearch(e.target.value)}
+              placeholder="Type name to search..."
+              className="w-full border rounded px-3 py-2 mb-2"
+            />
             <label className="block text-sm font-medium text-gray-700 mb-1">Employee</label>
             <select
               name="employee_id"
@@ -824,11 +853,22 @@ export default function Leaves({ initialTab, initialManagerSection }) {
               className="w-full border rounded px-3 py-2"
             >
               <option value="">Select employee</option>
-              {markUninformedEmployees.map((emp) => (
-                <option key={emp.id} value={emp.id}>
-                  {emp.name} {emp.department ? `(${emp.department})` : ''}
-                </option>
-              ))}
+              {markUninformedEmployees
+                .filter((emp) => {
+                  const matchesDept =
+                    !uninformedDepartmentFilter || emp.department === uninformedDepartmentFilter;
+                  const matchesSearch =
+                    !uninformedEmployeeSearch ||
+                    (emp.name || '')
+                      .toLowerCase()
+                      .includes(uninformedEmployeeSearch.toLowerCase());
+                  return matchesDept && matchesSearch;
+                })
+                .map((emp) => (
+                  <option key={emp.id} value={emp.id}>
+                    {emp.name} {emp.department ? `(${emp.department})` : ''}
+                  </option>
+                ))}
             </select>
           </div>
           <div>
