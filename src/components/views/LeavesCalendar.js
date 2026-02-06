@@ -145,6 +145,27 @@ export default function LeavesCalendar() {
       (b) => toDateStr(b.date) === dateStr && (b.department_id == null || Number(b.department_id) === Number(emp.department_id))
     );
 
+  const getImportantLabelsForDate = (dateStr) => {
+    const labels = allImportantEntries
+      .filter((b) => toDateStr(b.date) === dateStr && b.label)
+      .map((b) => String(b.label).trim())
+      .filter(Boolean);
+    return Array.from(new Set(labels));
+  };
+
+  const getImportantLabelsForEmployeeOnDate = (dateStr, emp) => {
+    const labels = allImportantEntries
+      .filter(
+        (b) =>
+          toDateStr(b.date) === dateStr &&
+          (b.department_id == null || Number(b.department_id) === Number(emp.department_id)) &&
+          b.label
+      )
+      .map((b) => String(b.label).trim())
+      .filter(Boolean);
+    return Array.from(new Set(labels));
+  };
+
   const markDate = async (date, type = 'important') => {
     if (!isAdmin) return;
     try {
@@ -473,13 +494,21 @@ export default function LeavesCalendar() {
               {days.map((d) => {
                 const isImportant = importantSet.has(d);
                 const isHoliday = holidaySet.has(d) || isSunday(d);
+                const headerLabels = isImportant ? getImportantLabelsForDate(d) : [];
                 const headerBg = isImportant ? 'bg-amber-500 text-white' : isHoliday ? 'bg-sky-200 text-gray-800' : 'text-gray-700';
                 const isMarked = isImportant || holidaySet.has(d);
+                const headerTitle = isImportant
+                  ? headerLabels.length
+                    ? `Important (no leave): ${headerLabels.join(', ')}`
+                    : 'Important (no leave)'
+                  : isHoliday
+                  ? 'Holiday'
+                  : '';
                 return (
                   <th
                     key={d}
                     className={`sticky top-0 z-10 px-1 py-2 text-center font-medium w-8 ${headerBg}`}
-                    title={isImportant ? 'Important (no leave)' : isHoliday ? 'Holiday' : ''}
+                    title={headerTitle}
                   >
                     <div className="flex flex-col items-center">
                       <span>{new Date(d + 'T12:00:00').getDate()}</span>
@@ -526,6 +555,9 @@ export default function LeavesCalendar() {
                       (l) => toDateStr(l.start_date) <= dateStr && toDateStr(l.end_date) >= dateStr
                     );
                     let style = getCellStyle(leave, dateStr);
+                    const importantLabelsForEmp = !leave && isDateImportantForEmployee(dateStr, emp)
+                      ? getImportantLabelsForEmployeeOnDate(dateStr, emp)
+                      : [];
                     if (!style) {
                       if (isDateImportantForEmployee(dateStr, emp)) style = CELL_COLORS.important;
                       else if (holidaySet.has(dateStr) || isSunday(dateStr)) style = CELL_COLORS.holiday;
@@ -539,7 +571,9 @@ export default function LeavesCalendar() {
                           leave
                             ? `${leave.status} ${leave.start_segment || ''}-${leave.end_segment || ''}`
                             : isDateImportantForEmployee(dateStr, emp)
-                            ? 'Important (no leave)'
+                            ? importantLabelsForEmp.length
+                              ? `Important (no leave): ${importantLabelsForEmp.join(', ')}`
+                              : 'Important (no leave)'
                             : holidaySet.has(dateStr) || isSunday(dateStr)
                             ? 'Holiday'
                             : ''

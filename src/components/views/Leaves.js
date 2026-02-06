@@ -745,6 +745,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
             rows={3}
             className="w-full border rounded px-3 py-2"
             placeholder="Describe the reason for your leave"
+            required
           />
         </div>
 
