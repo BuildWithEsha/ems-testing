@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { ChevronLeft, ChevronRight, Lock, LockOpen } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Lock, Unlock } from 'lucide-react';
 
 const CELL_COLORS = {
   holiday: 'bg-sky-200',
@@ -224,7 +224,7 @@ export default function LeavesCalendar() {
                             className="p-0.5 rounded hover:bg-gray-400 text-gray-600"
                             title="Unmark important"
                           >
-                            <LockOpen className="w-3.5 h-3.5" />
+                            <Unlock className="w-3.5 h-3.5" />
                           </button>
                         ) : (
                           <button

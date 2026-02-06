@@ -11395,12 +11395,8 @@ app.delete('/api/leaves/blocked-dates/:date', async (req, res) => {
   }
 });
 
-// Sync absent: create uninformed leave for employees who logged < minHours on date (cron-callable)
-app.post('/api/leaves/sync-absent', async (req, res) => {
-  const userRole = (req.headers['x-user-role'] || req.headers['user-role'] || '').toLowerCase();
-  if (userRole !== 'admin') return res.status(403).json({ error: 'Only admins can run sync-absent.' });
-  const { date, minHours = 4 } = req.body || req.query || {};
-  const targetDate = date || new Date().toISOString().split('T')[0];
+// Shared: run sync-absent for a given date (employees who logged < minHours get marked absent). No manual intervention.
+async function runSyncAbsentForDate(targetDate, minHours = 4) {
   const minSeconds = parseFloat(minHours) * 3600;
   const startDate = `${targetDate} 00:00:00`;
   const endDate = `${targetDate} 23:59:59`;
@@ -11438,12 +11434,45 @@ app.post('/api/leaves/sync-absent', async (req, res) => {
         created++;
       }
     }
-    res.json({ success: true, date: targetDate, minHours, markedCount: rows.length, created });
+    return { date: targetDate, minHours, markedCount: rows.length, created };
+  } finally {
+    if (connection) connection.release();
+  }
+}
+
+// Auto-run sync absent daily for the previous day (no manual intervention): check previous date hours, if < 4 mark absent
+let lastAutoSyncAbsentDate = null;
+setInterval(() => {
+  const now = new Date();
+  const hour = now.getHours();
+  const today = now.toISOString().split('T')[0];
+  if (hour < 2) return;
+  if (lastAutoSyncAbsentDate === today) return;
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const yesterdayStr = yesterday.toISOString().split('T')[0];
+  lastAutoSyncAbsentDate = today;
+  runSyncAbsentForDate(yesterdayStr, 4)
+    .then((r) => {
+      console.log(`[Auto sync-absent] ${r.date}: ${r.markedCount} employees under 4h, ${r.created} marked absent.`);
+    })
+    .catch((err) => {
+      console.error('[Auto sync-absent] Error:', err);
+    });
+}, 60 * 1000);
+
+// Sync absent: create uninformed leave for employees who logged < minHours on date (admin can also trigger manually)
+app.post('/api/leaves/sync-absent', async (req, res) => {
+  const userRole = (req.headers['x-user-role'] || req.headers['user-role'] || '').toLowerCase();
+  if (userRole !== 'admin') return res.status(403).json({ error: 'Only admins can run sync-absent.' });
+  const { date, minHours = 4 } = req.body || req.query || {};
+  const targetDate = date || new Date().toISOString().split('T')[0];
+  try {
+    const result = await runSyncAbsentForDate(targetDate, minHours);
+    res.json({ success: true, ...result });
   } catch (err) {
     console.error('Error syncing absent:', err);
     res.status(500).json({ error: 'Database error' });
-  } finally {
-    if (connection) connection.release();
   }
 });
 
