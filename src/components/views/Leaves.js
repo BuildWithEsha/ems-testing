@@ -2375,13 +2375,15 @@ export default function Leaves({ initialTab, initialManagerSection }) {
         <h1 className="text-2xl font-semibold text-gray-900 mb-4">Department Leaves</h1>
         <div className="mb-4 border-b border-gray-200">
           <nav className="-mb-px flex space-x-4" aria-label="Tabs">
-            {[TABS.PENDING, TABS.APPROVED, TABS.REJECTED].map((tabId) => {
+            {[TABS.PENDING, TABS.APPROVED, TABS.REJECTED, TABS.DEPT_ON_BEHALF].map((tabId) => {
               const label =
                 tabId === TABS.PENDING
                   ? 'Pending'
                   : tabId === TABS.APPROVED
                   ? 'Approved'
-                  : 'Rejected';
+                  : tabId === TABS.REJECTED
+                  ? 'Rejected'
+                  : 'On behalf';
               return (
                 <button
                   key={tabId}
