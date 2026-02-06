@@ -46,6 +46,18 @@ function getCellStyle(leave, dateStr) {
   return CELL_COLORS.second_half;
 }
 
+function getLeaveSegmentLabel(leave) {
+  if (!leave) return '';
+  if (leave.status === 'rejected') return 'Rejected';
+  if (leave.is_uninformed) return 'Absent';
+  const startSeg = leave.start_segment || 'full_day';
+  const endSeg = leave.end_segment || 'full_day';
+  const fullDay = startSeg === 'full_day' || endSeg === 'full_day';
+  if (fullDay) return 'Full day';
+  if (startSeg === 'shift_start' || startSeg === 'shift_middle') return '1st half';
+  return '2nd half';
+}
+
 function getDaysInMonth(year, month) {
   const first = new Date(year, month - 1, 1);
   const last = new Date(year, month, 0);
@@ -183,6 +195,12 @@ export default function LeavesCalendar() {
       .map((b) => String(b.label).trim())
       .filter(Boolean);
     return Array.from(new Set(labels));
+  };
+
+  const getHolidayLabelsForDate = (dateStr) => {
+    const fromHoliday = (data.holidayDates || []).filter((b) => toDateStr(b.date) === dateStr && b.label).map((b) => String(b.label).trim()).filter(Boolean);
+    const fromBlocked = (blockedDates || []).filter((b) => b.type === 'holiday' && toDateStr(b.date) === dateStr && b.label).map((b) => String(b.label).trim()).filter(Boolean);
+    return Array.from(new Set([...fromHoliday, ...fromBlocked]));
   };
 
   const markDate = async (date, type = 'important') => {
@@ -552,7 +570,7 @@ export default function LeavesCalendar() {
                 return (
                   <th
                     key={d}
-                    className={`sticky top-0 z-10 px-1 py-2 text-center font-medium w-8 ${headerBg}`}
+                    className={`sticky top-0 z-10 min-w-[3.5rem] w-14 px-1 py-2 text-center font-medium ${headerBg}`}
                     title={headerTitle}
                   >
                     <div className="flex flex-col items-center">
@@ -604,27 +622,43 @@ export default function LeavesCalendar() {
                     const importantLabelsForEmp = importantForEmp
                       ? getImportantLabelsForEmployeeOnDate(dateStr, emp)
                       : [];
+                    const holidayLabels = getHolidayLabelsForDate(dateStr);
+                    const isHolidayCell = holidaySet.has(dateStr) || isSunday(dateStr);
                     if (!style) {
                       if (importantForEmp) style = getDeptImportantColor(emp.department_id);
-                      else if (holidaySet.has(dateStr) || isSunday(dateStr)) style = CELL_COLORS.holiday;
+                      else if (isHolidayCell) style = CELL_COLORS.holiday;
                       else style = 'bg-gray-50';
+                    }
+                    const leaveLabel = leave ? getLeaveSegmentLabel(leave) : '';
+                    const importantDisplayLabel = importantLabelsForEmp.length ? importantLabelsForEmp[0] : (importantForEmp ? 'Important' : '');
+                    const holidayDisplayLabel = holidayLabels.length ? holidayLabels[0] : (isHolidayCell ? 'Holiday' : '');
+                    const cellLabel = leaveLabel || importantDisplayLabel || holidayDisplayLabel || '';
+                    const tooltipParts = [];
+                    if (leave) {
+                      tooltipParts.push(leave.status || 'Leave');
+                      tooltipParts.push(getLeaveSegmentLabel(leave));
+                      if (leave.reason) tooltipParts.push(leave.reason);
+                    } else if (importantForEmp) {
+                      tooltipParts.push('Important (no leave)');
+                      if (importantLabelsForEmp.length) tooltipParts.push(importantLabelsForEmp.join(', '));
+                    } else if (isHolidayCell) {
+                      tooltipParts.push(holidayLabels.length ? `Holiday: ${holidayLabels.join(', ')}` : 'Holiday');
                     }
                     return (
                       <td
                         key={dateStr}
-                        className={`w-8 h-8 p-0 align-middle ${style}`}
-                        title={
-                          leave
-                            ? `${leave.status} ${leave.start_segment || ''}-${leave.end_segment || ''}`
-                            : isDateImportantForEmployee(dateStr, emp)
-                            ? importantLabelsForEmp.length
-                              ? `Important (no leave): ${importantLabelsForEmp.join(', ')}`
-                              : 'Important (no leave)'
-                            : holidaySet.has(dateStr) || isSunday(dateStr)
-                            ? 'Holiday'
-                            : ''
-                        }
-                      />
+                        className={`min-w-[3.5rem] w-14 h-9 p-0.5 align-middle ${style}`}
+                        title={tooltipParts.filter(Boolean).join(' · ')}
+                      >
+                        {cellLabel && (
+                          <span
+                            className={`block text-[10px] font-medium leading-tight truncate px-0.5 text-center ${style && (style.includes('red') || style.includes('purple')) ? 'text-white' : 'text-gray-800'}`}
+                            title={tooltipParts.filter(Boolean).join(' · ')}
+                          >
+                            {cellLabel.length > 8 ? cellLabel.slice(0, 7) + '…' : cellLabel}
+                          </span>
+                        )}
+                      </td>
                     );
                   })}
                 </tr>

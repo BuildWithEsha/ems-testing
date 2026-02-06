@@ -218,7 +218,16 @@ const OverEstimateTaskNotificationPanel = ({
                 <Users className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
                 <select
                   name="designation"
-                  defaultValue={localDesignation}
+                  value={localDesignation}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    onUpdateFilters({
+                      start: startDate,
+                      end: endDate,
+                      designation: val,
+                      minOver: minOverMinutes
+                    });
+                  }}
                   className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500"
                 >
                   <option value="">All</option>

@@ -2284,7 +2284,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
 
       if (response.ok) {
         startTransition(() => {
-          fetchAllData();
+          fetchAllData(true, 1, false, getSearchFilterParams());
         });
         alert('Task deleted successfully');
       } else {
@@ -2342,7 +2342,7 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
       if (response.ok) {
         const result = await response.json();
         startTransition(() => {
-          fetchAllData();
+          fetchAllData(true, 1, false, getSearchFilterParams());
         });
         setUiState(prev => ({
           ...prev,
