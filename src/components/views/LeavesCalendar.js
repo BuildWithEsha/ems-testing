@@ -61,9 +61,12 @@ export default function LeavesCalendar() {
   const [bulkFrom, setBulkFrom] = useState('');
   const [bulkTo, setBulkTo] = useState('');
   const [bulkType, setBulkType] = useState('important');
-  const [bulkDepartmentId, setBulkDepartmentId] = useState('');
   const [bulkLabel, setBulkLabel] = useState('');
   const [bulkSubmitting, setBulkSubmitting] = useState(false);
+  const [unmarkFrom, setUnmarkFrom] = useState('');
+  const [unmarkTo, setUnmarkTo] = useState('');
+  const [unmarkType, setUnmarkType] = useState('important');
+  const [unmarkSubmitting, setUnmarkSubmitting] = useState(false);
   const isAdmin = user?.role === 'admin' || user?.role === 'Admin';
 
   const start = `${year}-${String(month).padStart(2, '0')}-01`;
@@ -192,7 +195,7 @@ export default function LeavesCalendar() {
     setBulkSubmitting(true);
     try {
       const body = { dates, type: bulkType, label: bulkLabel || undefined };
-      if (bulkType === 'important' && bulkDepartmentId !== '') body.department_id = Number(bulkDepartmentId) || null;
+      if (bulkType === 'important' && importantDepartmentId !== '') body.department_id = Number(importantDepartmentId) || null;
       const res = await fetch('/api/leaves/blocked-dates', {
         method: 'POST',
         headers: {
@@ -351,8 +354,8 @@ export default function LeavesCalendar() {
               <div>
                 <label className="block text-xs text-gray-500 mb-0.5">For department</label>
                 <select
-                  value={bulkDepartmentId}
-                  onChange={(e) => setBulkDepartmentId(e.target.value)}
+                  value={importantDepartmentId}
+                  onChange={(e) => setImportantDepartmentId(e.target.value)}
                   className="border rounded px-2 py-1.5 text-sm min-w-[140px]"
                 >
                   <option value="">All departments</option>
@@ -383,21 +386,79 @@ export default function LeavesCalendar() {
               {bulkSubmitting ? 'Applying...' : 'Apply'}
             </button>
           </div>
-          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-500">
-            <span>When marking Important, apply to department:</span>
-            <select
-              value={importantDepartmentId}
-              onChange={(e) => setImportantDepartmentId(e.target.value)}
-              className="border rounded px-2 py-1 text-sm"
-            >
-              <option value="">All departments</option>
-              {departments.map((dept) => (
-                <option key={dept.id} value={dept.id}>
-                  {dept.name}
-                </option>
-              ))}
-            </select>
-            <span>— then click lock on a date. Unlock removes all important for that date.</span>
+          <p className="mt-2 text-xs text-gray-500">
+            <strong>To mark:</strong> click the lock icon on a date. <strong>To unmark:</strong> click the unlock icon on a marked date, or use Unmark range below.
+          </p>
+
+          <div className="mt-3 pt-3 border-t border-gray-200">
+            <h3 className="text-xs font-semibold text-gray-600 mb-2">Unmark dates (remove Important or Holiday)</h3>
+            <div className="flex flex-wrap items-end gap-3">
+              <div>
+                <label className="block text-xs text-gray-500 mb-0.5">From</label>
+                <input
+                  type="date"
+                  value={unmarkFrom}
+                  onChange={(e) => setUnmarkFrom(e.target.value)}
+                  className="border rounded px-2 py-1.5 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-0.5">To</label>
+                <input
+                  type="date"
+                  value={unmarkTo}
+                  onChange={(e) => setUnmarkTo(e.target.value)}
+                  className="border rounded px-2 py-1.5 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-0.5">Unmark as</label>
+                <select
+                  value={unmarkType}
+                  onChange={(e) => setUnmarkType(e.target.value)}
+                  className="border rounded px-2 py-1.5 text-sm"
+                >
+                  <option value="important">Important</option>
+                  <option value="holiday">Holiday</option>
+                </select>
+              </div>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!unmarkFrom || !unmarkTo) return;
+                  const fromD = new Date(unmarkFrom);
+                  const toD = new Date(unmarkTo);
+                  if (fromD > toD) return;
+                  setUnmarkSubmitting(true);
+                  try {
+                    const dates = [];
+                    for (let d = new Date(fromD); d <= toD; d.setDate(d.getDate() + 1)) {
+                      dates.push(d.toISOString().split('T')[0]);
+                    }
+                    let done = 0;
+                    for (const date of dates) {
+                      const res = await fetch(`/api/leaves/blocked-dates/${date}?type=${unmarkType}`, {
+                        method: 'DELETE',
+                        headers: { 'x-user-role': user?.role || 'admin' },
+                      });
+                      const result = await res.json().catch(() => ({}));
+                      if (res.ok && result.success) done++;
+                    }
+                    if (done > 0) loadCalendar();
+                    setUnmarkFrom('');
+                    setUnmarkTo('');
+                  } catch (e) {
+                    console.error(e);
+                  } finally {
+                    setUnmarkSubmitting(false);
+                  }
+                }}
+                disabled={unmarkSubmitting || !unmarkFrom || !unmarkTo}
+                className="px-3 py-1.5 bg-amber-600 text-white rounded text-sm hover:bg-amber-700 disabled:opacity-50"
+              >
+                {unmarkSubmitting ? 'Unmarking...' : 'Unmark range'}
+              </button>
+            </div>
           </div>
         </div>
       )}
