@@ -2886,26 +2886,52 @@ export default function Leaves({ initialTab, initialManagerSection }) {
   return (
     <>
       {pendingActionModal && pendingActionModal.type === 'swap' && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full mx-4 p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">Swap request</h3>
-            <p className="text-sm text-gray-700 mb-4">
-              Someone has an emergency and wants to take leave on a date you have ({pendingActionModal.data.start_date}
-              {pendingActionModal.data.end_date !== pendingActionModal.data.start_date ? ` – ${pendingActionModal.data.end_date}` : ''}).
-              Do you want to change your leave date?
-            </p>
-            <div className="flex gap-3 justify-end">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full overflow-hidden">
+            <div className="px-6 py-4 bg-amber-50 border-b border-amber-100">
+              <h3 className="text-lg font-semibold text-gray-900">Leave swap request</h3>
+              <p className="text-sm text-amber-800 mt-0.5">A colleague has requested leave on dates you currently have booked.</p>
+            </div>
+            <div className="px-6 py-4 space-y-4">
+              <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                <div className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Your booked leave</div>
+                <div className="text-sm font-medium text-gray-900">
+                  {pendingActionModal.data.my_start_date}
+                  {pendingActionModal.data.my_end_date !== pendingActionModal.data.my_start_date
+                    ? ` – ${pendingActionModal.data.my_end_date}`
+                    : ''}
+                </div>
+              </div>
+              <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-3">
+                <div className="text-xs font-medium text-amber-700 uppercase tracking-wide mb-1">Requested period</div>
+                <div className="text-sm font-medium text-gray-900">
+                  {pendingActionModal.data.start_date}
+                  {pendingActionModal.data.end_date !== pendingActionModal.data.start_date
+                    ? ` – ${pendingActionModal.data.end_date}`
+                    : ''}
+                </div>
+                {pendingActionModal.data.emergency_type && (
+                  <div className="mt-2 text-xs text-amber-800">
+                    Reason: {pendingActionModal.data.emergency_type}
+                  </div>
+                )}
+              </div>
+              <p className="text-sm text-gray-600">
+                If you accept, you can change your leave dates later in <strong>Future leaves</strong> so the requested period becomes available.
+              </p>
+            </div>
+            <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 flex gap-3 justify-end">
               <button
                 type="button"
                 onClick={() => handleRespondSwap(pendingActionModal.data.requesting_leave_id, false)}
-                className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                className="px-4 py-2.5 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-100"
               >
                 Reject
               </button>
               <button
                 type="button"
                 onClick={() => handleRespondSwap(pendingActionModal.data.requesting_leave_id, true)}
-                className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
+                className="px-4 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700"
               >
                 Accept
               </button>

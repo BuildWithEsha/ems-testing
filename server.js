@@ -2558,6 +2558,7 @@ app.get('/api/notifications/tasks-over-estimate', async (req, res) => {
         task_title: row.task_title,
         labels: row.labels,
         priority: row.priority,
+        department: row.department || null,
         employee_name: row.employee_name,
         designation: row.designation,
         log_date: row.log_date,

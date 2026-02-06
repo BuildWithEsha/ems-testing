@@ -40,14 +40,14 @@ const OverEstimateTaskNotificationPanel = ({
     setShowSettings(false);
   };
 
-  // Local filters similar to LTE/LHE (search/department/priority)
+  // Local filters (same as LTE/LHE: search, department, priority)
   const [filters, setFilters] = useState({
     searchTerm: '',
     department: '',
     priority: ''
   });
 
-  // Expanded departments (for collapsible grouping like LHE/LTE)
+  const [showFilters, setShowFilters] = useState(false);
   const [expandedDepartments, setExpandedDepartments] = useState(new Set());
 
   const handleDepartmentToggle = (dept) => {
@@ -73,12 +73,12 @@ const OverEstimateTaskNotificationPanel = ({
       if (n.priority) prioritiesSet.add(n.priority);
     });
 
-    // Apply local filters
     const filtered = source.filter((n) => {
       if (filters.searchTerm && !(n.task_title || '').toLowerCase().includes(filters.searchTerm.toLowerCase())) {
         return false;
       }
-      if (filters.department && (n.department || '') !== filters.department) {
+      const nDept = n.department || 'Unassigned';
+      if (filters.department && nDept !== filters.department) {
         return false;
       }
       if (filters.priority && (n.priority || '') !== filters.priority) {
@@ -87,7 +87,6 @@ const OverEstimateTaskNotificationPanel = ({
       return true;
     });
 
-    // Group by department
     const groups = {};
     filtered.forEach((n) => {
       const dept = n.department || 'Unassigned';
@@ -95,11 +94,18 @@ const OverEstimateTaskNotificationPanel = ({
       groups[dept].push(n);
     });
 
+    const sortedDepartmentEntries = Object.entries(groups).sort((a, b) => {
+      if (a[0] === 'Unassigned') return 1;
+      if (b[0] === 'Unassigned') return -1;
+      return (a[0] || '').localeCompare(b[0] || '', undefined, { sensitivity: 'base' });
+    });
+    const groupedByDepartmentSorted = Object.fromEntries(sortedDepartmentEntries);
+
     return {
       uniqueDesignations: Array.from(designationsSet).sort(),
       uniqueDepartments: Array.from(departmentsSet).sort(),
       uniquePriorities: Array.from(prioritiesSet).sort(),
-      groupedByDepartment: groups,
+      groupedByDepartment: groupedByDepartmentSorted,
     };
   }, [notifications, filters]);
 

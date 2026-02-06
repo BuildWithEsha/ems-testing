@@ -118,7 +118,6 @@ const Sidebar = ({ currentView, onViewChange }) => {
       { id: 'earnTrackWages', label: 'Wages Tracker', icon: DollarSign, adminOnly: true },
       { id: 'noticeBoard', label: 'Notice Board', icon: Megaphone, permission: 'view_notice_board_menu', isSpecial: true },
       { id: 'tickets', label: 'Tickets', icon: MessageSquare, permission: null, isSpecial: true },
-      { id: 'calendar', label: 'Calendar', icon: Calendar, permission: null },
       { id: 'settings', label: 'Settings', icon: Settings, permission: 'view_settings_menu' },
     ];
 
