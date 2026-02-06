@@ -11444,8 +11444,10 @@ app.post('/api/leaves/mark-uninformed', async (req, res) => {
     // Employee table does not have a numeric department_id column in this schema,
     // only a text "department" field. We don't need a strict FK here for uninformed
     // records, so we store NULL for department_id and avoid selecting a non-existent column.
+    // Fetch employee along with department_id so uninformed leaves participate
+    // correctly in department-level views and reports.
     const [empRows] = await connection.execute(
-      'SELECT id, name FROM employees WHERE id = ?',
+      'SELECT id, name, department_id FROM employees WHERE id = ?',
       [employee_id]
     );
     if (empRows.length === 0) {
@@ -11476,7 +11478,7 @@ app.post('/api/leaves/mark-uninformed', async (req, res) => {
 
     const [result] = await connection.execute(insertQuery, [
       employee_id,
-      null,
+      emp.department_id || null,
       reason || 'Uninformed leave',
       effectiveStartDate,
       effectiveEndDate,
