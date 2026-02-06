@@ -11431,24 +11431,49 @@ app.post('/api/leaves/blocked-dates', async (req, res) => {
   }
 });
 
-// Unmark important or holiday date (admin only). Query ?type=important|holiday to delete only that type.
+// Unmark important or holiday date (admin only).
+// Query params:
+//   type = important | holiday  (optional, default: both)
+//   department_id (only used for type=important; limits unmarking to that department)
 app.delete('/api/leaves/blocked-dates/:date', async (req, res) => {
   const userRole = (req.headers['x-user-role'] || req.headers['user-role'] || '').toLowerCase();
   if (userRole !== 'admin') return res.status(403).json({ error: 'Only admins can unmark dates.' });
   const { date } = req.params;
   const typeFilter = (req.query.type || '').toLowerCase();
+  let deptFilter = null;
+  if (
+    typeof req.query.department_id !== 'undefined' &&
+    req.query.department_id !== '' &&
+    req.query.department_id !== 'null' &&
+    req.query.department_id !== 'undefined'
+  ) {
+    const n = Number(req.query.department_id);
+    if (Number.isFinite(n)) deptFilter = n;
+  }
   if (!date) return res.status(400).json({ error: 'date is required' });
   let connection;
   try {
     connection = await mysqlPool.getConnection();
-    const condition = typeFilter === 'holiday'
-      ? `employee_id = 0 AND reason LIKE 'HOLIDAY%' AND start_date = ? AND end_date = ?`
-      : typeFilter === 'important'
-      ? `employee_id = 0 AND reason LIKE 'IMPORTANT_EVENT%' AND start_date = ? AND end_date = ?`
-      : `employee_id = 0 AND (reason LIKE 'IMPORTANT_EVENT%' OR reason LIKE 'HOLIDAY%') AND start_date = ? AND end_date = ?`;
+    let condition = `employee_id = 0 AND start_date = ? AND end_date = ?`;
+    const params = [date, date];
+
+    if (typeFilter === 'holiday') {
+      condition += ` AND reason LIKE 'HOLIDAY%'`;
+    } else if (typeFilter === 'important') {
+      condition += ` AND reason LIKE 'IMPORTANT_EVENT%'`;
+    } else {
+      condition += ` AND (reason LIKE 'IMPORTANT_EVENT%' OR reason LIKE 'HOLIDAY%')`;
+    }
+
+    // For important types, optionally restrict to a specific department
+    if (typeFilter === 'important' && deptFilter !== null) {
+      condition += ` AND department_id = ?`;
+      params.push(deptFilter);
+    }
+
     const [result] = await connection.execute(
       `DELETE FROM leave_requests WHERE ${condition}`,
-      [date, date]
+      params
     );
     res.json({ success: true, date, deleted: result.affectedRows > 0 });
   } catch (err) {

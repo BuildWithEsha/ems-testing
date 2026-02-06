@@ -4,13 +4,31 @@ import { ChevronLeft, ChevronRight, Lock, Unlock, RefreshCw } from 'lucide-react
 
 const CELL_COLORS = {
   holiday: 'bg-sky-200',
-  important: 'bg-amber-500',   // orange/amber for important (no leave) – distinct from rejected
+  important: 'bg-amber-500',   // base color for Important (no leave)
   rejected: 'bg-red-500',      // red for rejected leaves
   awol: 'bg-purple-400',
   full_day: 'bg-green-300',
   first_half: 'bg-yellow-300',
   second_half: 'bg-green-600',
 };
+
+// Palette for department-specific Important colors (per-department tint)
+const DEPT_IMPORTANT_COLORS = [
+  'bg-amber-500',
+  'bg-emerald-400',
+  'bg-indigo-400',
+  'bg-rose-400',
+  'bg-sky-400',
+  'bg-lime-400',
+];
+
+function getDeptImportantColor(departmentId) {
+  if (departmentId == null || departmentId === '') return CELL_COLORS.important;
+  const n = Number(departmentId);
+  if (!Number.isFinite(n)) return CELL_COLORS.important;
+  const idx = Math.abs(n) % DEPT_IMPORTANT_COLORS.length;
+  return DEPT_IMPORTANT_COLORS[idx];
+}
 
 function getCellStyle(leave, dateStr) {
   if (!leave) return '';
@@ -67,6 +85,7 @@ export default function LeavesCalendar() {
   const [unmarkTo, setUnmarkTo] = useState('');
   const [unmarkType, setUnmarkType] = useState('important');
   const [unmarkSubmitting, setUnmarkSubmitting] = useState(false);
+  const [unmarkDepartmentId, setUnmarkDepartmentId] = useState('');
   const isAdmin = user?.role === 'admin' || user?.role === 'Admin';
 
   const start = `${year}-${String(month).padStart(2, '0')}-01`;
@@ -443,6 +462,23 @@ export default function LeavesCalendar() {
                   <option value="holiday">Holiday</option>
                 </select>
               </div>
+              {unmarkType === 'important' && (
+                <div>
+                  <label className="block text-xs text-gray-500 mb-0.5">For department</label>
+                  <select
+                    value={unmarkDepartmentId}
+                    onChange={(e) => setUnmarkDepartmentId(e.target.value)}
+                    className="border rounded px-2 py-1.5 text-sm min-w-[140px]"
+                  >
+                    <option value="">All departments</option>
+                    {departments.map((dept) => (
+                      <option key={dept.id} value={dept.id}>
+                        {dept.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <button
                 type="button"
                 onClick={async () => {
@@ -458,16 +494,24 @@ export default function LeavesCalendar() {
                     }
                     let done = 0;
                     for (const date of dates) {
-                      const res = await fetch(`/api/leaves/blocked-dates/${date}?type=${unmarkType}`, {
+                      const deptQuery =
+                        unmarkType === 'important' && unmarkDepartmentId
+                          ? `&department_id=${encodeURIComponent(unmarkDepartmentId)}`
+                          : '';
+                      const res = await fetch(
+                        `/api/leaves/blocked-dates/${date}?type=${unmarkType}${deptQuery}`,
+                        {
                         method: 'DELETE',
                         headers: { 'x-user-role': user?.role || 'admin' },
-                      });
+                        }
+                      );
                       const result = await res.json().catch(() => ({}));
                       if (res.ok && result.success) done++;
                     }
                     if (done > 0) loadCalendar();
                     setUnmarkFrom('');
                     setUnmarkTo('');
+                    setUnmarkDepartmentId('');
                   } catch (e) {
                     console.error(e);
                   } finally {
@@ -495,7 +539,8 @@ export default function LeavesCalendar() {
                 const isImportant = importantSet.has(d);
                 const isHoliday = holidaySet.has(d) || isSunday(d);
                 const headerLabels = isImportant ? getImportantLabelsForDate(d) : [];
-                const headerBg = isImportant ? 'bg-amber-500 text-white' : isHoliday ? 'bg-sky-200 text-gray-800' : 'text-gray-700';
+                // Header should not change color when marking Important; only holidays/Sundays are colored.
+                const headerBg = isHoliday ? 'bg-sky-200 text-gray-800' : 'text-gray-700';
                 const isMarked = isImportant || holidaySet.has(d);
                 const headerTitle = isImportant
                   ? headerLabels.length
@@ -555,11 +600,12 @@ export default function LeavesCalendar() {
                       (l) => toDateStr(l.start_date) <= dateStr && toDateStr(l.end_date) >= dateStr
                     );
                     let style = getCellStyle(leave, dateStr);
-                    const importantLabelsForEmp = !leave && isDateImportantForEmployee(dateStr, emp)
+                    const importantForEmp = !leave && isDateImportantForEmployee(dateStr, emp);
+                    const importantLabelsForEmp = importantForEmp
                       ? getImportantLabelsForEmployeeOnDate(dateStr, emp)
                       : [];
                     if (!style) {
-                      if (isDateImportantForEmployee(dateStr, emp)) style = CELL_COLORS.important;
+                      if (importantForEmp) style = getDeptImportantColor(emp.department_id);
                       else if (holidaySet.has(dateStr) || isSunday(dateStr)) style = CELL_COLORS.holiday;
                       else style = 'bg-gray-50';
                     }
