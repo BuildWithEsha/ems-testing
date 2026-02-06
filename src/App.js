@@ -457,37 +457,37 @@ const AuthenticatedApp = () => {
       case 'leaves':
         return (
           <Suspense fallback={<LoadingFallback />}>
-            <Leaves />
+            <Leaves key="leaves" />
           </Suspense>
         );
       case 'leaves_main':
         return (
           <Suspense fallback={<LoadingFallback />}>
-            <Leaves />
+            <Leaves key="leaves_main" />
           </Suspense>
         );
       case 'leaves_department_pending':
         return (
           <Suspense fallback={<LoadingFallback />}>
-            <Leaves initialTab="pending" initialManagerSection="department" />
+            <Leaves key="leaves_department_pending" initialTab="pending" initialManagerSection="department" />
           </Suspense>
         );
       case 'leaves_department_approved':
         return (
           <Suspense fallback={<LoadingFallback />}>
-            <Leaves initialTab="approved" initialManagerSection="department" />
+            <Leaves key="leaves_department_approved" initialTab="approved" initialManagerSection="department" />
           </Suspense>
         );
       case 'leaves_department_rejected':
         return (
           <Suspense fallback={<LoadingFallback />}>
-            <Leaves initialTab="rejected" initialManagerSection="department" />
+            <Leaves key="leaves_department_rejected" initialTab="rejected" initialManagerSection="department" />
           </Suspense>
         );
       case 'leaves_mark_uninformed':
         return (
           <Suspense fallback={<LoadingFallback />}>
-            <Leaves initialTab="pending" initialManagerSection="markUninformed" />
+            <Leaves key="leaves_mark_uninformed" initialTab="pending" initialManagerSection="markUninformed" />
           </Suspense>
         );
       case 'shiftRoster':

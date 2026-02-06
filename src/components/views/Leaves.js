@@ -10,10 +10,28 @@ const TABS = {
   REPORT: 'report',
 };
 
+// initialManagerSection determines which completely separate UI to show:
+// - undefined / null → "My Leaves" (per-employee self-service)
+// - 'department'     → Department leaves management for managers/admins
+// - 'markUninformed' → Mark uninformed leaves for employees
 export default function Leaves({ initialTab, initialManagerSection }) {
   const { user } = useAuth();
+  const mode =
+    initialManagerSection === 'department'
+      ? 'department'
+      : initialManagerSection === 'markUninformed'
+      ? 'markUninformed'
+      : 'my';
+
+  // Tab state for "My Leaves" self-service view
   const [activeTab, setActiveTab] = useState(
     initialTab && Object.values(TABS).includes(initialTab) ? initialTab : TABS.APPLY
+  );
+  // Tab state for Department view (pending / approved / rejected)
+  const [departmentTab, setDepartmentTab] = useState(
+    initialTab && [TABS.PENDING, TABS.APPROVED, TABS.REJECTED].includes(initialTab)
+      ? initialTab
+      : TABS.PENDING
   );
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState({
@@ -42,7 +60,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     reason: 'Uninformed leave',
   });
   const [markUninformedEmployees, setMarkUninformedEmployees] = useState([]);
-  const [managerViewMode] = useState(initialManagerSection || null);
+  const [selectedEmployeeReport, setSelectedEmployeeReport] = useState(null);
 
   const loadMyLeaves = async () => {
     if (!employeeId) return;
@@ -84,6 +102,20 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     }
   };
 
+  // Load a leave report for an arbitrary employee (used in Mark Uninformed view)
+  const loadEmployeeReport = async (targetEmployeeId) => {
+    if (!targetEmployeeId) return;
+    try {
+      const res = await fetch(`/api/leaves/report?employee_id=${targetEmployeeId}`);
+      if (res.ok) {
+        const data = await res.json();
+        setSelectedEmployeeReport(data);
+      }
+    } catch (err) {
+      console.error('Error loading selected employee leave report', err);
+    }
+  };
+
   const loadDepartmentLeaves = async () => {
     if (!isManagerOrAdmin) return;
     try {
@@ -122,12 +154,23 @@ export default function Leaves({ initialTab, initialManagerSection }) {
   };
 
   useEffect(() => {
-    loadMyLeaves();
-    loadPolicy();
-    loadReport();
-    loadDepartmentLeaves();
-    loadMarkUninformedEmployees();
-  }, [employeeId]);
+    // "My Leaves" – employee self-service view
+    if (mode === 'my') {
+      loadMyLeaves();
+      loadPolicy();
+      loadReport();
+    }
+
+    // Department view – managers/admins manage department/all employees
+    if (mode === 'department') {
+      loadDepartmentLeaves();
+    }
+
+    // Mark Uninformed – managers/admins mark uninformed leaves for employees
+    if (mode === 'markUninformed') {
+      loadMarkUninformedEmployees();
+    }
+  }, [employeeId, departmentId, mode]);
 
   const handleFormChange = (e) => {
     const { name, value } = e.target;
@@ -146,6 +189,15 @@ export default function Leaves({ initialTab, initialManagerSection }) {
   const handleMarkUninformedFormChange = (e) => {
     const { name, value } = e.target;
     setMarkUninformedForm((prev) => ({ ...prev, [name]: value }));
+
+    // When switching employee in Mark Uninformed view, load their current uninformed stats
+    if (name === 'employee_id') {
+      if (value) {
+        loadEmployeeReport(Number(value));
+      } else {
+        setSelectedEmployeeReport(null);
+      }
+    }
   };
 
   const computeMarkUninformedDays = () => {
@@ -659,7 +711,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     if (!isManagerOrAdmin) return null;
     const daysRequested = computeMarkUninformedDays();
     return (
-      <div className="bg-white border rounded p-6 mt-6">
+      <div className="bg-white border rounded p-6">
         <h2 className="text-lg font-semibold text-gray-900 mb-4">Mark Uninformed Leave</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
@@ -752,82 +804,32 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     );
   };
 
-  const renderContent = () => {
+  // "My Leaves" – completely self-contained employee view
+  const renderMyLeavesContent = () => {
     switch (activeTab) {
       case TABS.APPLY:
         return renderApplyForm();
       case TABS.PENDING:
-        // Default: personal-only view (main Leaves / My Leaves)
-        if (!managerViewMode) {
-          return (
-            <div className="space-y-6">
-              <h2 className="text-lg font-semibold text-gray-900">My pending leaves</h2>
-              {renderLeaveTable(myLeaves.pending || [])}
-            </div>
-          );
-        }
-
-        // Manager/admin – dedicated department pending view
-        if (managerViewMode === 'department') {
-          return (
-            <div className="space-y-6">
-              <h2 className="text-lg font-semibold text-gray-900">Department pending leaves</h2>
-              {renderDepartmentTable(departmentLeaves.pending || [], true)}
-            </div>
-          );
-        }
-
-        // Manager/admin – dedicated Mark Uninformed section
-        if (managerViewMode === 'markUninformed') {
-          return (
-            <div className="space-y-6">
-              <h2 className="text-lg font-semibold text-gray-900">Mark uninformed leaves</h2>
-              {renderMarkUninformedForm()}
-            </div>
-          );
-        }
-
-        return null;
+        return (
+          <div className="space-y-6">
+            <h2 className="text-lg font-semibold text-gray-900">My pending leaves</h2>
+            {renderLeaveTable(myLeaves.pending || [])}
+          </div>
+        );
       case TABS.APPROVED:
-        if (!managerViewMode) {
-          return (
-            <div className="space-y-6">
-              <h2 className="text-lg font-semibold text-gray-900">My recent approved leaves</h2>
-              {renderLeaveTable(myLeaves.recent_approved || [])}
-            </div>
-          );
-        }
-
-        if (managerViewMode === 'department') {
-          return (
-            <div className="space-y-6">
-              <h2 className="text-lg font-semibold text-gray-900">Department recent approved leaves</h2>
-              {renderDepartmentTable(departmentLeaves.recent_approved || [], false)}
-            </div>
-          );
-        }
-
-        return null;
+        return (
+          <div className="space-y-6">
+            <h2 className="text-lg font-semibold text-gray-900">My recent approved leaves</h2>
+            {renderLeaveTable(myLeaves.recent_approved || [])}
+          </div>
+        );
       case TABS.REJECTED:
-        if (!managerViewMode) {
-          return (
-            <div className="space-y-6">
-              <h2 className="text-lg font-semibold text-gray-900">My recent rejected leaves</h2>
-              {renderLeaveTable(myLeaves.recent_rejected || [])}
-            </div>
-          );
-        }
-
-        if (managerViewMode === 'department') {
-          return (
-            <div className="space-y-6">
-              <h2 className="text-lg font-semibold text-gray-900">Department recent rejected leaves</h2>
-              {renderDepartmentTable(departmentLeaves.recent_rejected || [], false)}
-            </div>
-          );
-        }
-
-        return null;
+        return (
+          <div className="space-y-6">
+            <h2 className="text-lg font-semibold text-gray-900">My recent rejected leaves</h2>
+            {renderLeaveTable(myLeaves.recent_rejected || [])}
+          </div>
+        );
       case TABS.POLICY:
         return renderPolicy();
       case TABS.REPORT:
@@ -837,9 +839,150 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     }
   };
 
+  // Department view – managers/admins manage pending/approved/rejected for their department / all employees
+  const renderDepartmentContent = () => {
+    switch (departmentTab) {
+      case TABS.PENDING:
+        return (
+          <div className="space-y-6">
+            <h2 className="text-lg font-semibold text-gray-900">Department pending leaves</h2>
+            {renderDepartmentTable(departmentLeaves.pending || [], true)}
+          </div>
+        );
+      case TABS.APPROVED:
+        return (
+          <div className="space-y-6">
+            <h2 className="text-lg font-semibold text-gray-900">Department recent approved leaves</h2>
+            {renderDepartmentTable(departmentLeaves.recent_approved || [], false)}
+          </div>
+        );
+      case TABS.REJECTED:
+        return (
+          <div className="space-y-6">
+            <h2 className="text-lg font-semibold text-gray-900">Department recent rejected leaves</h2>
+            {renderDepartmentTable(departmentLeaves.recent_rejected || [], false)}
+          </div>
+        );
+      default:
+        return null;
+    }
+  };
+
+  // Mark Uninformed view – managers/admins mark uninformed and see how many have been marked
+  const renderMarkUninformedContent = () => {
+    if (!isManagerOrAdmin) {
+      return (
+        <div className="bg-white border rounded p-6 text-gray-700">
+          You do not have permission to mark uninformed leaves.
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div>{renderMarkUninformedForm()}</div>
+          <div className="bg-white border rounded p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">
+              Uninformed leaves for selected employee
+            </h2>
+            {!markUninformedForm.employee_id ? (
+              <div className="text-sm text-gray-500">
+                Select an employee to see how many uninformed leaves have been recorded for them.
+              </div>
+            ) : !selectedEmployeeReport ? (
+              <div className="text-sm text-gray-500">
+                Loading or no report available for this employee.
+              </div>
+            ) : (
+              <div className="space-y-4 text-sm text-gray-700">
+                <div className="border rounded p-3">
+                  <div className="text-xs uppercase text-gray-500">Uninformed Leaves Count</div>
+                  <div className="mt-1 text-sm">
+                    <span className="font-semibold">
+                      {selectedEmployeeReport.uninformed_count}
+                    </span>
+                  </div>
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-900 mb-2">
+                    Uninformed leave details
+                  </h3>
+                  {selectedEmployeeReport.uninformed_details &&
+                  selectedEmployeeReport.uninformed_details.length > 0 ? (
+                    <ul className="list-disc list-inside space-y-1">
+                      {selectedEmployeeReport.uninformed_details.map((u) => (
+                        <li key={u.id}>
+                          {u.start_date}
+                          {u.start_date !== u.end_date ? ` to ${u.end_date}` : ''} –{' '}
+                          {u.days_requested} day(s)
+                          {u.reason ? ` – ${u.reason}` : ''}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <div className="text-sm text-gray-500">
+                      No uninformed leaves recorded for this employee.
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // Completely separate top-level UIs per subsection
+  if (mode === 'department') {
+    return (
+      <div className="p-6">
+        <h1 className="text-2xl font-semibold text-gray-900 mb-4">Department Leaves</h1>
+        <div className="mb-4 border-b border-gray-200">
+          <nav className="-mb-px flex space-x-4" aria-label="Tabs">
+            {[TABS.PENDING, TABS.APPROVED, TABS.REJECTED].map((tabId) => {
+              const label =
+                tabId === TABS.PENDING
+                  ? 'Pending'
+                  : tabId === TABS.APPROVED
+                  ? 'Approved'
+                  : 'Rejected';
+              return (
+                <button
+                  key={tabId}
+                  type="button"
+                  onClick={() => setDepartmentTab(tabId)}
+                  className={`whitespace-nowrap py-2 px-3 border-b-2 text-sm font-medium ${
+                    departmentTab === tabId
+                      ? 'border-indigo-500 text-indigo-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </nav>
+        </div>
+        {renderDepartmentContent()}
+      </div>
+    );
+  }
+
+  if (mode === 'markUninformed') {
+    return (
+      <div className="p-6">
+        <h1 className="text-2xl font-semibold text-gray-900 mb-4">Mark Uninformed Leaves</h1>
+        {renderMarkUninformedContent()}
+      </div>
+    );
+  }
+
+  // Default: "My Leaves" – self-service employee view (for employees, managers, admins)
   return (
     <div className="p-6">
-      <h1 className="text-2xl font-semibold text-gray-900 mb-4">Leaves</h1>
+      <h1 className="text-2xl font-semibold text-gray-900 mb-4">My Leaves</h1>
       <div className="mb-4 border-b border-gray-200">
         <nav className="-mb-px flex space-x-4" aria-label="Tabs">
           {[
@@ -865,7 +1008,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
           ))}
         </nav>
       </div>
-      {renderContent()}
+      {renderMyLeavesContent()}
     </div>
   );
 }
