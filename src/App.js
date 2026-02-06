@@ -484,6 +484,16 @@ const AuthenticatedApp = () => {
             <Leaves key="leaves_department_rejected" initialTab="rejected" initialManagerSection="department" />
           </Suspense>
         );
+      case 'leaves_department_on_behalf':
+        return (
+          <Suspense fallback={<LoadingFallback />}>
+            <Leaves
+              key="leaves_department_on_behalf"
+              initialTab="dept_on_behalf"
+              initialManagerSection="department"
+            />
+          </Suspense>
+        );
       case 'leaves_mark_uninformed':
         return (
           <Suspense fallback={<LoadingFallback />}>

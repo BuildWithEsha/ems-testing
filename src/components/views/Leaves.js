@@ -41,6 +41,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     start_segment: 'full_day',
     end_segment: 'full_day',
     reason: '',
+    leave_type: 'paid', // paid | other
   });
   const [myLeaves, setMyLeaves] = useState({ pending: [], recent_approved: [], recent_rejected: [] });
   const [policy, setPolicy] = useState(null);
@@ -63,7 +64,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     end_date: '',
     start_segment: 'full_day',
     end_segment: 'full_day',
-    reason: 'Uninformed leave',
+    reason: 'Absent',
   });
   const [markUninformedEmployees, setMarkUninformedEmployees] = useState([]);
   const [uninformedEmployeeSearch, setUninformedEmployeeSearch] = useState('');
@@ -80,6 +81,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     start_segment: 'full_day',
     end_segment: 'full_day',
     reason: '',
+    leave_type: 'paid', // paid | other
   });
 
   // Filters for department "applied on behalf" history
@@ -88,6 +90,8 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     endDate: '',
     minDays: '',
     maxDays: '',
+    department: '',
+    employeeName: '',
   });
 
   // Shared leave-details modal state for My Leaves & Department views
@@ -432,8 +436,15 @@ export default function Leaves({ initialTab, initialManagerSection }) {
       alert('User is not available for leave application');
       return;
     }
-    if (!form.start_date || !form.end_date) {
-      alert('Please select start and end dates');
+    if (
+      !form.start_date ||
+      !form.end_date ||
+      !form.start_segment ||
+      !form.end_segment ||
+      !form.reason.trim() ||
+      !form.leave_type
+    ) {
+      alert('Please complete all fields, including leave type, before applying for leave.');
       return;
     }
     setLoading(true);
@@ -447,6 +458,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
         start_segment: form.start_segment,
         end_segment: form.end_segment,
         days_requested: computeDaysRequested(),
+        leave_type: form.leave_type || 'paid',
       };
 
       // First attempt without confirm_exceed flag
@@ -461,7 +473,8 @@ export default function Leaves({ initialTab, initialManagerSection }) {
       // Handle quota warning
       if (data.over_quota && !data.success) {
         const proceed = window.confirm(
-          data.message || 'You only get 2 paid leaves per month. Do you want to proceed?'
+          data.message ||
+            "You can only take 2 paid leaves per month. Please try leave type 'Other' or contact administration."
         );
         if (!proceed) {
           setLoading(false);
@@ -580,6 +593,18 @@ export default function Leaves({ initialTab, initialManagerSection }) {
               <option value="full_day">Full day</option>
             </select>
           </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Leave type</label>
+            <select
+              name="leave_type"
+              value={form.leave_type}
+              onChange={handleFormChange}
+              className="w-full border rounded px-3 py-2"
+            >
+              <option value="paid">Paid</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
         </div>
 
         <div className="mt-4">
@@ -684,7 +709,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                   <td className="px-4 py-2 text-gray-800">
                     {row.is_uninformed ? (
                       <span className="inline-flex px-2 py-1 text-xs rounded-full bg-yellow-100 text-yellow-800">
-                        Uninformed
+                        Absent
                       </span>
                     ) : (
                       <span className="inline-flex px-2 py-1 text-xs rounded-full bg-green-100 text-green-800">
@@ -755,8 +780,8 @@ export default function Leaves({ initialTab, initialManagerSection }) {
   const handleMarkUninformed = async (row) => {
     if (!isManagerOrAdmin) return;
     const reason = window.prompt(
-      'Enter reason for marking uninformed leave:',
-      'Uninformed leave'
+      'Enter reason for marking absentee:',
+      'Absent'
     );
     if (reason === null) return;
     try {
@@ -799,7 +824,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     }
     const daysRequested = computeMarkUninformedDays();
     if (daysRequested <= 0) {
-      alert('Invalid date range for uninformed leave');
+      alert('Invalid date range for absentee');
       return;
     }
     try {
@@ -816,7 +841,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
           start_segment: markUninformedForm.start_segment,
           end_segment: markUninformedForm.end_segment,
           days_requested: daysRequested,
-          reason: markUninformedForm.reason || 'Uninformed leave',
+          reason: markUninformedForm.reason || 'Absent',
           decision_by: user?.id || null,
         }),
       });
@@ -825,14 +850,14 @@ export default function Leaves({ initialTab, initialManagerSection }) {
         alert(data.error || 'Failed to mark uninformed leave');
         return;
       }
-      alert('Uninformed leave recorded successfully');
+      alert('Absentee recorded successfully');
       setMarkUninformedForm({
         employee_id: '',
         start_date: '',
         end_date: '',
         start_segment: 'full_day',
         end_segment: 'full_day',
-        reason: 'Uninformed leave',
+        reason: 'Absent',
       });
       await loadDepartmentLeaves();
       await loadMyLeaves();
@@ -931,7 +956,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
               >
                 <option value="all">All</option>
                 <option value="regular">Regular</option>
-                <option value="uninformed">Uninformed</option>
+                <option value="uninformed">Absent</option>
               </select>
             </div>
             <div>
@@ -1013,7 +1038,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                   <td className="px-4 py-2 text-gray-800">
                     {row.is_uninformed ? (
                       <span className="inline-flex px-2 py-1 text-xs rounded-full bg-yellow-100 text-yellow-800">
-                        Uninformed
+                        Absent
                       </span>
                     ) : (
                       <span className="inline-flex px-2 py-1 text-xs rounded-full bg-green-100 text-green-800">
@@ -1079,8 +1104,16 @@ export default function Leaves({ initialTab, initialManagerSection }) {
 
   const applyOnBehalf = async () => {
     if (!isManagerOrAdmin) return;
-    if (!deptOnBehalfForm.employee_id || !deptOnBehalfForm.start_date || !deptOnBehalfForm.end_date) {
-      alert('Please select employee and start/end dates');
+    if (
+      !deptOnBehalfForm.employee_id ||
+      !deptOnBehalfForm.start_date ||
+      !deptOnBehalfForm.end_date ||
+      !deptOnBehalfForm.start_segment ||
+      !deptOnBehalfForm.end_segment ||
+      !deptOnBehalfForm.reason.trim() ||
+      !deptOnBehalfForm.leave_type
+    ) {
+      alert('Please complete all fields, including leave type, before applying on behalf.');
       return;
     }
     const daysRequested = computeDeptOnBehalfDays();
@@ -1099,6 +1132,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
         end_segment: deptOnBehalfForm.end_segment,
         days_requested: daysRequested,
         applied_by: user?.id || null,
+        leave_type: deptOnBehalfForm.leave_type || 'paid',
       };
 
       let res = await fetch('/api/leaves/apply', {
@@ -1111,7 +1145,8 @@ export default function Leaves({ initialTab, initialManagerSection }) {
 
       if (data.over_quota && !data.success) {
         const proceed = window.confirm(
-          data.message || 'This employee may exceed paid leave quota. Do you want to proceed?'
+          data.message ||
+            "You can only take 2 paid leaves per month. Please try leave type 'Other' or contact administration."
         );
         if (!proceed) {
           return;
@@ -1231,17 +1266,17 @@ export default function Leaves({ initialTab, initialManagerSection }) {
             </div>
           </div>
 
-          {/* Uninformed count */}
+          {/* Absentees count */}
           <div className="border rounded-lg p-4 bg-white shadow-sm flex flex-col gap-2">
             <div className="text-xs font-semibold uppercase tracking-wide text-amber-600">
-              Uninformed Leaves
+              Absentees
             </div>
             <div className="text-3xl font-bold text-gray-900">
               {report.uninformed_count}
               <span className="ml-1 text-sm font-medium text-gray-500">total</span>
             </div>
             <div className="text-xs text-gray-600">
-              Uninformed leaves reduce future paid leave quotas until fully recovered.
+              Absentees reduce future paid leave quotas until fully recovered.
             </div>
           </div>
 
@@ -1291,7 +1326,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
         </div>
         <div>
           <div className="flex items-center justify-between mb-2">
-            <h3 className="text-sm font-semibold text-gray-900">Uninformed leave details</h3>
+            <h3 className="text-sm font-semibold text-gray-900">Absentee details</h3>
             <div className="flex flex-wrap gap-2 text-xs text-gray-700">
               <div>
                 <label className="block mb-1 font-medium">From</label>
@@ -1386,7 +1421,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                         {Number(u.days_requested).toFixed(2)}
                       </td>
                       <td className="px-4 py-2 text-gray-800">
-                        {u.reason || 'Uninformed leave'}
+                        {u.reason || 'Absent'}
                       </td>
                       <td className="px-4 py-2 text-gray-800">
                         {u.recorded_by_name || '-'}
@@ -1399,7 +1434,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                           <button
                             type="button"
                             onClick={async () => {
-                              if (!window.confirm('Delete this uninformed leave?')) return;
+                              if (!window.confirm('Delete this absentee record?')) return;
                               try {
                                 const res = await fetch(`/api/leaves/uninformed/${u.id}`, {
                                   method: 'DELETE',
@@ -1418,8 +1453,8 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                                 }
                                 await loadReport();
                               } catch (err) {
-                                console.error('Error deleting uninformed leave', err);
-                                alert('Error deleting uninformed leave');
+                                console.error('Error deleting absentee record', err);
+                                alert('Error deleting absentee record');
                               }
                             }}
                             className="inline-flex items-center px-2 py-1 text-xs rounded bg-red-600 text-white hover:bg-red-700"
@@ -1435,7 +1470,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
             </div>
           ) : (
             <div className="text-sm text-gray-500">
-              No uninformed leaves recorded for this period.
+              No absentees recorded for this period.
             </div>
           )}
         </div>
@@ -1448,7 +1483,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     const daysRequested = computeMarkUninformedDays();
     return (
       <div className="bg-white border rounded p-6">
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">Mark Uninformed Leave</h2>
+        <h2 className="text-lg font-semibold text-gray-900 mb-4">Mark Absentees</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div ref={uninformedEmployeeDropdownRef}>
             <label className="block text-sm font-medium text-gray-700 mb-1">Department</label>
@@ -1686,9 +1721,9 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                   onChange={(e) => setMyFilters((f) => ({ ...f, type: e.target.value }))}
                   className="border rounded px-2 py-1"
                 >
-                  <option value="all">All</option>
-                  <option value="regular">Regular</option>
-                  <option value="uninformed">Uninformed</option>
+                <option value="all">All</option>
+                <option value="regular">Regular</option>
+                <option value="uninformed">Absent</option>
                 </select>
               </div>
               <button
@@ -1899,11 +1934,19 @@ export default function Leaves({ initialTab, initialManagerSection }) {
           if (row.applied_by_name) return true;
           return false;
         });
-        const historySource = historyForMe.length > 0 ? historyForMe : historyAll;
-        const historyRows = filterByCommonCriteria(historySource, {
+        const baseHistorySource = (historyForMe.length > 0 ? historyForMe : historyAll).filter(
+          (row) => !row.is_uninformed
+        );
+        let historyRows = filterByCommonCriteria(baseHistorySource, {
           ...deptOnBehalfFilters,
           type: 'all',
         });
+        if (deptOnBehalfFilters.employeeName) {
+          const needle = deptOnBehalfFilters.employeeName.toLowerCase();
+          historyRows = historyRows.filter((row) =>
+            (row.employee_name || '').toLowerCase().includes(needle)
+          );
+        }
         return (
           <div className="space-y-6">
             <h2 className="text-lg font-semibold text-gray-900">
@@ -1964,6 +2007,19 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                   />
                 </div>
                 <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Leave type</label>
+                  <select
+                    value={deptOnBehalfForm.leave_type}
+                    onChange={(e) =>
+                      setDeptOnBehalfForm((prev) => ({ ...prev, leave_type: e.target.value }))
+                    }
+                    className="w-full border rounded px-3 py-2"
+                  >
+                    <option value="paid">Paid</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+                <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Start of leave</label>
                   <select
                     value={deptOnBehalfForm.start_segment}
@@ -2010,69 +2066,110 @@ export default function Leaves({ initialTab, initialManagerSection }) {
               <h3 className="text-md font-semibold text-gray-900">
                 Leaves applied on behalf (by you)
               </h3>
-              <div className="flex flex-wrap gap-3 text-xs text-gray-700 bg-white border rounded px-4 py-3">
-                <div>
-                  <label className="block mb-1 font-medium">From</label>
-                  <input
-                    type="date"
-                    value={deptOnBehalfFilters.startDate}
-                    onChange={(e) =>
-                      setDeptOnBehalfFilters((f) => ({ ...f, startDate: e.target.value }))
-                    }
-                    className="border rounded px-2 py-1"
-                  />
+              <div className="bg-white border rounded px-4 py-3 text-xs text-gray-700">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                  <div>
+                    <label className="block mb-1 font-medium">From</label>
+                    <input
+                      type="date"
+                      value={deptOnBehalfFilters.startDate}
+                      onChange={(e) =>
+                        setDeptOnBehalfFilters((f) => ({ ...f, startDate: e.target.value }))
+                      }
+                      className="border rounded px-2 py-1 w-full"
+                    />
+                  </div>
+                  <div>
+                    <label className="block mb-1 font-medium">To</label>
+                    <input
+                      type="date"
+                      value={deptOnBehalfFilters.endDate}
+                      onChange={(e) =>
+                        setDeptOnBehalfFilters((f) => ({ ...f, endDate: e.target.value }))
+                      }
+                      className="border rounded px-2 py-1 w-full"
+                    />
+                  </div>
+                  <div>
+                    <label className="block mb-1 font-medium">Min days</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.5"
+                      value={deptOnBehalfFilters.minDays}
+                      onChange={(e) =>
+                        setDeptOnBehalfFilters((f) => ({ ...f, minDays: e.target.value }))
+                      }
+                      className="border rounded px-2 py-1 w-full"
+                    />
+                  </div>
+                  <div>
+                    <label className="block mb-1 font-medium">Max days</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.5"
+                      value={deptOnBehalfFilters.maxDays}
+                      onChange={(e) =>
+                        setDeptOnBehalfFilters((f) => ({ ...f, maxDays: e.target.value }))
+                      }
+                      className="border rounded px-2 py-1 w-full"
+                    />
+                  </div>
+                  <div>
+                    <label className="block mb-1 font-medium">Department</label>
+                    <select
+                      value={deptOnBehalfFilters.department}
+                      onChange={(e) =>
+                        setDeptOnBehalfFilters((f) => ({ ...f, department: e.target.value }))
+                      }
+                      className="border rounded px-2 py-1 w-full"
+                    >
+                      <option value="">All</option>
+                      {Array.from(
+                        new Set(
+                          historyAll
+                            .filter((row) => row.department_name || row.department)
+                            .map((row) => row.department_name || row.department)
+                        )
+                      ).map((dept) => (
+                        <option key={dept} value={dept}>
+                          {dept}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block mb-1 font-medium">Employee</label>
+                    <input
+                      type="text"
+                      value={deptOnBehalfFilters.employeeName}
+                      onChange={(e) =>
+                        setDeptOnBehalfFilters((f) => ({ ...f, employeeName: e.target.value }))
+                      }
+                      placeholder="Search by name..."
+                      className="border rounded px-2 py-1 w-full"
+                    />
+                  </div>
+                  <div className="flex items-end">
+                    <button
+                      type="button"
+                      className="ml-auto text-[11px] text-indigo-600 underline"
+                      onClick={() =>
+                        setDeptOnBehalfFilters({
+                          startDate: '',
+                          endDate: '',
+                          minDays: '',
+                          maxDays: '',
+                          department: '',
+                          employeeName: '',
+                        })
+                      }
+                    >
+                      Clear filters
+                    </button>
+                  </div>
                 </div>
-                <div>
-                  <label className="block mb-1 font-medium">To</label>
-                  <input
-                    type="date"
-                    value={deptOnBehalfFilters.endDate}
-                    onChange={(e) =>
-                      setDeptOnBehalfFilters((f) => ({ ...f, endDate: e.target.value }))
-                    }
-                    className="border rounded px-2 py-1"
-                  />
-                </div>
-                <div>
-                  <label className="block mb-1 font-medium">Min days</label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.5"
-                    value={deptOnBehalfFilters.minDays}
-                    onChange={(e) =>
-                      setDeptOnBehalfFilters((f) => ({ ...f, minDays: e.target.value }))
-                    }
-                    className="border rounded px-2 py-1 w-20"
-                  />
-                </div>
-                <div>
-                  <label className="block mb-1 font-medium">Max days</label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.5"
-                    value={deptOnBehalfFilters.maxDays}
-                    onChange={(e) =>
-                      setDeptOnBehalfFilters((f) => ({ ...f, maxDays: e.target.value }))
-                    }
-                    className="border rounded px-2 py-1 w-20"
-                  />
-                </div>
-                <button
-                  type="button"
-                  className="ml-auto text-[11px] text-indigo-600 underline"
-                  onClick={() =>
-                    setDeptOnBehalfFilters({
-                      startDate: '',
-                      endDate: '',
-                      minDays: '',
-                      maxDays: '',
-                    })
-                  }
-                >
-                  Clear filters
-                </button>
               </div>
               <div className="bg-white border rounded p-4">
                 {historyRows.length === 0 ? (
@@ -2140,7 +2237,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     if (!isManagerOrAdmin) {
       return (
         <div className="bg-white border rounded p-6 text-gray-700">
-          You do not have permission to mark uninformed leaves.
+          You do not have permission to mark absentees.
         </div>
       );
     }
@@ -2151,11 +2248,11 @@ export default function Leaves({ initialTab, initialManagerSection }) {
           <div>{renderMarkUninformedForm()}</div>
           <div className="bg-white border rounded p-6">
             <h2 className="text-lg font-semibold text-gray-900 mb-4">
-              Uninformed leaves for selected employee
+              Absentees for selected employee
             </h2>
             {!markUninformedForm.employee_id ? (
               <div className="text-sm text-gray-500">
-                Select an employee to see how many uninformed leaves have been recorded for them.
+                Select an employee to see how many absentees have been recorded for them.
               </div>
             ) : !selectedEmployeeReport ? (
               <div className="text-sm text-gray-500">
@@ -2164,7 +2261,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
             ) : (
               <div className="space-y-4 text-sm text-gray-700">
                 <div className="border rounded p-3">
-                  <div className="text-xs uppercase text-gray-500">Uninformed Leaves Count</div>
+                  <div className="text-xs uppercase text-gray-500">Absentees Count</div>
                   <div className="mt-1 text-sm">
                     <span className="font-semibold">
                       {selectedEmployeeReport.uninformed_count}
@@ -2174,7 +2271,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                 <div>
                   <div className="flex items-center justify-between mb-2">
                     <h3 className="text-sm font-semibold text-gray-900">
-                      Uninformed leave details
+                      Absentee details
                     </h3>
                     <div className="flex flex-wrap gap-2 text-xs text-gray-700">
                       <div>
@@ -2286,7 +2383,6 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                             selectedEmployeeReport.uninformed_details,
                             {
                               ...markUninformedFilters,
-                              // dataset is already uninformed-only; no type filter needed
                             }
                           ).map((u) => (
                             <tr key={u.id}>
@@ -2300,7 +2396,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                                 {Number(u.days_requested).toFixed(2)}
                               </td>
                               <td className="px-3 py-2 text-gray-800">
-                                {u.reason || 'Uninformed leave'}
+                                {u.reason || 'Absent'}
                               </td>
                               <td className="px-3 py-2 text-gray-800">
                                 {u.recorded_by_name || '-'}
@@ -2313,7 +2409,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                                   <button
                                     type="button"
                                     onClick={async () => {
-                                      if (!window.confirm('Delete this uninformed leave?')) return;
+                                      if (!window.confirm('Delete this absentee record?')) return;
                                       try {
                                         const res = await fetch(
                                           `/api/leaves/uninformed/${u.id}`,
@@ -2330,7 +2426,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                                         );
                                         const data = await res.json().catch(() => ({}));
                                         if (!res.ok || !data.success) {
-                                          alert(data.error || 'Failed to delete uninformed leave');
+                                          alert(data.error || 'Failed to delete absentee record');
                                           return;
                                         }
                                         // Reload both selected employee report and main report
@@ -2339,8 +2435,8 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                                         );
                                         await loadReport();
                                       } catch (err) {
-                                        console.error('Error deleting uninformed leave', err);
-                                        alert('Error deleting uninformed leave');
+                                        console.error('Error deleting absentee record', err);
+                                        alert('Error deleting absentee record');
                                       }
                                     }}
                                     className="inline-flex items-center px-2 py-1 text-xs rounded bg-red-600 text-white hover:bg-red-700"
@@ -2356,7 +2452,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                     </div>
                   ) : (
                     <div className="text-sm text-gray-500">
-                      No uninformed leaves recorded for this employee.
+                      No absentees recorded for this employee.
                     </div>
                   )}
                 </div>
@@ -2410,7 +2506,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     return (
       <>
         <div className="p-6">
-          <h1 className="text-2xl font-semibold text-gray-900 mb-4">Mark Uninformed Leaves</h1>
+          <h1 className="text-2xl font-semibold text-gray-900 mb-4">Absentees</h1>
           {renderMarkUninformedContent()}
         </div>
         {selectedLeaveForDetails && (
@@ -2453,10 +2549,10 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                     <span className="font-semibold">Paid:</span>{' '}
                     {selectedLeaveForDetails.is_paid ? 'Yes' : 'No'}
                   </div>
-                  <div>
-                    <span className="font-semibold">Uninformed:</span>{' '}
-                    {selectedLeaveForDetails.is_uninformed ? 'Yes' : 'No'}
-                  </div>
+              <div>
+                <span className="font-semibold">Absent:</span>{' '}
+                {selectedLeaveForDetails.is_uninformed ? 'Yes' : 'No'}
+              </div>
                   {selectedLeaveForDetails.reason && (
                     <div>
                       <span className="font-semibold">Reason:</span>{' '}
@@ -2580,7 +2676,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                   {selectedLeaveForDetails.is_paid ? 'Yes' : 'No'}
                 </div>
                 <div>
-                  <span className="font-semibold">Uninformed:</span>{' '}
+                  <span className="font-semibold">Absent:</span>{' '}
                   {selectedLeaveForDetails.is_uninformed ? 'Yes' : 'No'}
                 </div>
                 {selectedLeaveForDetails.reason && (

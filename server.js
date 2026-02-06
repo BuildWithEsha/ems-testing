@@ -11007,7 +11007,8 @@ app.post('/api/leaves/apply', async (req, res) => {
     start_segment,
     end_segment,
     days_requested,
-    confirm_exceed
+    confirm_exceed,
+    leave_type
   } = req.body || {};
 
   if (!employee_id || !start_date || !end_date) {
@@ -11024,7 +11025,7 @@ app.post('/api/leaves/apply', async (req, res) => {
     let employeeName = '';
     if (!deptId) {
       const [empRows] = await connection.execute(
-        'SELECT id, name, department_id FROM employees WHERE id = ?',
+        'SELECT id, name, department_id, designation FROM employees WHERE id = ?',
         [employee_id]
       );
       if (empRows.length === 0) {
@@ -11034,7 +11035,7 @@ app.post('/api/leaves/apply', async (req, res) => {
       employeeName = empRows[0].name || '';
     } else {
       const [empRows] = await connection.execute(
-        'SELECT id, name FROM employees WHERE id = ?',
+        'SELECT id, name, department_id, designation FROM employees WHERE id = ?',
         [employee_id]
       );
       if (empRows.length === 0) {
@@ -11055,17 +11056,33 @@ app.post('/api/leaves/apply', async (req, res) => {
           AND lr.end_date >= ?
         LIMIT 1
       `;
-      const [conflicts] = await connection.execute(conflictQuery, [deptId, end_date, start_date]);
-      if (conflicts.length > 0) {
-        const c = conflicts[0];
-        return res.status(200).json({
-          success: false,
-          conflict: true,
-          existing_employee_name: c.employee_name || '',
-          existing_start_date: c.start_date,
-          existing_end_date: c.end_date,
-          message: 'Another employee from this department is already on leave for these dates'
-        });
+      // Only enforce conflict when both the applicant and the existing leave holder
+      // are Operators in the same department and their dates overlap.
+      const applicantDesignation = String(empRows[0].designation || '').toLowerCase();
+      if (applicantDesignation === 'operator') {
+        const conflictQuery = `
+          SELECT lr.id, lr.employee_id, e.name AS employee_name, lr.start_date, lr.end_date, e.designation
+          FROM leave_requests lr
+          JOIN employees e ON e.id = lr.employee_id
+          WHERE lr.department_id = ?
+            AND lr.status IN ('pending','approved')
+            AND lr.start_date <= ?
+            AND lr.end_date >= ?
+            AND LOWER(e.designation) = 'operator'
+          LIMIT 1
+        `;
+        const [conflicts] = await connection.execute(conflictQuery, [deptId, end_date, start_date]);
+        if (conflicts.length > 0) {
+          const c = conflicts[0];
+          return res.status(200).json({
+            success: false,
+            conflict: true,
+            existing_employee_name: c.employee_name || '',
+            existing_start_date: c.start_date,
+            existing_end_date: c.end_date,
+            message: 'Another operator from this department is already on leave for these dates'
+          });
+        }
       }
     }
 
@@ -11081,16 +11098,18 @@ app.post('/api/leaves/apply', async (req, res) => {
       ? days_requested
       : 1;
 
+    const isPaidLeaveType = (leave_type || 'paid') === 'paid';
     const willExceedPaid = used + requested > effectiveQuota;
-    if (willExceedPaid && !confirm_exceed) {
+    if (isPaidLeaveType && willExceedPaid && !confirm_exceed) {
       return res.status(200).json({
         success: false,
         over_quota: true,
-        message: 'You only get 2 paid leaves per month. Proceeding will create an unpaid leave or deduction.'
+        message:
+          "You can only take 2 paid leaves per month. Please try leave type 'Other' or contact administration."
       });
     }
 
-    const isPaid = willExceedPaid ? 0 : 1;
+    const isPaid = isPaidLeaveType && !willExceedPaid ? 1 : 0;
 
     const insertQuery = `
       INSERT INTO leave_requests (
@@ -11173,9 +11192,16 @@ app.get('/api/leaves/my', async (req, res) => {
     const approved = [];
     const rejected = [];
     rows.forEach((row) => {
-      if (row.status === 'pending') pending.push(row);
-      else if (row.status === 'approved') approved.push(row);
-      else if (row.status === 'rejected') rejected.push(row);
+      if (row.status === 'pending') {
+        pending.push(row);
+      } else if (row.status === 'approved') {
+        // Do not show absentees (uninformed) in standard approved lists
+        if (!row.is_uninformed) {
+          approved.push(row);
+        }
+      } else if (row.status === 'rejected') {
+        rejected.push(row);
+      }
     });
 
     res.json({
@@ -11258,9 +11284,16 @@ app.get('/api/leaves/department', async (req, res) => {
     const approved = [];
     const rejected = [];
     rows.forEach((row) => {
-      if (row.status === 'pending') pending.push(row);
-      else if (row.status === 'approved') approved.push(row);
-      else if (row.status === 'rejected') rejected.push(row);
+      if (row.status === 'pending') {
+        pending.push(row);
+      } else if (row.status === 'approved') {
+        // Do not show absentees (uninformed) in standard approved lists
+        if (!row.is_uninformed) {
+          approved.push(row);
+        }
+      } else if (row.status === 'rejected') {
+        rejected.push(row);
+      }
     });
 
     res.json({
@@ -11312,27 +11345,42 @@ app.post('/api/leaves/:id/decision', async (req, res) => {
     let updatedIsPaid = request.is_paid;
     if (status === 'approved') {
       if (request.department_id) {
-        const conflictQuery = `
-          SELECT id
-          FROM leave_requests
-          WHERE department_id = ?
-            AND status IN ('pending','approved')
-            AND id <> ?
-            AND start_date <= ?
-            AND end_date >= ?
-          LIMIT 1
-        `;
-        const [conflicts] = await connection.execute(conflictQuery, [
-          request.department_id,
-          id,
-          request.end_date,
-          request.start_date
-        ]);
-        if (conflicts.length > 0) {
-          await connection.rollback();
-          return res.status(409).json({
-            error: 'Department conflict: another leave is already approved or pending for this period'
-          });
+        // Only enforce conflict when both the current request and the other leave holders
+        // are Operators in the same department and their dates overlap.
+        const [empRows] = await connection.execute(
+          'SELECT designation FROM employees WHERE id = ?',
+          [request.employee_id]
+        );
+        const applicantDesignation = empRows.length
+          ? String(empRows[0].designation || '').toLowerCase()
+          : '';
+
+        if (applicantDesignation === 'operator') {
+          const conflictQuery = `
+            SELECT lr.id
+            FROM leave_requests lr
+            JOIN employees e ON e.id = lr.employee_id
+            WHERE lr.department_id = ?
+              AND lr.status IN ('pending','approved')
+              AND lr.id <> ?
+              AND lr.start_date <= ?
+              AND lr.end_date >= ?
+              AND LOWER(e.designation) = 'operator'
+            LIMIT 1
+          `;
+          const [conflicts] = await connection.execute(conflictQuery, [
+            request.department_id,
+            id,
+            request.end_date,
+            request.start_date
+          ]);
+          if (conflicts.length > 0) {
+            await connection.rollback();
+            return res.status(409).json({
+              error:
+                'Department conflict: another operator is already approved or pending for this period'
+            });
+          }
         }
       }
 
