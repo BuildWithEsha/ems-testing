@@ -11433,7 +11433,7 @@ app.post('/api/leaves/mark-uninformed', async (req, res) => {
     await connection.beginTransaction();
 
     const [empRows] = await connection.execute(
-      'SELECT id, name, department_id FROM employees WHERE id = ?',
+      'SELECT id, name, department FROM employees WHERE id = ?',
       [employee_id]
     );
     if (empRows.length === 0) {
@@ -11467,7 +11467,7 @@ app.post('/api/leaves/mark-uninformed', async (req, res) => {
 
     const [result] = await connection.execute(insertQuery, [
       employee_id,
-      emp.department_id || null,
+      emp.department || null,
       reason || 'Uninformed leave',
       effectiveStartDate,
       effectiveEndDate,

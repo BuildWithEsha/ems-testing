@@ -182,8 +182,29 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     const start = new Date(form.start_date);
     const end = new Date(form.end_date);
     if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 0;
-    const diffDays = Math.floor((end - start) / (1000 * 60 * 60 * 24)) + 1;
-    return Math.max(diffDays, 1);
+
+    const fullDays = Math.floor((end - start) / (1000 * 60 * 60 * 24));
+
+    // Base days is full days between dates
+    let total = Math.max(fullDays, 0);
+
+    // Start segment contribution (first day)
+    if (form.start_segment === 'full_day') {
+      total += 1;
+    } else if (form.start_segment === 'shift_start' || form.start_segment === 'shift_middle') {
+      total += 0.5;
+    }
+
+    // If it's more than one day, add end segment for the last day
+    if (end.toDateString() !== start.toDateString()) {
+      if (form.end_segment === 'full_day') {
+        total += 1;
+      } else if (form.end_segment === 'shift_middle' || form.end_segment === 'shift_end') {
+        total += 0.5;
+      }
+    }
+
+    return total;
   };
 
   const handleMarkUninformedFormChange = (e) => {
@@ -205,8 +226,32 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     const start = new Date(markUninformedForm.start_date);
     const end = new Date(markUninformedForm.end_date);
     if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 0;
-    const diffDays = Math.floor((end - start) / (1000 * 60 * 60 * 24)) + 1;
-    return Math.max(diffDays, 1);
+
+    const fullDays = Math.floor((end - start) / (1000 * 60 * 60 * 24));
+
+    let total = Math.max(fullDays, 0);
+
+    if (markUninformedForm.start_segment === 'full_day') {
+      total += 1;
+    } else if (
+      markUninformedForm.start_segment === 'shift_start' ||
+      markUninformedForm.start_segment === 'shift_middle'
+    ) {
+      total += 0.5;
+    }
+
+    if (end.toDateString() !== start.toDateString()) {
+      if (markUninformedForm.end_segment === 'full_day') {
+        total += 1;
+      } else if (
+        markUninformedForm.end_segment === 'shift_middle' ||
+        markUninformedForm.end_segment === 'shift_end'
+      ) {
+        total += 0.5;
+      }
+    }
+
+    return total;
   };
 
   const applyForLeave = async () => {
