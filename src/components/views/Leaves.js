@@ -82,6 +82,14 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     reason: '',
   });
 
+  // Filters for department "applied on behalf" history
+  const [deptOnBehalfFilters, setDeptOnBehalfFilters] = useState({
+    startDate: '',
+    endDate: '',
+    minDays: '',
+    maxDays: '',
+  });
+
   // Shared leave-details modal state for My Leaves & Department views
   const [selectedLeaveForDetails, setSelectedLeaveForDetails] = useState(null);
 
@@ -227,6 +235,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     // Department view – managers/admins manage department/all employees
     if (mode === 'department') {
       loadDepartmentLeaves();
+      loadMarkUninformedEmployees(); // needed for apply-on-behalf employee list
     }
 
     // Mark Uninformed – managers/admins mark uninformed leaves for employees
@@ -1875,12 +1884,26 @@ export default function Leaves({ initialTab, initialManagerSection }) {
         );
       case TABS.DEPT_ON_BEHALF: {
         const daysRequested = computeDeptOnBehalfDays();
-        // History: all department leaves, optionally could be narrowed to those applied by this user
-        const historyRows = [
+        // History: leaves applied on behalf by this manager/admin (fallback to all dept leaves)
+        const historyAll = [
           ...(departmentLeaves.pending || []),
           ...(departmentLeaves.recent_approved || []),
           ...(departmentLeaves.recent_rejected || []),
         ];
+        const historyForMe = historyAll.filter((row) => {
+          const uid = user?.id;
+          if (!uid) return false;
+          if (row.applied_by && Number(row.applied_by) === Number(uid)) return true;
+          if (row.applied_by_id && Number(row.applied_by_id) === Number(uid)) return true;
+          if (row.applied_on_behalf && row.applied_on_behalf === true) return true;
+          if (row.applied_by_name) return true;
+          return false;
+        });
+        const historySource = historyForMe.length > 0 ? historyForMe : historyAll;
+        const historyRows = filterByCommonCriteria(historySource, {
+          ...deptOnBehalfFilters,
+          type: 'all',
+        });
         return (
           <div className="space-y-6">
             <h2 className="text-lg font-semibold text-gray-900">
@@ -1898,19 +1921,12 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                     className="w-full border rounded px-3 py-2"
                   >
                     <option value="">Select employee</option>
-                    {Array.from(
-                      new Set(
-                        markUninformedEmployees.map((emp) => emp.id)
-                      )
-                    )
-                      .map((id) => markUninformedEmployees.find((e) => e.id === id))
-                      .filter(Boolean)
-                      .map((emp) => (
-                        <option key={emp.id} value={emp.id}>
-                          {emp.name}
-                          {emp.department ? ` (${emp.department})` : ''}
-                        </option>
-                      ))}
+                    {markUninformedEmployees.map((emp) => (
+                      <option key={emp.id} value={emp.id}>
+                        {emp.name}
+                        {emp.department ? ` (${emp.department})` : ''}
+                      </option>
+                    ))}
                   </select>
                 </div>
                 <div>
@@ -1992,9 +2008,124 @@ export default function Leaves({ initialTab, initialManagerSection }) {
             </div>
             <div className="space-y-3">
               <h3 className="text-md font-semibold text-gray-900">
-                Recent department leaves (for reference)
+                Leaves applied on behalf (by you)
               </h3>
-              {renderDepartmentTable(historyRows, false)}
+              <div className="flex flex-wrap gap-3 text-xs text-gray-700 bg-white border rounded px-4 py-3">
+                <div>
+                  <label className="block mb-1 font-medium">From</label>
+                  <input
+                    type="date"
+                    value={deptOnBehalfFilters.startDate}
+                    onChange={(e) =>
+                      setDeptOnBehalfFilters((f) => ({ ...f, startDate: e.target.value }))
+                    }
+                    className="border rounded px-2 py-1"
+                  />
+                </div>
+                <div>
+                  <label className="block mb-1 font-medium">To</label>
+                  <input
+                    type="date"
+                    value={deptOnBehalfFilters.endDate}
+                    onChange={(e) =>
+                      setDeptOnBehalfFilters((f) => ({ ...f, endDate: e.target.value }))
+                    }
+                    className="border rounded px-2 py-1"
+                  />
+                </div>
+                <div>
+                  <label className="block mb-1 font-medium">Min days</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.5"
+                    value={deptOnBehalfFilters.minDays}
+                    onChange={(e) =>
+                      setDeptOnBehalfFilters((f) => ({ ...f, minDays: e.target.value }))
+                    }
+                    className="border rounded px-2 py-1 w-20"
+                  />
+                </div>
+                <div>
+                  <label className="block mb-1 font-medium">Max days</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.5"
+                    value={deptOnBehalfFilters.maxDays}
+                    onChange={(e) =>
+                      setDeptOnBehalfFilters((f) => ({ ...f, maxDays: e.target.value }))
+                    }
+                    className="border rounded px-2 py-1 w-20"
+                  />
+                </div>
+                <button
+                  type="button"
+                  className="ml-auto text-[11px] text-indigo-600 underline"
+                  onClick={() =>
+                    setDeptOnBehalfFilters({
+                      startDate: '',
+                      endDate: '',
+                      minDays: '',
+                      maxDays: '',
+                    })
+                  }
+                >
+                  Clear filters
+                </button>
+              </div>
+              <div className="bg-white border rounded p-4">
+                {historyRows.length === 0 ? (
+                  <div className="text-gray-500 text-sm">
+                    No leaves found that were applied on behalf of employees.
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-gray-200 text-sm">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-4 py-2 text-left font-medium text-gray-700">Employee</th>
+                          <th className="px-4 py-2 text-left font-medium text-gray-700">Dates</th>
+                          <th className="px-4 py-2 text-left font-medium text-gray-700">Days</th>
+                          <th className="px-4 py-2 text-left font-medium text-gray-700">Status</th>
+                          <th className="px-4 py-2 text-left font-medium text-gray-700">
+                            Applied by
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-200">
+                        {historyRows.map((row) => (
+                          <tr key={row.id}>
+                            <td className="px-4 py-2 text-gray-800">
+                              {row.employee_name || row.employee_id}
+                            </td>
+                            <td className="px-4 py-2 text-gray-800">
+                              {formatDate(row.start_date)}{' '}
+                              {row.start_date !== row.end_date
+                                ? `→ ${formatDate(row.end_date)}`
+                                : ''}
+                            </td>
+                            <td className="px-4 py-2 text-gray-800">{row.days_requested}</td>
+                            <td className="px-4 py-2 text-gray-800">
+                              {row.status}
+                              {row.status !== 'pending' && row.decision_by_name
+                                ? ` (by ${row.decision_by_name})`
+                                : ''}
+                            </td>
+                            <td className="px-4 py-2 text-gray-800">
+                              {row.applied_by_name ||
+                                (row.applied_by && Number(row.applied_by) === Number(user?.id)
+                                  ? 'You'
+                                  : row.applied_by) ||
+                                '—'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         );
