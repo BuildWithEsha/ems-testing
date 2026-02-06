@@ -70,6 +70,40 @@ export default function Leaves({ initialTab, initialManagerSection }) {
   // Shared leave-details modal state for My Leaves & Department views
   const [selectedLeaveForDetails, setSelectedLeaveForDetails] = useState(null);
 
+  // Filters for My Leaves (pending/approved/rejected)
+  const [myFilters, setMyFilters] = useState({
+    startDate: '',
+    endDate: '',
+    minDays: '',
+    maxDays: '',
+    type: 'all', // all | regular | uninformed
+  });
+
+  // Filters for Department leaves
+  const [deptFilters, setDeptFilters] = useState({
+    startDate: '',
+    endDate: '',
+    minDays: '',
+    maxDays: '',
+    type: 'all', // all | regular | uninformed
+  });
+
+  // Filters for uninformed table in My Leave Report
+  const [uninformedReportFilters, setUninformedReportFilters] = useState({
+    startDate: '',
+    endDate: '',
+    minDays: '',
+    maxDays: '',
+  });
+
+  // Filters for selected employee's uninformed list in Mark Uninformed view
+  const [markUninformedFilters, setMarkUninformedFilters] = useState({
+    startDate: '',
+    endDate: '',
+    minDays: '',
+    maxDays: '',
+  });
+
   const loadMyLeaves = async () => {
     if (!employeeId) return;
     try {
@@ -500,6 +534,33 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     setSelectedLeaveForDetails(row);
   };
 
+  const filterByCommonCriteria = (rows, filters) => {
+    return rows.filter((row) => {
+      const start = row.start_date ? new Date(row.start_date) : null;
+      const end = row.end_date ? new Date(row.end_date) : null;
+      const days = Number(row.days_requested) || 0;
+
+      if (filters.startDate) {
+        const from = new Date(filters.startDate);
+        if (start && start < from) return false;
+      }
+      if (filters.endDate) {
+        const to = new Date(filters.endDate);
+        if (end && end > to) return false;
+      }
+      if (filters.minDays && !Number.isNaN(Number(filters.minDays))) {
+        if (days < Number(filters.minDays)) return false;
+      }
+      if (filters.maxDays && !Number.isNaN(Number(filters.maxDays))) {
+        if (days > Number(filters.maxDays)) return false;
+      }
+      if (filters.type === 'regular' && row.is_uninformed) return false;
+      if (filters.type === 'uninformed' && !row.is_uninformed) return false;
+
+      return true;
+    });
+  };
+
   const renderLeaveTable = (rows) => (
     <div className="bg-white border rounded p-4">
       {rows.length === 0 ? (
@@ -694,29 +755,112 @@ export default function Leaves({ initialTab, initialManagerSection }) {
   };
 
   const renderDepartmentTable = (rows, showActions) => {
-    const filtered = rows.filter((row) => {
-      if (!departmentSearch) return true;
-      const name = row.employee_name || '';
-      const reason = row.reason || '';
-      return (
-        name.toLowerCase().includes(departmentSearch.toLowerCase()) ||
-        reason.toLowerCase().includes(departmentSearch.toLowerCase())
-      );
-    });
+    const filtered = rows
+      .filter((row) => {
+        if (!departmentSearch) return true;
+        const name = row.employee_name || '';
+        const reason = row.reason || '';
+        return (
+          name.toLowerCase().includes(departmentSearch.toLowerCase()) ||
+          reason.toLowerCase().includes(departmentSearch.toLowerCase())
+        );
+      })
+      .filter((row) => filterByCommonCriteria([row], deptFilters).length === 1);
 
     return (
       <div className="bg-white border rounded p-4">
-        <div className="flex items-center justify-between mb-3">
-          <div className="text-sm text-gray-600">
-            Showing {filtered.length} of {rows.length} records
+        <div className="flex flex-col gap-3 mb-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-sm text-gray-600">
+              Showing {filtered.length} of {rows.length} records
+            </div>
+            <input
+              type="text"
+              value={departmentSearch}
+              onChange={(e) => setDepartmentSearch(e.target.value)}
+              placeholder="Search by employee or reason..."
+              className="border rounded px-3 py-1.5 text-sm w-64"
+            />
           </div>
-          <input
-            type="text"
-            value={departmentSearch}
-            onChange={(e) => setDepartmentSearch(e.target.value)}
-            placeholder="Filter by employee or reason..."
-            className="border rounded px-3 py-1.5 text-sm w-64"
-          />
+          <div className="flex flex-wrap gap-3 text-xs text-gray-700">
+            <div>
+              <label className="block mb-1 font-medium">From</label>
+              <input
+                type="date"
+                value={deptFilters.startDate}
+                onChange={(e) =>
+                  setDeptFilters((f) => ({ ...f, startDate: e.target.value }))
+                }
+                className="border rounded px-2 py-1"
+              />
+            </div>
+            <div>
+              <label className="block mb-1 font-medium">To</label>
+              <input
+                type="date"
+                value={deptFilters.endDate}
+                onChange={(e) =>
+                  setDeptFilters((f) => ({ ...f, endDate: e.target.value }))
+                }
+                className="border rounded px-2 py-1"
+              />
+            </div>
+            <div>
+              <label className="block mb-1 font-medium">Min days</label>
+              <input
+                type="number"
+                min="0"
+                step="0.5"
+                value={deptFilters.minDays}
+                onChange={(e) =>
+                  setDeptFilters((f) => ({ ...f, minDays: e.target.value }))
+                }
+                className="border rounded px-2 py-1 w-20"
+              />
+            </div>
+            <div>
+              <label className="block mb-1 font-medium">Max days</label>
+              <input
+                type="number"
+                min="0"
+                step="0.5"
+                value={deptFilters.maxDays}
+                onChange={(e) =>
+                  setDeptFilters((f) => ({ ...f, maxDays: e.target.value }))
+                }
+                className="border rounded px-2 py-1 w-20"
+              />
+            </div>
+            <div>
+              <label className="block mb-1 font-medium">Type</label>
+              <select
+                value={deptFilters.type}
+                onChange={(e) =>
+                  setDeptFilters((f) => ({ ...f, type: e.target.value }))
+                }
+                className="border rounded px-2 py-1"
+              >
+                <option value="all">All</option>
+                <option value="regular">Regular</option>
+                <option value="uninformed">Uninformed</option>
+              </select>
+            </div>
+            <button
+              type="button"
+              className="ml-auto text-[11px] text-indigo-600 underline"
+              onClick={() =>
+                setDeptFilters({
+                  startDate: '',
+                  endDate: '',
+                  minDays: '',
+                  maxDays: '',
+                  type: 'all',
+                })
+              }
+            >
+              Clear filters
+            </button>
+          </div>
         </div>
         {filtered.length === 0 ? (
           <div className="text-gray-500 text-sm">No records.</div>
@@ -951,7 +1095,73 @@ export default function Leaves({ initialTab, initialManagerSection }) {
           </div>
         </div>
         <div>
-          <h3 className="text-sm font-semibold text-gray-900 mb-2">Uninformed leave details</h3>
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-sm font-semibold text-gray-900">Uninformed leave details</h3>
+            <div className="flex flex-wrap gap-2 text-xs text-gray-700">
+              <div>
+                <label className="block mb-1 font-medium">From</label>
+                <input
+                  type="date"
+                  value={uninformedReportFilters.startDate}
+                  onChange={(e) =>
+                    setUninformedReportFilters((f) => ({ ...f, startDate: e.target.value }))
+                  }
+                  className="border rounded px-2 py-1"
+                />
+              </div>
+              <div>
+                <label className="block mb-1 font-medium">To</label>
+                <input
+                  type="date"
+                  value={uninformedReportFilters.endDate}
+                  onChange={(e) =>
+                    setUninformedReportFilters((f) => ({ ...f, endDate: e.target.value }))
+                  }
+                  className="border rounded px-2 py-1"
+                />
+              </div>
+              <div>
+                <label className="block mb-1 font-medium">Min days</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.5"
+                  value={uninformedReportFilters.minDays}
+                  onChange={(e) =>
+                    setUninformedReportFilters((f) => ({ ...f, minDays: e.target.value }))
+                  }
+                  className="border rounded px-2 py-1 w-20"
+                />
+              </div>
+              <div>
+                <label className="block mb-1 font-medium">Max days</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.5"
+                  value={uninformedReportFilters.maxDays}
+                  onChange={(e) =>
+                    setUninformedReportFilters((f) => ({ ...f, maxDays: e.target.value }))
+                  }
+                  className="border rounded px-2 py-1 w-20"
+                />
+              </div>
+              <button
+                type="button"
+                className="self-end text-[11px] text-indigo-600 underline"
+                onClick={() =>
+                  setUninformedReportFilters({
+                    startDate: '',
+                    endDate: '',
+                    minDays: '',
+                    maxDays: '',
+                  })
+                }
+              >
+                Clear
+              </button>
+            </div>
+          </div>
           {report.uninformed_details && report.uninformed_details.length > 0 ? (
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200 text-sm bg-white border rounded">
@@ -968,7 +1178,10 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
-                  {report.uninformed_details.map((u) => (
+                  {filterByCommonCriteria(report.uninformed_details, {
+                    ...uninformedReportFilters,
+                    type: 'uninformed',
+                  }).map((u) => (
                     <tr key={u.id}>
                       <td className="px-4 py-2 text-gray-800">
                         {formatDate(u.start_date)}
@@ -1225,27 +1438,96 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     switch (activeTab) {
       case TABS.APPLY:
         return renderApplyForm();
-      case TABS.PENDING:
+      case TABS.PENDING: {
+        const rows = filterByCommonCriteria(myLeaves.pending || [], myFilters);
         return (
-          <div className="space-y-6">
+          <div className="space-y-4">
             <h2 className="text-lg font-semibold text-gray-900">My pending leaves</h2>
-            {renderLeaveTable(myLeaves.pending || [])}
+            <div className="flex flex-wrap gap-3 text-xs text-gray-700 bg-white border rounded px-4 py-3">
+              <div>
+                <label className="block mb-1 font-medium">From</label>
+                <input
+                  type="date"
+                  value={myFilters.startDate}
+                  onChange={(e) => setMyFilters((f) => ({ ...f, startDate: e.target.value }))}
+                  className="border rounded px-2 py-1"
+                />
+              </div>
+              <div>
+                <label className="block mb-1 font-medium">To</label>
+                <input
+                  type="date"
+                  value={myFilters.endDate}
+                  onChange={(e) => setMyFilters((f) => ({ ...f, endDate: e.target.value }))}
+                  className="border rounded px-2 py-1"
+                />
+              </div>
+              <div>
+                <label className="block mb-1 font-medium">Min days</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.5"
+                  value={myFilters.minDays}
+                  onChange={(e) => setMyFilters((f) => ({ ...f, minDays: e.target.value }))}
+                  className="border rounded px-2 py-1 w-20"
+                />
+              </div>
+              <div>
+                <label className="block mb-1 font-medium">Max days</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.5"
+                  value={myFilters.maxDays}
+                  onChange={(e) => setMyFilters((f) => ({ ...f, maxDays: e.target.value }))}
+                  className="border rounded px-2 py-1 w-20"
+                />
+              </div>
+              <div>
+                <label className="block mb-1 font-medium">Type</label>
+                <select
+                  value={myFilters.type}
+                  onChange={(e) => setMyFilters((f) => ({ ...f, type: e.target.value }))}
+                  className="border rounded px-2 py-1"
+                >
+                  <option value="all">All</option>
+                  <option value="regular">Regular</option>
+                  <option value="uninformed">Uninformed</option>
+                </select>
+              </div>
+              <button
+                type="button"
+                className="ml-auto text-[11px] text-indigo-600 underline"
+                onClick={() =>
+                  setMyFilters({ startDate: '', endDate: '', minDays: '', maxDays: '', type: 'all' })
+                }
+              >
+                Clear filters
+              </button>
+            </div>
+            {renderLeaveTable(rows)}
           </div>
         );
-      case TABS.APPROVED:
+      }
+      case TABS.APPROVED: {
+        const rows = filterByCommonCriteria(myLeaves.recent_approved || [], myFilters);
         return (
-          <div className="space-y-6">
+          <div className="space-y-4">
             <h2 className="text-lg font-semibold text-gray-900">My recent approved leaves</h2>
-            {renderLeaveTable(myLeaves.recent_approved || [])}
+            {renderLeaveTable(rows)}
           </div>
         );
-      case TABS.REJECTED:
+      }
+      case TABS.REJECTED: {
+        const rows = filterByCommonCriteria(myLeaves.recent_rejected || [], myFilters);
         return (
-          <div className="space-y-6">
+          <div className="space-y-4">
             <h2 className="text-lg font-semibold text-gray-900">My recent rejected leaves</h2>
-            {renderLeaveTable(myLeaves.recent_rejected || [])}
+            {renderLeaveTable(rows)}
           </div>
         );
+      }
       case TABS.POLICY:
         return renderPolicy();
       case TABS.REPORT:
@@ -1321,83 +1603,185 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                   </div>
                 </div>
                 <div>
-                  <h3 className="text-sm font-semibold text-gray-900 mb-2">
-                    Uninformed leave details
-                  </h3>
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="text-sm font-semibold text-gray-900">
+                      Uninformed leave details
+                    </h3>
+                    <div className="flex flex-wrap gap-2 text-xs text-gray-700">
+                      <div>
+                        <label className="block mb-1 font-medium">From</label>
+                        <input
+                          type="date"
+                          value={markUninformedFilters.startDate}
+                          onChange={(e) =>
+                            setMarkUninformedFilters((f) => ({
+                              ...f,
+                              startDate: e.target.value,
+                            }))
+                          }
+                          className="border rounded px-2 py-1"
+                        />
+                      </div>
+                      <div>
+                        <label className="block mb-1 font-medium">To</label>
+                        <input
+                          type="date"
+                          value={markUninformedFilters.endDate}
+                          onChange={(e) =>
+                            setMarkUninformedFilters((f) => ({
+                              ...f,
+                              endDate: e.target.value,
+                            }))
+                          }
+                          className="border rounded px-2 py-1"
+                        />
+                      </div>
+                      <div>
+                        <label className="block mb-1 font-medium">Min days</label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.5"
+                          value={markUninformedFilters.minDays}
+                          onChange={(e) =>
+                            setMarkUninformedFilters((f) => ({
+                              ...f,
+                              minDays: e.target.value,
+                            }))
+                          }
+                          className="border rounded px-2 py-1 w-20"
+                        />
+                      </div>
+                      <div>
+                        <label className="block mb-1 font-medium">Max days</label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.5"
+                          value={markUninformedFilters.maxDays}
+                          onChange={(e) =>
+                            setMarkUninformedFilters((f) => ({
+                              ...f,
+                              maxDays: e.target.value,
+                            }))
+                          }
+                          className="border rounded px-2 py-1 w-20"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        className="self-end text-[11px] text-indigo-600 underline"
+                        onClick={() =>
+                          setMarkUninformedFilters({
+                            startDate: '',
+                            endDate: '',
+                            minDays: '',
+                            maxDays: '',
+                          })
+                        }
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  </div>
                   {selectedEmployeeReport.uninformed_details &&
                   selectedEmployeeReport.uninformed_details.length > 0 ? (
-                    <ul className="space-y-3">
-                      {selectedEmployeeReport.uninformed_details.map((u) => (
-                        <li
-                          key={u.id}
-                          className="border rounded p-3 bg-gray-50 space-y-1 text-sm"
-                        >
-                          <div>
-                            <span className="font-semibold">Dates:</span>{' '}
-                            {formatDate(u.start_date)}
-                            {u.start_date !== u.end_date
-                              ? ` – ${formatDate(u.end_date)}`
-                              : ''}
-                          </div>
-                          <div>
-                            <span className="font-semibold">Days:</span>{' '}
-                            {Number(u.days_requested).toFixed(2)}
-                          </div>
-                          <div>
-                            <span className="font-semibold">Reason:</span>{' '}
-                            {u.reason || 'Uninformed leave'}
-                          </div>
-                          {u.recorded_by_name && (
-                            <div>
-                              <span className="font-semibold">Marked by:</span>{' '}
-                              {u.recorded_by_name}
-                            </div>
-                          )}
-                          {u.decision_at && (
-                            <div>
-                              <span className="font-semibold">Marked at:</span>{' '}
-                              {formatDateTime(u.decision_at)}
-                            </div>
-                          )}
-                          {isManagerOrAdmin && (
-                            <div className="pt-1">
-                              <button
-                                type="button"
-                                onClick={async () => {
-                                  if (!window.confirm('Delete this uninformed leave?')) return;
-                                  try {
-                                    const res = await fetch(`/api/leaves/uninformed/${u.id}`, {
-                                      method: 'DELETE',
-                                      headers: {
-                                        'Content-Type': 'application/json',
-                                        'user-role':
-                                          user?.role ||
-                                          user?.user_role ||
-                                          (user?.designation || 'employee'),
-                                      },
-                                    });
-                                    const data = await res.json().catch(() => ({}));
-                                    if (!res.ok || !data.success) {
-                                      alert(data.error || 'Failed to delete uninformed leave');
-                                      return;
-                                    }
-                                    // Reload both selected employee report and main report
-                                    await loadEmployeeReport(Number(markUninformedForm.employee_id));
-                                    await loadReport();
-                                  } catch (err) {
-                                    console.error('Error deleting uninformed leave', err);
-                                    alert('Error deleting uninformed leave');
-                                  }
-                                }}
-                                className="inline-flex items-center px-2 py-1 text-xs rounded bg-red-600 text-white hover:bg-red-700"
-                              >
-                                Delete
-                              </button>
-                            </div>
-                          )}
-                        </li>
-                      ))}
-                    </ul>
+                    <div className="overflow-x-auto">
+                      <table className="min-w-full divide-y divide-gray-200 text-sm bg-white border rounded">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th className="px-3 py-2 text-left font-medium text-gray-700">
+                              Dates
+                            </th>
+                            <th className="px-3 py-2 text-left font-medium text-gray-700">
+                              Days
+                            </th>
+                            <th className="px-3 py-2 text-left font-medium text-gray-700">
+                              Reason
+                            </th>
+                            <th className="px-3 py-2 text-left font-medium text-gray-700">
+                              Marked by
+                            </th>
+                            <th className="px-3 py-2 text-left font-medium text-gray-700">
+                              Marked at
+                            </th>
+                            {isManagerOrAdmin && (
+                              <th className="px-3 py-2 text-left font-medium text-gray-700">
+                                Actions
+                              </th>
+                            )}
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-200">
+                          {filterByCommonCriteria(
+                            selectedEmployeeReport.uninformed_details,
+                            { ...markUninformedFilters, type: 'uninformed' }
+                          ).map((u) => (
+                            <tr key={u.id}>
+                              <td className="px-3 py-2 text-gray-800">
+                                {formatDate(u.start_date)}
+                                {u.start_date !== u.end_date
+                                  ? ` – ${formatDate(u.end_date)}`
+                                  : ''}
+                              </td>
+                              <td className="px-3 py-2 text-gray-800">
+                                {Number(u.days_requested).toFixed(2)}
+                              </td>
+                              <td className="px-3 py-2 text-gray-800">
+                                {u.reason || 'Uninformed leave'}
+                              </td>
+                              <td className="px-3 py-2 text-gray-800">
+                                {u.recorded_by_name || '-'}
+                              </td>
+                              <td className="px-3 py-2 text-gray-800">
+                                {u.decision_at ? formatDateTime(u.decision_at) : '-'}
+                              </td>
+                              {isManagerOrAdmin && (
+                                <td className="px-3 py-2 text-gray-800">
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      if (!window.confirm('Delete this uninformed leave?')) return;
+                                      try {
+                                        const res = await fetch(
+                                          `/api/leaves/uninformed/${u.id}`,
+                                          {
+                                            method: 'DELETE',
+                                            headers: {
+                                              'Content-Type': 'application/json',
+                                              'user-role':
+                                                user?.role ||
+                                                user?.user_role ||
+                                                (user?.designation || 'employee'),
+                                            },
+                                          }
+                                        );
+                                        const data = await res.json().catch(() => ({}));
+                                        if (!res.ok || !data.success) {
+                                          alert(data.error || 'Failed to delete uninformed leave');
+                                          return;
+                                        }
+                                        // Reload both selected employee report and main report
+                                        await loadEmployeeReport(
+                                          Number(markUninformedForm.employee_id)
+                                        );
+                                        await loadReport();
+                                      } catch (err) {
+                                        console.error('Error deleting uninformed leave', err);
+                                        alert('Error deleting uninformed leave');
+                                      }
+                                    }}
+                                    className="inline-flex items-center px-2 py-1 text-xs rounded bg-red-600 text-white hover:bg-red-700"
+                                  >
+                                    Delete
+                                  </button>
+                                </td>
+                              )}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   ) : (
                     <div className="text-sm text-gray-500">
                       No uninformed leaves recorded for this employee.
@@ -1600,14 +1984,6 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                   {selectedLeaveForDetails.status}
                 </div>
               )}
-              {selectedLeaveForDetails.status &&
-                selectedLeaveForDetails.status !== 'pending' &&
-                selectedLeaveForDetails.decision_by_name && (
-                  <div>
-                    <span className="font-semibold">Decided by:</span>{' '}
-                    {selectedLeaveForDetails.decision_by_name}
-                  </div>
-                )}
               {selectedLeaveForDetails.status &&
                 selectedLeaveForDetails.status !== 'pending' &&
                 selectedLeaveForDetails.decision_by_name && (
