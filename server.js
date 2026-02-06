@@ -11458,11 +11458,8 @@ app.post('/api/leaves/mark-uninformed', async (req, res) => {
         end_segment,
         days_requested,
         is_paid,
-        is_uninformed,
-        decision_by,
-        decision_at,
-        decision_reason
-      ) VALUES (?, ?, 'approved', ?, ?, ?, ?, ?, ?, ?, 0, 1, ?, NOW(), ?)
+        is_uninformed
+      ) VALUES (?, ?, 'approved', ?, ?, ?, ?, ?, ?, 0, 1)
     `;
 
     const [result] = await connection.execute(insertQuery, [
@@ -11473,9 +11470,7 @@ app.post('/api/leaves/mark-uninformed', async (req, res) => {
       effectiveEndDate,
       start_segment || 'full_day',
       end_segment || 'full_day',
-      requestedDays,
-      decision_by || null,
-      reason || 'Uninformed leave'
+      requestedDays
     ]);
 
     await connection.execute(

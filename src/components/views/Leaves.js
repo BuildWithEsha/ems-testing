@@ -182,26 +182,52 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     const start = new Date(form.start_date);
     const end = new Date(form.end_date);
     if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 0;
+    const sameDay = start.toDateString() === end.toDateString();
 
-    const fullDays = Math.floor((end - start) / (1000 * 60 * 60 * 24));
+    // Same-day rules
+    if (sameDay) {
+      const s = form.start_segment;
+      const e = form.end_segment;
 
-    // Base days is full days between dates
-    let total = Math.max(fullDays, 0);
+      // Any full_day on same day counts as 1 full day
+      if (s === 'full_day' || e === 'full_day') return 1;
 
-    // Start segment contribution (first day)
+      // Explicit half‑day ranges
+      if (
+        (s === 'shift_start' && e === 'shift_middle') ||
+        (s === 'shift_middle' && e === 'shift_end')
+      ) {
+        return 0.5;
+      }
+
+      // Start of shift to end of shift = full day
+      if (s === 'shift_start' && e === 'shift_end') {
+        return 1;
+      }
+
+      // Fallback – treat as full day to be safe
+      return 1;
+    }
+
+    // Multi-day rules: full middle days + boundary contributions
+    const msPerDay = 1000 * 60 * 60 * 24;
+    const diff = Math.floor((end - start) / msPerDay);
+    const middleFullDays = diff > 0 ? Math.max(diff - 1, 0) : 0;
+
+    let total = middleFullDays;
+
+    // First day
     if (form.start_segment === 'full_day') {
       total += 1;
     } else if (form.start_segment === 'shift_start' || form.start_segment === 'shift_middle') {
       total += 0.5;
     }
 
-    // If it's more than one day, add end segment for the last day
-    if (end.toDateString() !== start.toDateString()) {
-      if (form.end_segment === 'full_day') {
-        total += 1;
-      } else if (form.end_segment === 'shift_middle' || form.end_segment === 'shift_end') {
-        total += 0.5;
-      }
+    // Last day
+    if (form.end_segment === 'full_day') {
+      total += 1;
+    } else if (form.end_segment === 'shift_middle' || form.end_segment === 'shift_end') {
+      total += 0.5;
     }
 
     return total;
@@ -226,10 +252,33 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     const start = new Date(markUninformedForm.start_date);
     const end = new Date(markUninformedForm.end_date);
     if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 0;
+    const sameDay = start.toDateString() === end.toDateString();
 
-    const fullDays = Math.floor((end - start) / (1000 * 60 * 60 * 24));
+    if (sameDay) {
+      const s = markUninformedForm.start_segment;
+      const e = markUninformedForm.end_segment;
 
-    let total = Math.max(fullDays, 0);
+      if (s === 'full_day' || e === 'full_day') return 1;
+
+      if (
+        (s === 'shift_start' && e === 'shift_middle') ||
+        (s === 'shift_middle' && e === 'shift_end')
+      ) {
+        return 0.5;
+      }
+
+      if (s === 'shift_start' && e === 'shift_end') {
+        return 1;
+      }
+
+      return 1;
+    }
+
+    const msPerDay = 1000 * 60 * 60 * 24;
+    const diff = Math.floor((end - start) / msPerDay);
+    const middleFullDays = diff > 0 ? Math.max(diff - 1, 0) : 0;
+
+    let total = middleFullDays;
 
     if (markUninformedForm.start_segment === 'full_day') {
       total += 1;
@@ -240,15 +289,13 @@ export default function Leaves({ initialTab, initialManagerSection }) {
       total += 0.5;
     }
 
-    if (end.toDateString() !== start.toDateString()) {
-      if (markUninformedForm.end_segment === 'full_day') {
-        total += 1;
-      } else if (
-        markUninformedForm.end_segment === 'shift_middle' ||
-        markUninformedForm.end_segment === 'shift_end'
-      ) {
-        total += 0.5;
-      }
+    if (markUninformedForm.end_segment === 'full_day') {
+      total += 1;
+    } else if (
+      markUninformedForm.end_segment === 'shift_middle' ||
+      markUninformedForm.end_segment === 'shift_end'
+    ) {
+      total += 0.5;
     }
 
     return total;
