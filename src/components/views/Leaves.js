@@ -718,6 +718,30 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     </div>
   );
 
+  const formatDate = (value) => {
+    if (!value) return '';
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return value;
+    return d.toLocaleDateString('en-GB', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+    });
+  };
+
+  const formatDateTime = (value) => {
+    if (!value) return '';
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return value;
+    return d.toLocaleString('en-GB', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  };
+
   const renderPolicy = () => (
     <div className="bg-white border rounded p-6 text-gray-700 space-y-2">
       <h2 className="text-lg font-semibold text-gray-900 mb-2">Leave Policy</h2>
@@ -781,29 +805,105 @@ export default function Leaves({ initialTab, initialManagerSection }) {
             </div>
           </div>
           <div className="border rounded p-3">
-            <div className="text-xs uppercase text-gray-500">This Month Deduction</div>
+            <div className="text-xs uppercase text-gray-500">Upcoming Deductions</div>
             <div className="mt-1 text-sm">
-              Days to deduct:{' '}
+              Total days to deduct in future:{' '}
               <span className="font-semibold">
-                {report.next_month_deduction}
+                {report.total_future_deduction ?? 0}
               </span>
             </div>
+            {Array.isArray(report.future_deductions) && report.future_deductions.length > 0 && (
+              <div className="mt-2 text-xs text-gray-600 space-y-1">
+                {report.future_deductions.slice(0, 4).map((row) => (
+                  <div key={`${row.year}-${row.month}`}>
+                    {String(row.month).padStart(2, '0')}/{row.year}:{' '}
+                    <span className="font-semibold">
+                      {row.next_month_deduction}
+                    </span>{' '}
+                    day(s)
+                  </div>
+                ))}
+                {report.future_deductions.length > 4 && (
+                  <div className="text-[11px] text-gray-500">
+                    + more months of deductions
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
         <div>
           <h3 className="text-sm font-semibold text-gray-900 mb-2">Uninformed leave details</h3>
           {report.uninformed_details && report.uninformed_details.length > 0 ? (
-            <ul className="list-disc list-inside text-sm text-gray-700 space-y-1">
+            <ul className="space-y-3 text-sm text-gray-700">
               {report.uninformed_details.map((u) => (
-                <li key={u.id}>
-                  {u.start_date}
-                  {u.start_date !== u.end_date ? ` to ${u.end_date}` : ''} – {u.days_requested} day(s)
-                  {u.reason ? ` – ${u.reason}` : ''}
+                <li
+                  key={u.id}
+                  className="border rounded p-3 bg-gray-50 space-y-1"
+                >
+                  <div>
+                    <span className="font-semibold">Dates:</span>{' '}
+                    {formatDate(u.start_date)}
+                    {u.start_date !== u.end_date ? ` – ${formatDate(u.end_date)}` : ''}
+                  </div>
+                  <div>
+                    <span className="font-semibold">Days:</span>{' '}
+                    {Number(u.days_requested).toFixed(2)}
+                  </div>
+                  <div>
+                    <span className="font-semibold">Reason:</span>{' '}
+                    {u.reason || 'Uninformed leave'}
+                  </div>
+                  {u.recorded_by_name && (
+                    <div>
+                      <span className="font-semibold">Marked by:</span>{' '}
+                      {u.recorded_by_name}
+                    </div>
+                  )}
+                  {u.decision_at && (
+                    <div>
+                      <span className="font-semibold">Marked at:</span>{' '}
+                      {formatDateTime(u.decision_at)}
+                    </div>
+                  )}
+                  {isManagerOrAdmin && (
+                    <div className="pt-1">
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (!window.confirm('Delete this uninformed leave?')) return;
+                          try {
+                            const res = await fetch(`/api/leaves/uninformed/${u.id}`, {
+                              method: 'DELETE',
+                              headers: {
+                                'Content-Type': 'application/json',
+                                'user-role': user?.role || user?.user_role || (user?.designation || 'employee'),
+                              },
+                            });
+                            const data = await res.json().catch(() => ({}));
+                            if (!res.ok || !data.success) {
+                              alert(data.error || 'Failed to delete uninformed leave');
+                              return;
+                            }
+                            await loadReport();
+                          } catch (err) {
+                            console.error('Error deleting uninformed leave', err);
+                            alert('Error deleting uninformed leave');
+                          }
+                        }}
+                        className="inline-flex items-center px-2 py-1 text-xs rounded bg-red-600 text-white hover:bg-red-700"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>
           ) : (
-            <div className="text-sm text-gray-500">No uninformed leaves recorded for this period.</div>
+            <div className="text-sm text-gray-500">
+              No uninformed leaves recorded for this period.
+            </div>
           )}
         </div>
       </div>
@@ -1051,13 +1151,75 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                   </h3>
                   {selectedEmployeeReport.uninformed_details &&
                   selectedEmployeeReport.uninformed_details.length > 0 ? (
-                    <ul className="list-disc list-inside space-y-1">
+                    <ul className="space-y-3">
                       {selectedEmployeeReport.uninformed_details.map((u) => (
-                        <li key={u.id}>
-                          {u.start_date}
-                          {u.start_date !== u.end_date ? ` to ${u.end_date}` : ''} –{' '}
-                          {u.days_requested} day(s)
-                          {u.reason ? ` – ${u.reason}` : ''}
+                        <li
+                          key={u.id}
+                          className="border rounded p-3 bg-gray-50 space-y-1 text-sm"
+                        >
+                          <div>
+                            <span className="font-semibold">Dates:</span>{' '}
+                            {formatDate(u.start_date)}
+                            {u.start_date !== u.end_date
+                              ? ` – ${formatDate(u.end_date)}`
+                              : ''}
+                          </div>
+                          <div>
+                            <span className="font-semibold">Days:</span>{' '}
+                            {Number(u.days_requested).toFixed(2)}
+                          </div>
+                          <div>
+                            <span className="font-semibold">Reason:</span>{' '}
+                            {u.reason || 'Uninformed leave'}
+                          </div>
+                          {u.recorded_by_name && (
+                            <div>
+                              <span className="font-semibold">Marked by:</span>{' '}
+                              {u.recorded_by_name}
+                            </div>
+                          )}
+                          {u.decision_at && (
+                            <div>
+                              <span className="font-semibold">Marked at:</span>{' '}
+                              {formatDateTime(u.decision_at)}
+                            </div>
+                          )}
+                          {isManagerOrAdmin && (
+                            <div className="pt-1">
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  if (!window.confirm('Delete this uninformed leave?')) return;
+                                  try {
+                                    const res = await fetch(`/api/leaves/uninformed/${u.id}`, {
+                                      method: 'DELETE',
+                                      headers: {
+                                        'Content-Type': 'application/json',
+                                        'user-role':
+                                          user?.role ||
+                                          user?.user_role ||
+                                          (user?.designation || 'employee'),
+                                      },
+                                    });
+                                    const data = await res.json().catch(() => ({}));
+                                    if (!res.ok || !data.success) {
+                                      alert(data.error || 'Failed to delete uninformed leave');
+                                      return;
+                                    }
+                                    // Reload both selected employee report and main report
+                                    await loadEmployeeReport(Number(markUninformedForm.employee_id));
+                                    await loadReport();
+                                  } catch (err) {
+                                    console.error('Error deleting uninformed leave', err);
+                                    alert('Error deleting uninformed leave');
+                                  }
+                                }}
+                                className="inline-flex items-center px-2 py-1 text-xs rounded bg-red-600 text-white hover:bg-red-700"
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          )}
                         </li>
                       ))}
                     </ul>

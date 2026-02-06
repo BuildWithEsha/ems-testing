@@ -11436,7 +11436,7 @@ app.post('/api/leaves/mark-uninformed', async (req, res) => {
     // only a text "department" field. We don't need a strict FK here for uninformed
     // records, so we store NULL for department_id and avoid selecting a non-existent column.
     const [empRows] = await connection.execute(
-      'SELECT id, name, department FROM employees WHERE id = ?',
+      'SELECT id, name FROM employees WHERE id = ?',
       [employee_id]
     );
     if (empRows.length === 0) {
@@ -11467,7 +11467,7 @@ app.post('/api/leaves/mark-uninformed', async (req, res) => {
 
     const [result] = await connection.execute(insertQuery, [
       employee_id,
-      null, // no numeric department_id column in employees; leave_requests.department_id left NULL
+      null,
       reason || 'Uninformed leave',
       effectiveStartDate,
       effectiveEndDate,
@@ -11475,6 +11475,14 @@ app.post('/api/leaves/mark-uninformed', async (req, res) => {
       end_segment || 'full_day',
       requestedDays
     ]);
+
+    // Record who marked the uninformed leave and when
+    if (decision_by) {
+      await connection.execute(
+        'UPDATE leave_requests SET decision_by = ?, decision_at = NOW(), decision_reason = ? WHERE id = ?',
+        [decision_by, reason || 'Uninformed leave', result.insertId]
+      );
+    }
 
     await connection.execute(
       'UPDATE leave_balances SET uninformed_leaves = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
@@ -11504,6 +11512,71 @@ app.post('/api/leaves/mark-uninformed', async (req, res) => {
       }
     }
     console.error('Error marking uninformed leave:', err);
+    res.status(500).json({ error: 'Database error' });
+  } finally {
+    if (connection) {
+      connection.release();
+    }
+  }
+});
+
+// Delete an uninformed leave (admin/manager)
+app.delete('/api/leaves/uninformed/:id', async (req, res) => {
+  const { id } = req.params;
+
+  const userRoleHeader = req.headers['user-role'] || req.headers['x-user-role'] || 'employee';
+  const userRole = String(userRoleHeader || '').toLowerCase();
+  const isAdmin = userRole === 'admin';
+  const isManager = userRole.includes('manager');
+
+  if (!isAdmin && !isManager) {
+    return res.status(403).json({ error: 'Access denied. Only managers and admins can delete uninformed leaves.' });
+  }
+
+  let connection;
+  try {
+    connection = await mysqlPool.getConnection();
+    await connection.ping();
+    await connection.beginTransaction();
+
+    const [rows] = await connection.execute(
+      'SELECT id, employee_id, start_date, days_requested, is_uninformed FROM leave_requests WHERE id = ? FOR UPDATE',
+      [id]
+    );
+    if (rows.length === 0 || !rows[0].is_uninformed) {
+      await connection.rollback();
+      return res.status(404).json({ error: 'Uninformed leave not found' });
+    }
+    const row = rows[0];
+
+    const { year, month } = getYearMonthFromDate(row.start_date);
+    const balance = await getOrCreateLeaveBalance(connection, row.employee_id, year, month);
+    const currentUninformed = balance.uninformed_leaves || 0;
+    const toRemove = Number(row.days_requested) || 0;
+    const updatedUninformed = Math.max(0, currentUninformed - toRemove);
+
+    await connection.execute(
+      'UPDATE leave_balances SET uninformed_leaves = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+      [updatedUninformed, balance.id]
+    );
+
+    await connection.execute('DELETE FROM leave_requests WHERE id = ?', [id]);
+
+    // Recalculate cascading deductions based on remaining uninformed leaves
+    await recalculateUninformedDeductionsForEmployee(connection, row.employee_id);
+
+    await connection.commit();
+
+    res.json({ success: true, id: Number(id) });
+  } catch (err) {
+    if (connection) {
+      try {
+        await connection.rollback();
+      } catch (rollbackErr) {
+        console.error('Error rolling back uninformed delete transaction:', rollbackErr);
+      }
+    }
+    console.error('Error deleting uninformed leave:', err);
     res.status(500).json({ error: 'Database error' });
   } finally {
     if (connection) {
@@ -11587,15 +11660,40 @@ app.get('/api/leaves/report', async (req, res) => {
 
     const [uninformedRows] = await connection.execute(
       `
-        SELECT id, start_date, end_date, days_requested, reason
-        FROM leave_requests
-        WHERE employee_id = ?
-          AND is_uninformed = 1
-          AND start_date >= ?
-          AND start_date <= ?
-        ORDER BY start_date DESC
+        SELECT 
+          lr.id,
+          lr.start_date,
+          lr.end_date,
+          lr.days_requested,
+          lr.reason,
+          lr.decision_at,
+          e.name AS recorded_by_name
+        FROM leave_requests lr
+        LEFT JOIN employees e ON e.id = lr.decision_by
+        WHERE lr.employee_id = ?
+          AND lr.is_uninformed = 1
+          AND lr.start_date >= ?
+          AND lr.start_date <= ?
+        ORDER BY lr.start_date DESC
       `,
       [employee_id, startDate, endDate]
+    );
+
+    const [futureBalances] = await connection.execute(
+      `
+        SELECT year, month, next_month_deduction
+        FROM leave_balances
+        WHERE employee_id = ?
+          AND (year > ? OR (year = ? AND month > ?))
+          AND next_month_deduction > 0
+        ORDER BY year, month
+      `,
+      [employee_id, useYear, useYear, useMonth]
+    );
+
+    const totalFutureDeduction = futureBalances.reduce(
+      (sum, row) => sum + (Number(row.next_month_deduction) || 0),
+      0
     );
 
     res.json({
@@ -11608,7 +11706,9 @@ app.get('/api/leaves/report', async (req, res) => {
       uninformed_count: uninformedCount,
       next_month_deduction: deductionThisMonth,
       effective_quota: effectiveQuota,
-      uninformed_details: uninformedRows
+      uninformed_details: uninformedRows,
+      future_deductions: futureBalances,
+      total_future_deduction: totalFutureDeduction
     });
   } catch (err) {
     console.error('Error fetching leave report:', err);
