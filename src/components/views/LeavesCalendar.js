@@ -15,7 +15,9 @@ const CELL_COLORS = {
 function getCellStyle(leave, dateStr) {
   if (!leave) return '';
   const d = dateStr;
-  if (leave.start_date > d || leave.end_date < d) return '';
+  const start = leave.start_date && typeof leave.start_date === 'string' ? leave.start_date.slice(0, 10) : leave.start_date;
+  const end = leave.end_date && typeof leave.end_date === 'string' ? leave.end_date.slice(0, 10) : leave.end_date;
+  if (start > d || end < d) return '';
   if (leave.status === 'rejected') return CELL_COLORS.rejected;
   if (leave.is_uninformed) return CELL_COLORS.awol;
   const startSeg = leave.start_segment || 'full_day';
@@ -34,6 +36,18 @@ function getDaysInMonth(year, month) {
     days.push(String(year) + '-' + String(month).padStart(2, '0') + '-' + String(d).padStart(2, '0'));
   }
   return days;
+}
+
+// Normalize API date (may be "YYYY-MM-DD" or ISO string) to YYYY-MM-DD for comparison
+function toDateStr(val) {
+  if (!val) return '';
+  if (typeof val === 'string') return val.slice(0, 10);
+  try {
+    const d = new Date(val);
+    return isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 10);
+  } catch {
+    return String(val).slice(0, 10);
+  }
 }
 
 export default function LeavesCalendar() {
@@ -100,7 +114,14 @@ export default function LeavesCalendar() {
     if (!isAdmin) return;
     fetch('/api/departments')
       .then((res) => (res.ok ? res.json() : []))
-      .then((list) => setDepartments(Array.isArray(list) ? list : []))
+      .then((list) => {
+        const arr = Array.isArray(list) ? list : [];
+        const byId = new Map();
+        arr.forEach((d) => {
+          if (d && d.id != null && !byId.has(Number(d.id))) byId.set(Number(d.id), d);
+        });
+        setDepartments(Array.from(byId.values()));
+      })
       .catch(() => setDepartments([]));
   }, [isAdmin]);
 
@@ -109,16 +130,16 @@ export default function LeavesCalendar() {
   const allImportantEntries = (data.importantDates || []).concat(
     (blockedDates || []).filter((b) => b.type === 'important')
   );
-  const importantSet = new Set(allImportantEntries.map((b) => b.date));
+  const importantSet = new Set(allImportantEntries.map((b) => toDateStr(b.date)).filter(Boolean));
   const holidaySet = new Set(
-    (data.holidayDates || []).map((b) => b.date).concat(
-      (blockedDates || []).filter((b) => b.type === 'holiday').map((b) => b.date)
+    (data.holidayDates || []).map((b) => toDateStr(b.date)).filter(Boolean).concat(
+      (blockedDates || []).filter((b) => b.type === 'holiday').map((b) => toDateStr(b.date)).filter(Boolean)
     )
   );
   const isSunday = (dateStr) => new Date(dateStr + 'T12:00:00').getDay() === 0;
   const isDateImportantForEmployee = (dateStr, emp) =>
     allImportantEntries.some(
-      (b) => b.date === dateStr && (b.department_id == null || b.department_id === emp.department_id)
+      (b) => toDateStr(b.date) === dateStr && (b.department_id == null || Number(b.department_id) === Number(emp.department_id))
     );
 
   const markDate = async (date, type = 'important') => {
@@ -441,7 +462,7 @@ export default function LeavesCalendar() {
                   </td>
                   {days.map((dateStr) => {
                     const leave = empLeaves.find(
-                      (l) => l.start_date <= dateStr && l.end_date >= dateStr
+                      (l) => toDateStr(l.start_date) <= dateStr && toDateStr(l.end_date) >= dateStr
                     );
                     let style = getCellStyle(leave, dateStr);
                     if (!style) {
@@ -456,7 +477,7 @@ export default function LeavesCalendar() {
                         title={
                           leave
                             ? `${leave.status} ${leave.start_segment || ''}-${leave.end_segment || ''}`
-                            : importantSet.has(dateStr)
+                            : isDateImportantForEmployee(dateStr, emp)
                             ? 'Important (no leave)'
                             : holidaySet.has(dateStr) || isSunday(dateStr)
                             ? 'Holiday'

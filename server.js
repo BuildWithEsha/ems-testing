@@ -11328,20 +11328,22 @@ app.get('/api/leaves/calendar', async (req, res) => {
        WHERE employee_id = 0 AND (reason LIKE 'IMPORTANT_EVENT%' OR reason LIKE 'HOLIDAY%') AND start_date <= ? AND end_date >= ?`,
       [end, start]
     );
+    const fmtDate = (d) => (d && typeof d.toISOString === 'function' ? d.toISOString().slice(0, 10) : (d && typeof d === 'string' ? d.slice(0, 10) : d));
     const importantDates = [];
     const holidayDates = [];
     for (const r of blockedRows) {
       const label = r.reason && r.reason !== 'IMPORTANT_EVENT' && r.reason !== 'HOLIDAY'
         ? String(r.reason).replace(/^(IMPORTANT_EVENT|HOLIDAY):?/, '') : null;
+      const dateStr = fmtDate(r.date);
       if (String(r.reason || '').startsWith('IMPORTANT_EVENT')) {
         importantDates.push({
-          date: r.date,
+          date: dateStr,
           label,
           department_id: r.department_id,
           department_name: r.department_name || null
         });
       } else {
-        holidayDates.push({ date: r.date, label });
+        holidayDates.push({ date: dateStr, label });
       }
     }
     res.json({
@@ -11355,8 +11357,8 @@ app.get('/api/leaves/calendar', async (req, res) => {
         id: r.id,
         employee_id: r.employee_id,
         employee_name: r.employee_name,
-        start_date: r.start_date,
-        end_date: r.end_date,
+        start_date: fmtDate(r.start_date) || r.start_date,
+        end_date: fmtDate(r.end_date) || r.end_date,
         status: r.status,
         is_uninformed: !!r.is_uninformed,
         start_segment: r.start_segment,
@@ -11367,7 +11369,7 @@ app.get('/api/leaves/calendar', async (req, res) => {
         acknowledged_at: r.acknowledged_at
       })),
       blockedDates: blockedRows.map((r) => ({
-        date: r.date,
+        date: fmtDate(r.date),
         type: String(r.reason || '').startsWith('IMPORTANT_EVENT') ? 'important' : 'holiday',
         label: r.reason && r.reason !== 'IMPORTANT_EVENT' && r.reason !== 'HOLIDAY'
           ? String(r.reason).replace(/^(IMPORTANT_EVENT|HOLIDAY):?/, '') : null,
@@ -12460,7 +12462,6 @@ app.get('/api/leaves/report', async (req, res) => {
     const balance = await getOrCreateLeaveBalance(connection, employee_id, useYear, useMonth);
     const quota = balance.paid_quota || 2;
     const used = balance.paid_used || 0;
-    const uninformedCount = balance.uninformed_leaves || 0;
     const deductionThisMonth = balance.next_month_deduction || 0;
     const effectiveQuota = Math.max(0, quota - deductionThisMonth);
     const remaining = Math.max(0, effectiveQuota - used);
@@ -12505,6 +12506,8 @@ app.get('/api/leaves/report', async (req, res) => {
       (sum, row) => sum + (Number(row.next_month_deduction) || 0),
       0
     );
+
+    const uninformedCount = Math.max(Number(balance.uninformed_leaves) || 0, uninformedRows.length);
 
     res.json({
       employee_id: Number(employee_id),
