@@ -867,66 +867,85 @@ export default function Leaves({ initialTab, initialManagerSection }) {
       <div className="bg-white border rounded p-6 text-gray-700 space-y-4">
         <h2 className="text-lg font-semibold text-gray-900 mb-2">My Leave Report</h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="border rounded p-3">
-            <div className="text-xs uppercase text-gray-500">Paid Leaves</div>
-            <div className="mt-1 text-sm">
-              Base quota:{' '}
-              <span className="font-semibold">
+          {/* Paid leaves summary */}
+          <div className="border rounded-lg p-4 bg-white shadow-sm flex flex-col gap-2">
+            <div className="text-xs font-semibold uppercase tracking-wide text-indigo-600">
+              Paid Leaves
+            </div>
+            <div className="text-3xl font-bold text-gray-900">
+              {report.remaining_paid}
+              <span className="ml-1 text-sm font-medium text-gray-500">remaining</span>
+            </div>
+            <div className="text-xs text-gray-600 space-y-1">
+              <div>
+                <span className="font-medium text-gray-700">Base quota:</span>{' '}
                 {report.paid_quota}
-              </span>
-            </div>
-            <div className="text-sm">
-              Effective quota after deductions:{' '}
-              <span className="font-semibold">
-                {report.effective_quota ?? Math.max(0, (report.paid_quota || 0) - (report.next_month_deduction || 0))}
-              </span>
-            </div>
-            <div className="text-sm">
-              Used:{' '}
-              <span className="font-semibold">
-                {report.paid_used}
-              </span>
-            </div>
-            <div className="text-sm">
-              Remaining:{' '}
-              <span className="font-semibold">
-                {report.remaining_paid}
-              </span>
+              </div>
+              <div>
+                <span className="font-medium text-gray-700">Effective after deductions:</span>{' '}
+                {report.effective_quota ??
+                  Math.max(0, (report.paid_quota || 0) - (report.next_month_deduction || 0))}
+              </div>
+              <div>
+                <span className="font-medium text-gray-700">Used:</span> {report.paid_used}
+              </div>
             </div>
           </div>
-          <div className="border rounded p-3">
-            <div className="text-xs uppercase text-gray-500">Uninformed Leaves</div>
-            <div className="mt-1 text-sm">
-              Count:{' '}
-              <span className="font-semibold">
-                {report.uninformed_count}
-              </span>
+
+          {/* Uninformed count */}
+          <div className="border rounded-lg p-4 bg-white shadow-sm flex flex-col gap-2">
+            <div className="text-xs font-semibold uppercase tracking-wide text-amber-600">
+              Uninformed Leaves
+            </div>
+            <div className="text-3xl font-bold text-gray-900">
+              {report.uninformed_count}
+              <span className="ml-1 text-sm font-medium text-gray-500">total</span>
+            </div>
+            <div className="text-xs text-gray-600">
+              Uninformed leaves reduce future paid leave quotas until fully recovered.
             </div>
           </div>
-          <div className="border rounded p-3">
-            <div className="text-xs uppercase text-gray-500">Upcoming Deductions</div>
-            <div className="mt-1 text-sm">
-              Total days to deduct in future:{' '}
-              <span className="font-semibold">
-                {report.total_future_deduction ?? 0}
-              </span>
+
+          {/* Upcoming deductions */}
+          <div className="border rounded-lg p-4 bg-white shadow-sm flex flex-col gap-2">
+            <div className="text-xs font-semibold uppercase tracking-wide text-red-600">
+              Upcoming Deductions
             </div>
-            {Array.isArray(report.future_deductions) && report.future_deductions.length > 0 && (
-              <div className="mt-2 text-xs text-gray-600 space-y-1">
-                {report.future_deductions.slice(0, 4).map((row) => (
-                  <div key={`${row.year}-${row.month}`}>
-                    {String(row.month).padStart(2, '0')}/{row.year}:{' '}
-                    <span className="font-semibold">
-                      {row.next_month_deduction}
-                    </span>{' '}
-                    day(s)
-                  </div>
-                ))}
+            <div className="text-3xl font-bold text-gray-900">
+              {report.total_future_deduction ?? 0}
+              <span className="ml-1 text-sm font-medium text-gray-500">day(s)</span>
+            </div>
+            {Array.isArray(report.future_deductions) && report.future_deductions.length > 0 ? (
+              <div className="mt-2 text-xs text-gray-700">
+                <table className="w-full text-left">
+                  <thead>
+                    <tr className="text-gray-500">
+                      <th className="pr-2 py-1 font-medium">Month</th>
+                      <th className="py-1 font-medium text-right">Days deducted</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {report.future_deductions.slice(0, 4).map((row) => (
+                      <tr key={`${row.year}-${row.month}`}>
+                        <td className="pr-2 py-0.5">
+                          {String(row.month).padStart(2, '0')}/{row.year}
+                        </td>
+                        <td className="py-0.5 text-right font-semibold">
+                          {row.next_month_deduction}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
                 {report.future_deductions.length > 4 && (
-                  <div className="text-[11px] text-gray-500">
+                  <div className="mt-1 text-[11px] text-gray-500">
                     + more months of deductions
                   </div>
                 )}
+              </div>
+            ) : (
+              <div className="text-xs text-gray-500 mt-1">
+                No future deductions scheduled from uninformed leaves.
               </div>
             )}
           </div>

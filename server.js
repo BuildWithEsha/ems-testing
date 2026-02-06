@@ -11159,10 +11159,10 @@ app.get('/api/leaves/my', async (req, res) => {
       SELECT 
         lr.*,
         e.name AS employee_name,
-        dec.name AS decision_by_name
+        approver.name AS decision_by_name
       FROM leave_requests lr
       JOIN employees e ON e.id = lr.employee_id
-      LEFT JOIN employees dec ON dec.id = lr.decision_by
+      LEFT JOIN employees approver ON approver.id = lr.decision_by
       WHERE lr.employee_id = ?
       ORDER BY lr.created_at DESC
       LIMIT 200
@@ -11235,11 +11235,11 @@ app.get('/api/leaves/department', async (req, res) => {
         lr.*,
         e.name AS employee_name,
         d.name AS department_name,
-        dec.name AS decision_by_name
+        approver.name AS decision_by_name
       FROM leave_requests lr
       JOIN employees e ON e.id = lr.employee_id
       LEFT JOIN departments d ON d.id = lr.department_id
-      LEFT JOIN employees dec ON dec.id = lr.decision_by
+      LEFT JOIN employees approver ON approver.id = lr.decision_by
     `;
     const params = [];
 
