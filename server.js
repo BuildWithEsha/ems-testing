@@ -2470,9 +2470,12 @@ app.get('/api/notifications/tasks-over-estimate', async (req, res) => {
     userPermissions = [];
   }
   const role = (userRoleHeader || '').toLowerCase();
+  const userDesignation = (req.headers['x-user-designation'] || req.headers['user-designation'] || '').toString().trim().toLowerCase();
+  const isManagerByDesignation = userDesignation !== '' && userDesignation.includes('manager');
   const hasAccess =
     role === 'admin' ||
     role === 'manager' ||
+    isManagerByDesignation ||
     userPermissions.includes('all') ||
     userPermissions.includes('view_overestimate_tasks');
 
@@ -8834,9 +8837,11 @@ app.get('/api/notifications/low-hours-employees', async (req, res) => {
     return res.status(400).json({ error: 'Invalid permissions format' });
   }
 
-  // Check permission (use lhe_view or fall back to admin/manager/all)
-  const isManager = userRole === 'manager' || userRole === 'Manager';
-  if (!permissions.includes('lhe_view') && !permissions.includes('all') && userRole !== 'admin' && userRole !== 'Admin' && !isManager) {
+  // Check permission (use lhe_view or fall back to admin/manager role or manager designation/all)
+  const isManagerByRole = userRole === 'manager' || userRole === 'Manager';
+  const userDesignation = (req.headers['x-user-designation'] || req.headers['user-designation'] || '').toString().trim().toLowerCase();
+  const isManagerByDesignation = userDesignation !== '' && userDesignation.includes('manager');
+  if (!permissions.includes('lhe_view') && !permissions.includes('all') && userRole !== 'admin' && userRole !== 'Admin' && !isManagerByRole && !isManagerByDesignation) {
     console.log(`Access denied: User role ${userRole} attempted to access Low Hours notifications without permission`);
     return res.status(403).json({
       error: 'Access denied. You do not have permission to view Low Hours notifications.',

@@ -21,9 +21,10 @@ export const useLowHoursNotifications = () => {
     console.log('🔔 LHE Hook Debug - Min hours threshold:', minHours);
     console.log('🔔 LHE Hook Debug - Date:', date);
     
-    // Check if user has lhe_view permission, is admin, or is manager
-    const isManager = user?.is_manager || (user?.role && String(user.role).toLowerCase() === 'manager');
-    if (!user?.permissions?.includes('lhe_view') && !user?.permissions?.includes('all') && user?.role !== 'admin' && user?.role !== 'Admin' && !isManager) {
+    // Check if user has lhe_view permission, is admin, or is manager (role or designation)
+    const isManagerByRole = user?.is_manager || (user?.role && String(user.role).toLowerCase() === 'manager');
+    const isManagerByDesignation = user?.designation && String(user.designation).toLowerCase().includes('manager');
+    if (!user?.permissions?.includes('lhe_view') && !user?.permissions?.includes('all') && user?.role !== 'admin' && user?.role !== 'Admin' && !isManagerByRole && !isManagerByDesignation) {
       console.log('🔔 LHE Hook Debug - User does not have LHE permissions, returning empty array');
       setLowHoursNotifications([]);
       setHasLowHoursNotifications(false);
@@ -38,7 +39,8 @@ export const useLowHoursNotifications = () => {
       const response = await fetch(`/api/notifications/low-hours-employees?minHours=${minHours}&date=${date}`, {
         headers: {
           'x-user-role': user?.role || 'Admin',
-          'x-user-permissions': JSON.stringify(user?.permissions || ['all'])
+          'x-user-permissions': JSON.stringify(user?.permissions || ['all']),
+          ...(user?.designation != null && user.designation !== '' ? { 'x-user-designation': String(user.designation) } : {})
         }
       });
       
