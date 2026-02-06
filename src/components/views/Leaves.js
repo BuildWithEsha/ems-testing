@@ -45,6 +45,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
   const [policy, setPolicy] = useState(null);
   const [report, setReport] = useState(null);
   const [departmentLeaves, setDepartmentLeaves] = useState({ pending: [], recent_approved: [], recent_rejected: [] });
+  const [departmentSearch, setDepartmentSearch] = useState('');
   const isAdmin = user?.role === 'admin' || user?.role === 'Admin';
   const isManagerOrAdmin = isAdmin || user?.is_manager;
 
@@ -512,6 +513,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                 <th className="px-4 py-2 text-left font-medium text-gray-700">Segments</th>
                 <th className="px-4 py-2 text-left font-medium text-gray-700">Days</th>
                 <th className="px-4 py-2 text-left font-medium text-gray-700">Paid</th>
+                <th className="px-4 py-2 text-left font-medium text-gray-700">Type</th>
                 <th className="px-4 py-2 text-left font-medium text-gray-700">Reason</th>
                 <th className="px-4 py-2 text-left font-medium text-gray-700">Decision</th>
                 <th className="px-4 py-2 text-left font-medium text-gray-700">Details</th>
@@ -529,6 +531,17 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                   </td>
                   <td className="px-4 py-2 text-gray-800">{row.days_requested}</td>
                   <td className="px-4 py-2 text-gray-800">{row.is_paid ? 'Yes' : 'No'}</td>
+                  <td className="px-4 py-2 text-gray-800">
+                    {row.is_uninformed ? (
+                      <span className="inline-flex px-2 py-1 text-xs rounded-full bg-yellow-100 text-yellow-800">
+                        Uninformed
+                      </span>
+                    ) : (
+                      <span className="inline-flex px-2 py-1 text-xs rounded-full bg-green-100 text-green-800">
+                        Regular
+                      </span>
+                    )}
+                  </td>
                   <td className="px-4 py-2 text-gray-800">{row.reason}</td>
                   <td className="px-4 py-2 text-gray-800">
                     {row.status}
@@ -680,19 +693,43 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     }
   };
 
-  const renderDepartmentTable = (rows, showActions) => (
-    <div className="bg-white border rounded p-4">
-      {rows.length === 0 ? (
-        <div className="text-gray-500 text-sm">No records.</div>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200 text-sm">
+  const renderDepartmentTable = (rows, showActions) => {
+    const filtered = rows.filter((row) => {
+      if (!departmentSearch) return true;
+      const name = row.employee_name || '';
+      const reason = row.reason || '';
+      return (
+        name.toLowerCase().includes(departmentSearch.toLowerCase()) ||
+        reason.toLowerCase().includes(departmentSearch.toLowerCase())
+      );
+    });
+
+    return (
+      <div className="bg-white border rounded p-4">
+        <div className="flex items-center justify-between mb-3">
+          <div className="text-sm text-gray-600">
+            Showing {filtered.length} of {rows.length} records
+          </div>
+          <input
+            type="text"
+            value={departmentSearch}
+            onChange={(e) => setDepartmentSearch(e.target.value)}
+            placeholder="Filter by employee or reason..."
+            className="border rounded px-3 py-1.5 text-sm w-64"
+          />
+        </div>
+        {filtered.length === 0 ? (
+          <div className="text-gray-500 text-sm">No records.</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200 text-sm">
             <thead className="bg-gray-50">
               <tr>
                 <th className="px-4 py-2 text-left font-medium text-gray-700">Employee</th>
                 <th className="px-4 py-2 text-left font-medium text-gray-700">Department</th>
                 <th className="px-4 py-2 text-left font-medium text-gray-700">Dates</th>
                 <th className="px-4 py-2 text-left font-medium text-gray-700">Days</th>
+                <th className="px-4 py-2 text-left font-medium text-gray-700">Type</th>
                 <th className="px-4 py-2 text-left font-medium text-gray-700">Status</th>
                 {showActions && (
                   <th className="px-4 py-2 text-left font-medium text-gray-700">Actions</th>
@@ -703,7 +740,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {rows.map((row) => (
+              {filtered.map((row) => (
                 <tr key={row.id}>
                   <td className="px-4 py-2 text-gray-800">
                     {row.employee_name || row.employee_id}
@@ -713,6 +750,17 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                     {row.start_date !== row.end_date ? `→ ${formatDate(row.end_date)}` : ''}
                   </td>
                   <td className="px-4 py-2 text-gray-800">{row.days_requested}</td>
+                  <td className="px-4 py-2 text-gray-800">
+                    {row.is_uninformed ? (
+                      <span className="inline-flex px-2 py-1 text-xs rounded-full bg-yellow-100 text-yellow-800">
+                        Uninformed
+                      </span>
+                    ) : (
+                      <span className="inline-flex px-2 py-1 text-xs rounded-full bg-green-100 text-green-800">
+                        Regular
+                      </span>
+                    )}
+                  </td>
                   <td className="px-4 py-2 text-gray-800">
                     {row.status}
                     {row.status !== 'pending' && row.decision_by_name
@@ -764,9 +812,10 @@ export default function Leaves({ initialTab, initialManagerSection }) {
             </tbody>
           </table>
         </div>
-      )}
-    </div>
-  );
+        )}
+      </div>
+    );
+  };
 
   const formatDate = (value) => {
     if (!value) return '';
@@ -885,71 +934,78 @@ export default function Leaves({ initialTab, initialManagerSection }) {
         <div>
           <h3 className="text-sm font-semibold text-gray-900 mb-2">Uninformed leave details</h3>
           {report.uninformed_details && report.uninformed_details.length > 0 ? (
-            <ul className="space-y-3 text-sm text-gray-700">
-              {report.uninformed_details.map((u) => (
-                <li
-                  key={u.id}
-                  className="border rounded p-3 bg-gray-50 space-y-1"
-                >
-                  <div>
-                    <span className="font-semibold">Dates:</span>{' '}
-                    {formatDate(u.start_date)}
-                    {u.start_date !== u.end_date ? ` – ${formatDate(u.end_date)}` : ''}
-                  </div>
-                  <div>
-                    <span className="font-semibold">Days:</span>{' '}
-                    {Number(u.days_requested).toFixed(2)}
-                  </div>
-                  <div>
-                    <span className="font-semibold">Reason:</span>{' '}
-                    {u.reason || 'Uninformed leave'}
-                  </div>
-                  {u.recorded_by_name && (
-                    <div>
-                      <span className="font-semibold">Marked by:</span>{' '}
-                      {u.recorded_by_name}
-                    </div>
-                  )}
-                  {u.decision_at && (
-                    <div>
-                      <span className="font-semibold">Marked at:</span>{' '}
-                      {formatDateTime(u.decision_at)}
-                    </div>
-                  )}
-                  {isManagerOrAdmin && (
-                    <div className="pt-1">
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          if (!window.confirm('Delete this uninformed leave?')) return;
-                          try {
-                            const res = await fetch(`/api/leaves/uninformed/${u.id}`, {
-                              method: 'DELETE',
-                              headers: {
-                                'Content-Type': 'application/json',
-                                'user-role': user?.role || user?.user_role || (user?.designation || 'employee'),
-                              },
-                            });
-                            const data = await res.json().catch(() => ({}));
-                            if (!res.ok || !data.success) {
-                              alert(data.error || 'Failed to delete uninformed leave');
-                              return;
-                            }
-                            await loadReport();
-                          } catch (err) {
-                            console.error('Error deleting uninformed leave', err);
-                            alert('Error deleting uninformed leave');
-                          }
-                        }}
-                        className="inline-flex items-center px-2 py-1 text-xs rounded bg-red-600 text-white hover:bg-red-700"
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  )}
-                </li>
-              ))}
-            </ul>
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200 text-sm bg-white border rounded">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-2 text-left font-medium text-gray-700">Dates</th>
+                    <th className="px-4 py-2 text-left font-medium text-gray-700">Days</th>
+                    <th className="px-4 py-2 text-left font-medium text-gray-700">Reason</th>
+                    <th className="px-4 py-2 text-left font-medium text-gray-700">Marked by</th>
+                    <th className="px-4 py-2 text-left font-medium text-gray-700">Marked at</th>
+                    {isManagerOrAdmin && (
+                      <th className="px-4 py-2 text-left font-medium text-gray-700">Actions</th>
+                    )}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200">
+                  {report.uninformed_details.map((u) => (
+                    <tr key={u.id}>
+                      <td className="px-4 py-2 text-gray-800">
+                        {formatDate(u.start_date)}
+                        {u.start_date !== u.end_date ? ` – ${formatDate(u.end_date)}` : ''}
+                      </td>
+                      <td className="px-4 py-2 text-gray-800">
+                        {Number(u.days_requested).toFixed(2)}
+                      </td>
+                      <td className="px-4 py-2 text-gray-800">
+                        {u.reason || 'Uninformed leave'}
+                      </td>
+                      <td className="px-4 py-2 text-gray-800">
+                        {u.recorded_by_name || '-'}
+                      </td>
+                      <td className="px-4 py-2 text-gray-800">
+                        {u.decision_at ? formatDateTime(u.decision_at) : '-'}
+                      </td>
+                      {isManagerOrAdmin && (
+                        <td className="px-4 py-2 text-gray-800">
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              if (!window.confirm('Delete this uninformed leave?')) return;
+                              try {
+                                const res = await fetch(`/api/leaves/uninformed/${u.id}`, {
+                                  method: 'DELETE',
+                                  headers: {
+                                    'Content-Type': 'application/json',
+                                    'user-role':
+                                      user?.role ||
+                                      user?.user_role ||
+                                      (user?.designation || 'employee'),
+                                  },
+                                });
+                                const data = await res.json().catch(() => ({}));
+                                if (!res.ok || !data.success) {
+                                  alert(data.error || 'Failed to delete uninformed leave');
+                                  return;
+                                }
+                                await loadReport();
+                              } catch (err) {
+                                console.error('Error deleting uninformed leave', err);
+                                alert('Error deleting uninformed leave');
+                              }
+                            }}
+                            className="inline-flex items-center px-2 py-1 text-xs rounded bg-red-600 text-white hover:bg-red-700"
+                          >
+                            Delete
+                          </button>
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           ) : (
             <div className="text-sm text-gray-500">
               No uninformed leaves recorded for this period.
