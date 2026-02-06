@@ -1366,7 +1366,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                 <tbody className="divide-y divide-gray-200">
                   {filterByCommonCriteria(report.uninformed_details, {
                     ...uninformedReportFilters,
-                    type: 'uninformed',
+                    // dataset is already uninformed-only; no type filter needed
                   }).map((u) => (
                     <tr key={u.id}>
                       <td className="px-4 py-2 text-gray-800">
@@ -2153,7 +2153,10 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                         <tbody className="divide-y divide-gray-200">
                           {filterByCommonCriteria(
                             selectedEmployeeReport.uninformed_details,
-                            { ...markUninformedFilters, type: 'uninformed' }
+                            {
+                              ...markUninformedFilters,
+                              // dataset is already uninformed-only; no type filter needed
+                            }
                           ).map((u) => (
                             <tr key={u.id}>
                               <td className="px-3 py-2 text-gray-800">
