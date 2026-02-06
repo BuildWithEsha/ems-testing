@@ -615,6 +615,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
         return;
       }
       await loadDepartmentLeaves();
+      await loadMyLeaves();
       await loadReport();
     } catch (err) {
       console.error('Error marking uninformed leave', err);
@@ -666,6 +667,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
         reason: 'Uninformed leave',
       });
       await loadDepartmentLeaves();
+      await loadMyLeaves();
       await loadReport();
     } catch (err) {
       console.error('Error marking uninformed leave via form', err);
