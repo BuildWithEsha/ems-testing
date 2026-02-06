@@ -2472,6 +2472,7 @@ app.get('/api/notifications/tasks-over-estimate', async (req, res) => {
   const role = (userRoleHeader || '').toLowerCase();
   const hasAccess =
     role === 'admin' ||
+    role === 'manager' ||
     userPermissions.includes('all') ||
     userPermissions.includes('view_overestimate_tasks');
 
@@ -8833,8 +8834,9 @@ app.get('/api/notifications/low-hours-employees', async (req, res) => {
     return res.status(400).json({ error: 'Invalid permissions format' });
   }
 
-  // Check permission (use lhe_view or fall back to admin/all)
-  if (!permissions.includes('lhe_view') && !permissions.includes('all') && userRole !== 'admin' && userRole !== 'Admin') {
+  // Check permission (use lhe_view or fall back to admin/manager/all)
+  const isManager = userRole === 'manager' || userRole === 'Manager';
+  if (!permissions.includes('lhe_view') && !permissions.includes('all') && userRole !== 'admin' && userRole !== 'Admin' && !isManager) {
     console.log(`Access denied: User role ${userRole} attempted to access Low Hours notifications without permission`);
     return res.status(403).json({
       error: 'Access denied. You do not have permission to view Low Hours notifications.',

@@ -1,7 +1,5 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useEffect } from 'react';
 import { X } from 'lucide-react';
-
-const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
 
 const Modal = ({
   isOpen,
@@ -11,41 +9,13 @@ const Modal = ({
   size = 'md',
   showCloseButton = true
 }) => {
-  const contentRef = useRef(null);
-
   useEffect(() => {
-    if (!isOpen || !contentRef.current) return;
-    const el = contentRef.current;
-    const focusables = el.querySelectorAll(FOCUSABLE);
-    const first = focusables[0];
-    const last = focusables[focusables.length - 1];
-    if (first) first.focus();
-
+    if (!isOpen) return;
     const onKeyDown = (e) => {
-      if (e.key === 'Escape') {
-        onClose();
-        return;
-      }
-      if (e.key !== 'Tab') return;
-      const focusablesNow = el.querySelectorAll(FOCUSABLE);
-      if (focusablesNow.length === 0) return;
-      const firstNow = focusablesNow[0];
-      const lastNow = focusablesNow[focusablesNow.length - 1];
-      if (e.shiftKey) {
-        if (document.activeElement === firstNow) {
-          e.preventDefault();
-          lastNow?.focus();
-        }
-      } else {
-        if (document.activeElement === lastNow) {
-          e.preventDefault();
-          firstNow?.focus();
-        }
-      }
+      if (e.key === 'Escape') onClose();
     };
-
-    el.addEventListener('keydown', onKeyDown);
-    return () => el.removeEventListener('keydown', onKeyDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
   }, [isOpen, onClose]);
 
   if (!isOpen) return null;
@@ -60,7 +30,6 @@ const Modal = ({
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div
-        ref={contentRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="modal-title"

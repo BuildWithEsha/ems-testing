@@ -21,8 +21,9 @@ export const useLowHoursNotifications = () => {
     console.log('🔔 LHE Hook Debug - Min hours threshold:', minHours);
     console.log('🔔 LHE Hook Debug - Date:', date);
     
-    // Check if user has lhe_view permission (or admin/all)
-    if (!user?.permissions?.includes('lhe_view') && !user?.permissions?.includes('all') && user?.role !== 'admin' && user?.role !== 'Admin') {
+    // Check if user has lhe_view permission, is admin, or is manager
+    const isManager = user?.is_manager || (user?.role && String(user.role).toLowerCase() === 'manager');
+    if (!user?.permissions?.includes('lhe_view') && !user?.permissions?.includes('all') && user?.role !== 'admin' && user?.role !== 'Admin' && !isManager) {
       console.log('🔔 LHE Hook Debug - User does not have LHE permissions, returning empty array');
       setLowHoursNotifications([]);
       setHasLowHoursNotifications(false);

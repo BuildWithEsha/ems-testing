@@ -20,9 +20,11 @@ export const useOverEstimateTaskNotifications = () => {
   const [designation, setDesignation] = useState('');
   const [minOverMinutes, setMinOverMinutes] = useState(10);
 
+  const isManager = user?.is_manager || (user?.role && String(user.role).toLowerCase() === 'manager');
   const hasAccess =
     !!user &&
     ((user.role === 'admin' || user.role === 'Admin') ||
+      isManager ||
       user.permissions?.includes('all') ||
       user.permissions?.includes('view_overestimate_tasks'));
 

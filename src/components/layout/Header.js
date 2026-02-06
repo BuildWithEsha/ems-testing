@@ -455,8 +455,8 @@ const Header = ({ onSearch, onLogout, tasks, employees, onStartTimer, onStopTime
               </button>
             )}
 
-            {/* LHE Notifications - Only show if user has lhe_view permission */}
-            {(user?.permissions?.includes('lhe_view') || user?.permissions?.includes('all') || user?.role === 'admin' || user?.role === 'Admin') && (
+            {/* LHE Notifications - Show for admin, managers, or lhe_view permission */}
+            {(user?.permissions?.includes('lhe_view') || user?.permissions?.includes('all') || user?.role === 'admin' || user?.role === 'Admin' || user?.is_manager || (user?.role && String(user.role).toLowerCase() === 'manager')) && (
               <button 
                 className="p-2 rounded-lg hover:bg-gray-100 relative transition-colors"
                 onClick={() => {
