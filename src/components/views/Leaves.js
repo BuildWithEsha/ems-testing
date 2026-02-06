@@ -8,6 +8,7 @@ const TABS = {
   REJECTED: 'rejected',
   POLICY: 'policy',
   REPORT: 'report',
+  DEPT_ON_BEHALF: 'dept_on_behalf',
 };
 
 // initialManagerSection determines which completely separate UI to show:
@@ -44,7 +45,11 @@ export default function Leaves({ initialTab, initialManagerSection }) {
   const [myLeaves, setMyLeaves] = useState({ pending: [], recent_approved: [], recent_rejected: [] });
   const [policy, setPolicy] = useState(null);
   const [report, setReport] = useState(null);
-  const [departmentLeaves, setDepartmentLeaves] = useState({ pending: [], recent_approved: [], recent_rejected: [] });
+  const [departmentLeaves, setDepartmentLeaves] = useState({
+    pending: [],
+    recent_approved: [],
+    recent_rejected: [],
+  });
   const [departmentSearch, setDepartmentSearch] = useState('');
   const isAdmin = user?.role === 'admin' || user?.role === 'Admin';
   const isManagerOrAdmin = isAdmin || user?.is_manager;
@@ -67,6 +72,16 @@ export default function Leaves({ initialTab, initialManagerSection }) {
   const [uninformedEmployeeDropdownOpen, setUninformedEmployeeDropdownOpen] = useState(false);
   const uninformedEmployeeDropdownRef = useRef(null);
 
+  // Department "apply on behalf" form (manager/admin applying for someone else)
+  const [deptOnBehalfForm, setDeptOnBehalfForm] = useState({
+    employee_id: '',
+    start_date: '',
+    end_date: '',
+    start_segment: 'full_day',
+    end_segment: 'full_day',
+    reason: '',
+  });
+
   // Shared leave-details modal state for My Leaves & Department views
   const [selectedLeaveForDetails, setSelectedLeaveForDetails] = useState(null);
 
@@ -86,6 +101,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     minDays: '',
     maxDays: '',
     type: 'all', // all | regular | uninformed
+    department: '',
   });
 
   // Filters for uninformed table in My Leave Report
@@ -280,6 +296,60 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     return total;
   };
 
+  const computeDeptOnBehalfDays = () => {
+    if (!deptOnBehalfForm.start_date || !deptOnBehalfForm.end_date) return 0;
+    const start = new Date(deptOnBehalfForm.start_date);
+    const end = new Date(deptOnBehalfForm.end_date);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 0;
+    const sameDay = start.toDateString() === end.toDateString();
+
+    if (sameDay) {
+      const s = deptOnBehalfForm.start_segment;
+      const e = deptOnBehalfForm.end_segment;
+
+      if (s === 'full_day' || e === 'full_day') return 1;
+
+      if (
+        (s === 'shift_start' && e === 'shift_middle') ||
+        (s === 'shift_middle' && e === 'shift_end')
+      ) {
+        return 0.5;
+      }
+
+      if (s === 'shift_start' && e === 'shift_end') {
+        return 1;
+      }
+
+      return 1;
+    }
+
+    const msPerDay = 1000 * 60 * 60 * 24;
+    const diff = Math.floor((end - start) / msPerDay);
+    const middleFullDays = diff > 0 ? Math.max(diff - 1, 0) : 0;
+
+    let total = middleFullDays;
+
+    if (deptOnBehalfForm.start_segment === 'full_day') {
+      total += 1;
+    } else if (
+      deptOnBehalfForm.start_segment === 'shift_start' ||
+      deptOnBehalfForm.start_segment === 'shift_middle'
+    ) {
+      total += 0.5;
+    }
+
+    if (deptOnBehalfForm.end_segment === 'full_day') {
+      total += 1;
+    } else if (
+      deptOnBehalfForm.end_segment === 'shift_middle' ||
+      deptOnBehalfForm.end_segment === 'shift_end'
+    ) {
+      total += 0.5;
+    }
+
+    return total;
+  };
+
   const handleMarkUninformedFormChange = (e) => {
     const { name, value } = e.target;
     setMarkUninformedForm((prev) => ({ ...prev, [name]: value }));
@@ -396,11 +466,13 @@ export default function Leaves({ initialTab, initialManagerSection }) {
         data = await res.json();
       }
 
-      // Handle department conflict
+      // Handle department conflict – another person from same department already on leave
       if (data.conflict && !data.success) {
-        const name = data.existing_employee_name || 'Another employee';
+        const name = data.existing_employee_name || 'Someone else';
         alert(
-          `${name} from your department is already on leave for these dates. Please contact administration.`
+          `${
+            name
+          } from your department is already on leave for these dates. Please contact administration.`
         );
         setLoading(false);
         return;
@@ -536,6 +608,14 @@ export default function Leaves({ initialTab, initialManagerSection }) {
 
   const filterByCommonCriteria = (rows, filters) => {
     return rows.filter((row) => {
+      // Optional department matching (used by department views)
+      if (filters.department) {
+        const deptName = row.department_name || row.department || '';
+        if (!deptName || deptName !== filters.department) {
+          return false;
+        }
+      }
+
       const start = row.start_date ? new Date(row.start_date) : null;
       const end = row.end_date ? new Date(row.end_date) : null;
       const days = Number(row.days_requested) || 0;
@@ -845,6 +925,29 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                 <option value="uninformed">Uninformed</option>
               </select>
             </div>
+            <div>
+              <label className="block mb-1 font-medium">Department</label>
+              <select
+                value={deptFilters.department}
+                onChange={(e) =>
+                  setDeptFilters((f) => ({ ...f, department: e.target.value }))
+                }
+                className="border rounded px-2 py-1"
+              >
+                <option value="">All</option>
+                {Array.from(
+                  new Set(
+                    rows
+                      .map((row) => row.department_name || row.department || '')
+                      .filter((d) => d && d.trim().length > 0)
+                  )
+                ).map((dept) => (
+                  <option key={dept} value={dept}>
+                    {dept}
+                  </option>
+                ))}
+              </select>
+            </div>
             <button
               type="button"
               className="ml-auto text-[11px] text-indigo-600 underline"
@@ -855,6 +958,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                   minDays: '',
                   maxDays: '',
                   type: 'all',
+                  department: '',
                 })
               }
             >
@@ -888,6 +992,9 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                 <tr key={row.id}>
                   <td className="px-4 py-2 text-gray-800">
                     {row.employee_name || row.employee_id}
+                  </td>
+                  <td className="px-4 py-2 text-gray-800">
+                    {row.department_name || row.department || '-'}
                   </td>
                   <td className="px-4 py-2 text-gray-800">
                     {formatDate(row.start_date)}{' '}
@@ -959,6 +1066,85 @@ export default function Leaves({ initialTab, initialManagerSection }) {
         )}
       </div>
     );
+  };
+
+  const applyOnBehalf = async () => {
+    if (!isManagerOrAdmin) return;
+    if (!deptOnBehalfForm.employee_id || !deptOnBehalfForm.start_date || !deptOnBehalfForm.end_date) {
+      alert('Please select employee and start/end dates');
+      return;
+    }
+    const daysRequested = computeDeptOnBehalfDays();
+    if (daysRequested <= 0) {
+      alert('Invalid date range for leave');
+      return;
+    }
+    try {
+      const payload = {
+        employee_id: Number(deptOnBehalfForm.employee_id),
+        department_id: departmentId,
+        reason: deptOnBehalfForm.reason,
+        start_date: deptOnBehalfForm.start_date,
+        end_date: deptOnBehalfForm.end_date,
+        start_segment: deptOnBehalfForm.start_segment,
+        end_segment: deptOnBehalfForm.end_segment,
+        days_requested: daysRequested,
+        applied_by: user?.id || null,
+      };
+
+      let res = await fetch('/api/leaves/apply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      let data = await res.json().catch(() => ({}));
+
+      if (data.over_quota && !data.success) {
+        const proceed = window.confirm(
+          data.message || 'This employee may exceed paid leave quota. Do you want to proceed?'
+        );
+        if (!proceed) {
+          return;
+        }
+        res = await fetch('/api/leaves/apply', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...payload, confirm_exceed: true }),
+        });
+        data = await res.json().catch(() => ({}));
+      }
+
+      if (data.conflict && !data.success) {
+        const name = data.existing_employee_name || 'Someone else';
+        alert(
+          `${
+            name
+          } from this department is already on leave for these dates. Please adjust dates or contact administration.`
+        );
+        return;
+      }
+
+      if (!res.ok || !data.success) {
+        alert(data.error || 'Failed to apply leave on behalf of employee');
+        return;
+      }
+
+      alert('Leave applied on behalf of employee successfully');
+      setDeptOnBehalfForm({
+        employee_id: '',
+        start_date: '',
+        end_date: '',
+        start_segment: 'full_day',
+        end_segment: 'full_day',
+        reason: '',
+      });
+      await loadDepartmentLeaves();
+      await loadReport();
+    } catch (err) {
+      console.error('Error applying on behalf of employee', err);
+      alert('Error applying on behalf of employee');
+    }
   };
 
   const formatDate = (value) => {
@@ -1515,6 +1701,69 @@ export default function Leaves({ initialTab, initialManagerSection }) {
         return (
           <div className="space-y-4">
             <h2 className="text-lg font-semibold text-gray-900">My recent approved leaves</h2>
+            <div className="flex flex-wrap gap-3 text-xs text-gray-700 bg-white border rounded px-4 py-3">
+              <div>
+                <label className="block mb-1 font-medium">From</label>
+                <input
+                  type="date"
+                  value={myFilters.startDate}
+                  onChange={(e) => setMyFilters((f) => ({ ...f, startDate: e.target.value }))}
+                  className="border rounded px-2 py-1"
+                />
+              </div>
+              <div>
+                <label className="block mb-1 font-medium">To</label>
+                <input
+                  type="date"
+                  value={myFilters.endDate}
+                  onChange={(e) => setMyFilters((f) => ({ ...f, endDate: e.target.value }))}
+                  className="border rounded px-2 py-1"
+                />
+              </div>
+              <div>
+                <label className="block mb-1 font-medium">Min days</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.5"
+                  value={myFilters.minDays}
+                  onChange={(e) => setMyFilters((f) => ({ ...f, minDays: e.target.value }))}
+                  className="border rounded px-2 py-1 w-20"
+                />
+              </div>
+              <div>
+                <label className="block mb-1 font-medium">Max days</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.5"
+                  value={myFilters.maxDays}
+                  onChange={(e) => setMyFilters((f) => ({ ...f, maxDays: e.target.value }))}
+                  className="border rounded px-2 py-1 w-20"
+                />
+              </div>
+              <div>
+                <label className="block mb-1 font-medium">Type</label>
+                <select
+                  value={myFilters.type}
+                  onChange={(e) => setMyFilters((f) => ({ ...f, type: e.target.value }))}
+                  className="border rounded px-2 py-1"
+                >
+                  <option value="all">All</option>
+                  <option value="regular">Regular</option>
+                  <option value="uninformed">Uninformed</option>
+                </select>
+              </div>
+              <button
+                type="button"
+                className="ml-auto text-[11px] text-indigo-600 underline"
+                onClick={() =>
+                  setMyFilters({ startDate: '', endDate: '', minDays: '', maxDays: '', type: 'all' })
+                }
+              >
+                Clear filters
+              </button>
+            </div>
             {renderLeaveTable(rows)}
           </div>
         );
@@ -1524,6 +1773,69 @@ export default function Leaves({ initialTab, initialManagerSection }) {
         return (
           <div className="space-y-4">
             <h2 className="text-lg font-semibold text-gray-900">My recent rejected leaves</h2>
+            <div className="flex flex-wrap gap-3 text-xs text-gray-700 bg-white border rounded px-4 py-3">
+              <div>
+                <label className="block mb-1 font-medium">From</label>
+                <input
+                  type="date"
+                  value={myFilters.startDate}
+                  onChange={(e) => setMyFilters((f) => ({ ...f, startDate: e.target.value }))}
+                  className="border rounded px-2 py-1"
+                />
+              </div>
+              <div>
+                <label className="block mb-1 font-medium">To</label>
+                <input
+                  type="date"
+                  value={myFilters.endDate}
+                  onChange={(e) => setMyFilters((f) => ({ ...f, endDate: e.target.value }))}
+                  className="border rounded px-2 py-1"
+                />
+              </div>
+              <div>
+                <label className="block mb-1 font-medium">Min days</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.5"
+                  value={myFilters.minDays}
+                  onChange={(e) => setMyFilters((f) => ({ ...f, minDays: e.target.value }))}
+                  className="border rounded px-2 py-1 w-20"
+                />
+              </div>
+              <div>
+                <label className="block mb-1 font-medium">Max days</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.5"
+                  value={myFilters.maxDays}
+                  onChange={(e) => setMyFilters((f) => ({ ...f, maxDays: e.target.value }))}
+                  className="border rounded px-2 py-1 w-20"
+                />
+              </div>
+              <div>
+                <label className="block mb-1 font-medium">Type</label>
+                <select
+                  value={myFilters.type}
+                  onChange={(e) => setMyFilters((f) => ({ ...f, type: e.target.value }))}
+                  className="border rounded px-2 py-1"
+                >
+                  <option value="all">All</option>
+                  <option value="regular">Regular</option>
+                  <option value="uninformed">Uninformed</option>
+                </select>
+              </div>
+              <button
+                type="button"
+                className="ml-auto text-[11px] text-indigo-600 underline"
+                onClick={() =>
+                  setMyFilters({ startDate: '', endDate: '', minDays: '', maxDays: '', type: 'all' })
+                }
+              >
+                Clear filters
+              </button>
+            </div>
             {renderLeaveTable(rows)}
           </div>
         );
@@ -1561,6 +1873,132 @@ export default function Leaves({ initialTab, initialManagerSection }) {
             {renderDepartmentTable(departmentLeaves.recent_rejected || [], false)}
           </div>
         );
+      case TABS.DEPT_ON_BEHALF: {
+        const daysRequested = computeDeptOnBehalfDays();
+        // History: all department leaves, optionally could be narrowed to those applied by this user
+        const historyRows = [
+          ...(departmentLeaves.pending || []),
+          ...(departmentLeaves.recent_approved || []),
+          ...(departmentLeaves.recent_rejected || []),
+        ];
+        return (
+          <div className="space-y-6">
+            <h2 className="text-lg font-semibold text-gray-900">
+              Apply for leave on behalf of employee
+            </h2>
+            <div className="bg-white border rounded p-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Employee</label>
+                  <select
+                    value={deptOnBehalfForm.employee_id}
+                    onChange={(e) =>
+                      setDeptOnBehalfForm((prev) => ({ ...prev, employee_id: e.target.value }))
+                    }
+                    className="w-full border rounded px-3 py-2"
+                  >
+                    <option value="">Select employee</option>
+                    {Array.from(
+                      new Set(
+                        markUninformedEmployees.map((emp) => emp.id)
+                      )
+                    )
+                      .map((id) => markUninformedEmployees.find((e) => e.id === id))
+                      .filter(Boolean)
+                      .map((emp) => (
+                        <option key={emp.id} value={emp.id}>
+                          {emp.name}
+                          {emp.department ? ` (${emp.department})` : ''}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Reason</label>
+                  <input
+                    type="text"
+                    value={deptOnBehalfForm.reason}
+                    onChange={(e) =>
+                      setDeptOnBehalfForm((prev) => ({ ...prev, reason: e.target.value }))
+                    }
+                    className="w-full border rounded px-3 py-2"
+                    placeholder="Reason for leave"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Start date</label>
+                  <input
+                    type="date"
+                    value={deptOnBehalfForm.start_date}
+                    onChange={(e) =>
+                      setDeptOnBehalfForm((prev) => ({ ...prev, start_date: e.target.value }))
+                    }
+                    className="w-full border rounded px-3 py-2"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">End date</label>
+                  <input
+                    type="date"
+                    value={deptOnBehalfForm.end_date}
+                    onChange={(e) =>
+                      setDeptOnBehalfForm((prev) => ({ ...prev, end_date: e.target.value }))
+                    }
+                    className="w-full border rounded px-3 py-2"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Start of leave</label>
+                  <select
+                    value={deptOnBehalfForm.start_segment}
+                    onChange={(e) =>
+                      setDeptOnBehalfForm((prev) => ({ ...prev, start_segment: e.target.value }))
+                    }
+                    className="w-full border rounded px-3 py-2"
+                  >
+                    <option value="shift_start">Start of shift</option>
+                    <option value="shift_middle">Middle of shift</option>
+                    <option value="full_day">Full day</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">End of leave</label>
+                  <select
+                    value={deptOnBehalfForm.end_segment}
+                    onChange={(e) =>
+                      setDeptOnBehalfForm((prev) => ({ ...prev, end_segment: e.target.value }))
+                    }
+                    className="w-full border rounded px-3 py-2"
+                  >
+                    <option value="shift_middle">Middle of shift</option>
+                    <option value="shift_end">End of shift</option>
+                    <option value="full_day">Full day</option>
+                  </select>
+                </div>
+              </div>
+              <div className="mt-4 flex items-center justify-between">
+                <div className="text-sm text-gray-600">
+                  Days to record:{' '}
+                  <span className="font-semibold">{daysRequested}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={applyOnBehalf}
+                  className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700"
+                >
+                  Apply leave for employee
+                </button>
+              </div>
+            </div>
+            <div className="space-y-3">
+              <h3 className="text-md font-semibold text-gray-900">
+                Recent department leaves (for reference)
+              </h3>
+              {renderDepartmentTable(historyRows, false)}
+            </div>
+          </div>
+        );
+      }
       default:
         return null;
     }
@@ -1840,74 +2278,76 @@ export default function Leaves({ initialTab, initialManagerSection }) {
           {renderMarkUninformedContent()}
         </div>
         {selectedLeaveForDetails && (
-          <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/30">
-            <div className="bg-white rounded-lg shadow-xl max-w-lg w-full mx-4 p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-3">Leave Details</h2>
-              <div className="space-y-2 text-sm text-gray-700">
-                {selectedLeaveForDetails.employee_name && (
-                  <div>
-                    <span className="font-semibold">Employee:</span>{' '}
-                    {selectedLeaveForDetails.employee_name}
-                  </div>
-                )}
+          <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-xl w-full mx-4 overflow-hidden">
+              <div className="px-6 py-4 bg-gradient-to-r from-indigo-600 to-indigo-500 text-white flex items-center justify-between">
                 <div>
-                  <span className="font-semibold">Dates:</span>{' '}
-                  {formatDate(selectedLeaveForDetails.start_date)}
-                  {selectedLeaveForDetails.start_date !== selectedLeaveForDetails.end_date
-                    ? ` – ${formatDate(selectedLeaveForDetails.end_date)}`
-                    : ''}
+                  <h2 className="text-lg font-semibold">Leave details</h2>
+                  {selectedLeaveForDetails.employee_name && (
+                    <p className="text-xs text-indigo-100 mt-0.5">
+                      {selectedLeaveForDetails.employee_name}
+                    </p>
+                  )}
                 </div>
-                {selectedLeaveForDetails.start_segment && (
-                  <div>
-                    <span className="font-semibold">Segments:</span>{' '}
-                    {selectedLeaveForDetails.start_segment} →{' '}
-                    {selectedLeaveForDetails.end_segment}
-                  </div>
-                )}
-                <div>
-                  <span className="font-semibold">Days:</span>{' '}
-                  {Number(selectedLeaveForDetails.days_requested).toFixed(2)}
-                </div>
-                {selectedLeaveForDetails.status && (
-                  <div>
-                    <span className="font-semibold">Status:</span>{' '}
-                    {selectedLeaveForDetails.status}
-                  </div>
-                )}
-                <div>
-                  <span className="font-semibold">Paid:</span>{' '}
-                  {selectedLeaveForDetails.is_paid ? 'Yes' : 'No'}
-                </div>
-                <div>
-                  <span className="font-semibold">Uninformed:</span>{' '}
-                  {selectedLeaveForDetails.is_uninformed ? 'Yes' : 'No'}
-                </div>
-                {selectedLeaveForDetails.reason && (
-                  <div>
-                    <span className="font-semibold">Reason:</span>{' '}
-                    {selectedLeaveForDetails.reason}
-                  </div>
-                )}
-                {selectedLeaveForDetails.decision_reason && (
-                  <div>
-                    <span className="font-semibold">Decision notes:</span>{' '}
-                    {selectedLeaveForDetails.decision_reason}
-                  </div>
-                )}
-                {selectedLeaveForDetails.created_at && (
-                  <div>
-                    <span className="font-semibold">Applied at:</span>{' '}
-                    {formatDateTime(selectedLeaveForDetails.created_at)}
-                  </div>
-                )}
-                {selectedLeaveForDetails.decision_at && (
-                  <div>
-                    <span className="font-semibold">Decided at:</span>{' '}
-                    {formatDateTime(selectedLeaveForDetails.decision_at)}
-                  </div>
-                )}
+                <span className="inline-flex items-center rounded-full bg-white/10 px-3 py-1 text-xs font-medium">
+                  {selectedLeaveForDetails.status || 'pending'}
+                </span>
               </div>
-              <div className="mt-4 flex justify-end">
+              <div className="px-6 py-4 space-y-3 text-sm text-gray-700 bg-gray-50">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2">
+                  <div>
+                    <span className="font-semibold">Dates:</span>{' '}
+                    {formatDate(selectedLeaveForDetails.start_date)}
+                    {selectedLeaveForDetails.start_date !== selectedLeaveForDetails.end_date
+                      ? ` – ${formatDate(selectedLeaveForDetails.end_date)}`
+                      : ''}
+                  </div>
+                  {selectedLeaveForDetails.start_segment && (
+                    <div>
+                      <span className="font-semibold">Segments:</span>{' '}
+                      {selectedLeaveForDetails.start_segment} →{' '}
+                      {selectedLeaveForDetails.end_segment}
+                    </div>
+                  )}
+                  <div>
+                    <span className="font-semibold">Days:</span>{' '}
+                    {Number(selectedLeaveForDetails.days_requested).toFixed(2)}
+                  </div>
+                  <div>
+                    <span className="font-semibold">Paid:</span>{' '}
+                    {selectedLeaveForDetails.is_paid ? 'Yes' : 'No'}
+                  </div>
+                  <div>
+                    <span className="font-semibold">Uninformed:</span>{' '}
+                    {selectedLeaveForDetails.is_uninformed ? 'Yes' : 'No'}
+                  </div>
+                  {selectedLeaveForDetails.reason && (
+                    <div>
+                      <span className="font-semibold">Reason:</span>{' '}
+                      {selectedLeaveForDetails.reason}
+                    </div>
+                  )}
+                  {selectedLeaveForDetails.decision_reason && (
+                    <div>
+                      <span className="font-semibold">Decision notes:</span>{' '}
+                      {selectedLeaveForDetails.decision_reason}
+                    </div>
+                  )}
+                  {selectedLeaveForDetails.created_at && (
+                    <div>
+                      <span className="font-semibold">Applied at:</span>{' '}
+                      {formatDateTime(selectedLeaveForDetails.created_at)}
+                    </div>
+                  )}
+                  {selectedLeaveForDetails.decision_at && (
+                    <div>
+                      <span className="font-semibold">Decided at:</span>{' '}
+                      {formatDateTime(selectedLeaveForDetails.decision_at)}
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="border-t border-gray-200 px-6 py-3 flex justify-end bg-white">
                 <button
                   type="button"
                   onClick={() => setSelectedLeaveForDetails(null)}
@@ -1956,76 +2396,84 @@ export default function Leaves({ initialTab, initialManagerSection }) {
         {renderMyLeavesContent()}
       </div>
       {selectedLeaveForDetails && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/30">
-          <div className="bg-white rounded-lg shadow-xl max-w-lg w-full mx-4 p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-3">Leave Details</h2>
-            <div className="space-y-2 text-sm text-gray-700">
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-xl w-full mx-4 overflow-hidden">
+            <div className="px-6 py-4 bg-gradient-to-r from-indigo-600 to-indigo-500 text-white flex items-center justify-between">
               <div>
-                <span className="font-semibold">Dates:</span>{' '}
-                {formatDate(selectedLeaveForDetails.start_date)}
-                {selectedLeaveForDetails.start_date !== selectedLeaveForDetails.end_date
-                  ? ` – ${formatDate(selectedLeaveForDetails.end_date)}`
-                  : ''}
+                <h2 className="text-lg font-semibold">Leave details</h2>
+                {selectedLeaveForDetails.employee_name && (
+                  <p className="text-xs text-indigo-100 mt-0.5">
+                    {selectedLeaveForDetails.employee_name}
+                  </p>
+                )}
               </div>
-              {selectedLeaveForDetails.start_segment && (
+              <span className="inline-flex items-center rounded-full bg-white/10 px-3 py-1 text-xs font-medium">
+                {selectedLeaveForDetails.status || 'pending'}
+              </span>
+            </div>
+            <div className="px-6 py-4 space-y-3 text-sm text-gray-700 bg-gray-50">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2">
                 <div>
-                  <span className="font-semibold">Segments:</span>{' '}
-                  {selectedLeaveForDetails.start_segment} →{' '}
-                  {selectedLeaveForDetails.end_segment}
+                  <span className="font-semibold">Dates:</span>{' '}
+                  {formatDate(selectedLeaveForDetails.start_date)}
+                  {selectedLeaveForDetails.start_date !== selectedLeaveForDetails.end_date
+                    ? ` – ${formatDate(selectedLeaveForDetails.end_date)}`
+                    : ''}
                 </div>
-              )}
-              <div>
-                <span className="font-semibold">Days:</span>{' '}
-                {Number(selectedLeaveForDetails.days_requested).toFixed(2)}
-              </div>
-              {selectedLeaveForDetails.status && (
-                <div>
-                  <span className="font-semibold">Status:</span>{' '}
-                  {selectedLeaveForDetails.status}
-                </div>
-              )}
-              {selectedLeaveForDetails.status &&
-                selectedLeaveForDetails.status !== 'pending' &&
-                selectedLeaveForDetails.decision_by_name && (
+                {selectedLeaveForDetails.start_segment && (
                   <div>
-                    <span className="font-semibold">Decided by:</span>{' '}
-                    {selectedLeaveForDetails.decision_by_name}
+                    <span className="font-semibold">Segments:</span>{' '}
+                    {selectedLeaveForDetails.start_segment} →{' '}
+                    {selectedLeaveForDetails.end_segment}
                   </div>
                 )}
-              <div>
-                <span className="font-semibold">Paid:</span>{' '}
-                {selectedLeaveForDetails.is_paid ? 'Yes' : 'No'}
+                <div>
+                  <span className="font-semibold">Days:</span>{' '}
+                  {Number(selectedLeaveForDetails.days_requested).toFixed(2)}
+                </div>
+                {selectedLeaveForDetails.status &&
+                  selectedLeaveForDetails.status !== 'pending' &&
+                  selectedLeaveForDetails.decision_by_name && (
+                    <div>
+                      <span className="font-semibold">Decided by:</span>{' '}
+                      {selectedLeaveForDetails.decision_by_name}
+                    </div>
+                  )}
+                <div>
+                  <span className="font-semibold">Paid:</span>{' '}
+                  {selectedLeaveForDetails.is_paid ? 'Yes' : 'No'}
+                </div>
+                <div>
+                  <span className="font-semibold">Uninformed:</span>{' '}
+                  {selectedLeaveForDetails.is_uninformed ? 'Yes' : 'No'}
+                </div>
+                {selectedLeaveForDetails.reason && (
+                  <div>
+                    <span className="font-semibold">Reason:</span>{' '}
+                    {selectedLeaveForDetails.reason}
+                  </div>
+                )}
+                {selectedLeaveForDetails.decision_reason && (
+                  <div>
+                    <span className="font-semibold">Decision notes:</span>{' '}
+                    {selectedLeaveForDetails.decision_reason}
+                  </div>
+                )}
+                {selectedLeaveForDetails.created_at && (
+                  <div>
+                    <span className="font-semibold">Applied at:</span>{' '}
+                    {formatDateTime(selectedLeaveForDetails.created_at)}
+                  </div>
+                )}
+                {selectedLeaveForDetails.decision_at && (
+                  <div>
+                    <span className="font-semibold">Decided at:</span>{' '}
+                    {formatDateTime(selectedLeaveForDetails.decision_at)}
+                  </div>
+                )}
               </div>
-              <div>
-                <span className="font-semibold">Uninformed:</span>{' '}
-                {selectedLeaveForDetails.is_uninformed ? 'Yes' : 'No'}
-              </div>
-              {selectedLeaveForDetails.reason && (
-                <div>
-                  <span className="font-semibold">Reason:</span>{' '}
-                  {selectedLeaveForDetails.reason}
-                </div>
-              )}
-              {selectedLeaveForDetails.decision_reason && (
-                <div>
-                  <span className="font-semibold">Decision notes:</span>{' '}
-                  {selectedLeaveForDetails.decision_reason}
-                </div>
-              )}
-              {selectedLeaveForDetails.created_at && (
-                <div>
-                  <span className="font-semibold">Applied at:</span>{' '}
-                  {formatDateTime(selectedLeaveForDetails.created_at)}
-                </div>
-              )}
-              {selectedLeaveForDetails.decision_at && (
-                <div>
-                  <span className="font-semibold">Decided at:</span>{' '}
-                  {formatDateTime(selectedLeaveForDetails.decision_at)}
-                </div>
-              )}
             </div>
-            <div className="mt-4 flex justify-end">
+            <div className="border-t border-gray-200 px-6 py-3 flex justify-end bg-white">
               <button
                 type="button"
                 onClick={() => setSelectedLeaveForDetails(null)}
@@ -2040,7 +2488,6 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     </>
   );
 }
-
 
 
 
