@@ -447,7 +447,10 @@ export default function Leaves({ initialTab, initialManagerSection }) {
       };
       const res = await fetch(`/api/leaves/${id}/decision`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'user-role': user?.role || user?.user_role || (user?.designation || 'employee'),
+        },
         body: JSON.stringify(body),
       });
       const data = await res.json().catch(() => ({}));
@@ -474,7 +477,10 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     try {
       const res = await fetch('/api/leaves/mark-uninformed', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'user-role': user?.role || user?.user_role || (user?.designation || 'employee'),
+        },
         body: JSON.stringify({
           employee_id: row.employee_id,
           start_date: row.start_date,
@@ -513,7 +519,10 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     try {
       const res = await fetch('/api/leaves/mark-uninformed', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'user-role': user?.role || user?.user_role || (user?.designation || 'employee'),
+        },
         body: JSON.stringify({
           employee_id: Number(markUninformedForm.employee_id),
           start_date: markUninformedForm.start_date,
