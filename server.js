@@ -11062,11 +11062,15 @@ app.post('/api/leaves/apply', async (req, res) => {
       deptId = dRows.length ? dRows[0].id : null;
     }
 
-    // Blocked (important or holiday) date check: employee_id=0, reason LIKE 'IMPORTANT_EVENT%' or 'HOLIDAY%'
+    // Blocked: holiday applies to all; important applies when department_id IS NULL (all) OR = applicant's department
     const [blockedRows] = await connection.execute(
-      `SELECT id FROM leave_requests WHERE employee_id = 0 AND (reason LIKE 'IMPORTANT_EVENT%' OR reason LIKE 'HOLIDAY%')
-       AND start_date <= ? AND end_date >= ? LIMIT 1`,
-      [end_date, start_date]
+      `SELECT id FROM leave_requests WHERE employee_id = 0
+       AND start_date <= ? AND end_date >= ?
+       AND (
+         (reason LIKE 'HOLIDAY%' AND department_id IS NULL)
+         OR (reason LIKE 'IMPORTANT_EVENT%' AND (department_id IS NULL OR department_id = ?))
+       ) LIMIT 1`,
+      [end_date, start_date, deptId]
     );
     const isDateBlocked = blockedRows.length > 0;
     if (isDateBlocked && !emergency_type) {
@@ -11245,16 +11249,31 @@ app.post('/api/leaves/apply', async (req, res) => {
 
 // Date availability for a single date (red/green): blocked or booked
 app.get('/api/leaves/date-availability', async (req, res) => {
-  const { date } = req.query;
+  const { date, employee_id } = req.query;
   if (!date) return res.status(400).json({ error: 'date is required (YYYY-MM-DD)' });
   let connection;
   try {
     connection = await mysqlPool.getConnection();
     await connection.ping();
+    let deptId = null;
+    if (employee_id) {
+      const [empRows] = await connection.execute(
+        'SELECT department FROM employees WHERE id = ? LIMIT 1',
+        [employee_id]
+      );
+      if (empRows.length > 0 && empRows[0].department) {
+        const [dRows] = await connection.execute('SELECT id FROM departments WHERE name = ? LIMIT 1', [empRows[0].department]);
+        deptId = dRows.length ? dRows[0].id : null;
+      }
+    }
     const [blocked] = await connection.execute(
-      `SELECT id FROM leave_requests WHERE employee_id = 0 AND (reason LIKE 'IMPORTANT_EVENT%' OR reason LIKE 'HOLIDAY%')
-       AND start_date <= ? AND end_date >= ? LIMIT 1`,
-      [date, date]
+      `SELECT id FROM leave_requests WHERE employee_id = 0
+       AND start_date <= ? AND end_date >= ?
+       AND (
+         (reason LIKE 'HOLIDAY%' AND department_id IS NULL)
+         OR (reason LIKE 'IMPORTANT_EVENT%' AND (department_id IS NULL OR department_id = ?))
+       ) LIMIT 1`,
+      [date, date, deptId]
     );
     const [booked] = await connection.execute(
       `SELECT lr.id, lr.employee_id, e.name AS employee_name FROM leave_requests lr
@@ -11278,7 +11297,7 @@ app.get('/api/leaves/date-availability', async (req, res) => {
   }
 });
 
-// Calendar data: leaves in range + blocked dates (all roles with calendar access)
+// Calendar data: leaves in range + blocked dates (all roles with calendar access). Blocked dates include department_id for important (per-department).
 app.get('/api/leaves/calendar', async (req, res) => {
   const { start, end } = req.query;
   if (!start || !end) return res.status(400).json({ error: 'start and end are required (YYYY-MM-DD)' });
@@ -11287,7 +11306,11 @@ app.get('/api/leaves/calendar', async (req, res) => {
     connection = await mysqlPool.getConnection();
     await connection.ping();
     const [employees] = await connection.execute(
-      `SELECT id, name FROM employees WHERE status = 'Active' ORDER BY name`
+      `SELECT e.id, e.name, e.department,
+        (SELECT id FROM departments d WHERE d.name = e.department LIMIT 1) AS department_id
+       FROM employees e
+       WHERE e.status = 'Active'
+       ORDER BY e.name`
     );
     const [leaves] = await connection.execute(
       `SELECT lr.id, lr.employee_id, e.name AS employee_name, lr.start_date, lr.end_date, lr.status,
@@ -11299,7 +11322,9 @@ app.get('/api/leaves/calendar', async (req, res) => {
       [end, start]
     );
     const [blockedRows] = await connection.execute(
-      `SELECT start_date AS date, reason FROM leave_requests
+      `SELECT start_date AS date, reason, department_id,
+        (SELECT name FROM departments d WHERE d.id = lr.department_id LIMIT 1) AS department_name
+       FROM leave_requests lr
        WHERE employee_id = 0 AND (reason LIKE 'IMPORTANT_EVENT%' OR reason LIKE 'HOLIDAY%') AND start_date <= ? AND end_date >= ?`,
       [end, start]
     );
@@ -11309,13 +11334,23 @@ app.get('/api/leaves/calendar', async (req, res) => {
       const label = r.reason && r.reason !== 'IMPORTANT_EVENT' && r.reason !== 'HOLIDAY'
         ? String(r.reason).replace(/^(IMPORTANT_EVENT|HOLIDAY):?/, '') : null;
       if (String(r.reason || '').startsWith('IMPORTANT_EVENT')) {
-        importantDates.push({ date: r.date, label });
+        importantDates.push({
+          date: r.date,
+          label,
+          department_id: r.department_id,
+          department_name: r.department_name || null
+        });
       } else {
         holidayDates.push({ date: r.date, label });
       }
     }
     res.json({
-      employees: employees.map((r) => ({ id: r.id, name: r.name })),
+      employees: employees.map((r) => ({
+        id: r.id,
+        name: r.name,
+        department: r.department,
+        department_id: r.department_id
+      })),
       leaves: leaves.map((r) => ({
         id: r.id,
         employee_id: r.employee_id,
@@ -11335,7 +11370,9 @@ app.get('/api/leaves/calendar', async (req, res) => {
         date: r.date,
         type: String(r.reason || '').startsWith('IMPORTANT_EVENT') ? 'important' : 'holiday',
         label: r.reason && r.reason !== 'IMPORTANT_EVENT' && r.reason !== 'HOLIDAY'
-          ? String(r.reason).replace(/^(IMPORTANT_EVENT|HOLIDAY):?/, '') : null
+          ? String(r.reason).replace(/^(IMPORTANT_EVENT|HOLIDAY):?/, '') : null,
+        department_id: r.department_id,
+        department_name: r.department_name || null
       })),
       importantDates,
       holidayDates
@@ -11348,13 +11385,14 @@ app.get('/api/leaves/calendar', async (req, res) => {
   }
 });
 
-// Mark date(s) as important or holiday (admin only). Accept single date or bulk dates[].
+// Mark date(s) as important (per department) or holiday (admin only). Accept single date or bulk dates[]. For important, department_id = specific dept (null = all departments).
 app.post('/api/leaves/blocked-dates', async (req, res) => {
   const userRole = (req.headers['x-user-role'] || req.headers['user-role'] || '').toLowerCase();
   if (userRole !== 'admin') return res.status(403).json({ error: 'Only admins can mark dates.' });
-  const { date, dates, type, label } = req.body || {};
+  const { date, dates, type, label, department_id } = req.body || {};
   const typeVal = (type || 'important').toLowerCase() === 'holiday' ? 'holiday' : 'important';
   const reasonPrefix = typeVal === 'important' ? 'IMPORTANT_EVENT' : 'HOLIDAY';
+  const deptId = department_id != null && department_id !== '' ? Number(department_id) : null;
   const dateList = Array.isArray(dates) && dates.length > 0
     ? dates.filter((d) => d && String(d).match(/^\d{4}-\d{2}-\d{2}$/))
     : (date && String(date).match(/^\d{4}-\d{2}-\d{2}$/) ? [date] : []);
@@ -11366,19 +11404,23 @@ app.post('/api/leaves/blocked-dates', async (req, res) => {
     let inserted = 0;
     for (const d of dateList) {
       const [existing] = await connection.execute(
-        `SELECT id FROM leave_requests WHERE employee_id = 0 AND (reason LIKE 'IMPORTANT_EVENT%' OR reason LIKE 'HOLIDAY%') AND start_date = ? AND end_date = ?`,
-        [d, d]
+        typeVal === 'holiday'
+          ? `SELECT id FROM leave_requests WHERE employee_id = 0 AND reason LIKE 'HOLIDAY%' AND department_id IS NULL AND start_date = ? AND end_date = ?`
+          : `SELECT id FROM leave_requests WHERE employee_id = 0 AND reason LIKE 'IMPORTANT_EVENT%' AND start_date = ? AND end_date = ?
+             AND ((? IS NULL AND department_id IS NULL) OR department_id = ?)`,
+        typeVal === 'holiday' ? [d, d] : [d, d, deptId, deptId]
       );
       if (existing.length > 0) continue;
       const reason = label ? `${reasonPrefix}:${label}` : reasonPrefix;
+      const insertDeptId = typeVal === 'holiday' ? null : deptId;
       await connection.execute(
         `INSERT INTO leave_requests (employee_id, department_id, status, reason, start_date, end_date, start_segment, end_segment, days_requested, is_paid, is_uninformed)
-         VALUES (0, NULL, 'approved', ?, ?, ?, 'full_day', 'full_day', 0, 0, 0)`,
-        [reason, d, d]
+         VALUES (0, ?, 'approved', ?, ?, ?, 'full_day', 'full_day', 0, 0, 0)`,
+        [insertDeptId, reason, d, d]
       );
       inserted++;
     }
-    res.status(201).json({ success: true, dates: dateList, type: typeVal, inserted, label: label || null });
+    res.status(201).json({ success: true, dates: dateList, type: typeVal, inserted, label: label || null, department_id: typeVal === 'important' ? deptId : null });
   } catch (err) {
     console.error('Error marking blocked date(s):', err);
     res.status(500).json({ error: 'Database error' });
@@ -11440,6 +11482,7 @@ async function runSyncAbsentForDate(targetDate, minHours = 4) {
       [startDate, endDate, minSeconds]
     );
     let created = 0;
+    const { year: targetYear, month: targetMonth } = getYearMonthFromDate(targetDate);
     for (const row of rows) {
       let rowDeptId = null;
       if (row.department) {
@@ -11456,6 +11499,13 @@ async function runSyncAbsentForDate(targetDate, minHours = 4) {
            VALUES (?, ?, 'approved', 'Absent', ?, ?, 'full_day', 'full_day', 1, 0, 1)`,
           [row.id, rowDeptId, targetDate, targetDate]
         );
+        const balance = await getOrCreateLeaveBalance(connection, row.id, targetYear, targetMonth);
+        const uninformed = balance.uninformed_leaves || 0;
+        await connection.execute(
+          'UPDATE leave_balances SET uninformed_leaves = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+          [uninformed + 1, balance.id]
+        );
+        await recalculateUninformedDeductionsForEmployee(connection, row.id);
         created++;
       }
     }
@@ -11762,7 +11812,7 @@ app.delete('/api/leaves/:id', async (req, res) => {
 app.get('/api/leaves/acknowledged-history', async (req, res) => {
   const userRole = (req.headers['x-user-role'] || req.headers['user-role'] || '').toLowerCase();
   if (userRole !== 'admin') return res.status(403).json({ error: 'Access denied. Only admins can view acknowledge history.' });
-  const { department_id } = req.query;
+  const { department_id, start_date, end_date } = req.query;
   let connection;
   try {
     connection = await mysqlPool.getConnection();
@@ -11781,6 +11831,14 @@ app.get('/api/leaves/acknowledged-history', async (req, res) => {
       query += ' AND lr.department_id = ?';
       params.push(department_id);
     }
+    if (start_date) {
+      query += ' AND lr.end_date >= ?';
+      params.push(start_date);
+    }
+    if (end_date) {
+      query += ' AND lr.start_date <= ?';
+      params.push(end_date);
+    }
     query += ' ORDER BY lr.acknowledged_at DESC LIMIT 200';
     const [rows] = await connection.execute(query, params);
     res.json(rows);
@@ -11796,7 +11854,7 @@ app.get('/api/leaves/acknowledged-history', async (req, res) => {
 app.get('/api/leaves/all', async (req, res) => {
   const userRole = (req.headers['x-user-role'] || req.headers['user-role'] || '').toLowerCase();
   if (userRole !== 'admin') return res.status(403).json({ error: 'Only admins can view all leaves.' });
-  const { filter, department_id } = req.query;
+  const { filter, department_id, start_date, end_date, type } = req.query;
   if (!filter || !['future', 'past', 'acknowledged'].includes(filter)) {
     return res.status(400).json({ error: 'filter is required and must be future, past, or acknowledged' });
   }
@@ -11817,6 +11875,19 @@ app.get('/api/leaves/all', async (req, res) => {
     if (department_id) {
       query += ' AND lr.department_id = ?';
       params.push(department_id);
+    }
+    if (start_date) {
+      query += ' AND lr.end_date >= ?';
+      params.push(start_date);
+    }
+    if (end_date) {
+      query += ' AND lr.start_date <= ?';
+      params.push(end_date);
+    }
+    if (type === 'regular') {
+      query += ' AND (lr.is_uninformed = 0 OR lr.is_uninformed IS NULL)';
+    } else if (type === 'uninformed') {
+      query += ' AND lr.is_uninformed = 1';
     }
     if (filter === 'future') {
       query += " AND lr.end_date >= CURDATE() AND lr.status IN ('pending','approved') AND (lr.is_uninformed = 0 OR lr.is_uninformed IS NULL)";
@@ -12257,18 +12328,15 @@ app.post('/api/leaves/mark-uninformed', async (req, res) => {
   }
 });
 
-// Delete an uninformed leave (admin/manager)
+// Delete an uninformed leave (admin/manager, or employee deleting their own)
 app.delete('/api/leaves/uninformed/:id', async (req, res) => {
   const { id } = req.params;
+  const currentUserId = Number(req.headers['x-user-id'] || req.headers['user-id'] || 0);
 
   const userRoleHeader = req.headers['user-role'] || req.headers['x-user-role'] || 'employee';
   const userRole = String(userRoleHeader || '').toLowerCase();
   const isAdmin = userRole === 'admin';
   const isManager = userRole.includes('manager');
-
-  if (!isAdmin && !isManager) {
-    return res.status(403).json({ error: 'Access denied. Only managers and admins can delete uninformed leaves.' });
-  }
 
   let connection;
   try {
@@ -12285,6 +12353,11 @@ app.delete('/api/leaves/uninformed/:id', async (req, res) => {
       return res.status(404).json({ error: 'Uninformed leave not found' });
     }
     const row = rows[0];
+    const isOwnLeave = currentUserId && row.employee_id === currentUserId;
+    if (!isAdmin && !isManager && !isOwnLeave) {
+      await connection.rollback();
+      return res.status(403).json({ error: 'Access denied. Only managers, admins, or the leave owner can delete this record.' });
+    }
 
     const { year, month } = getYearMonthFromDate(row.start_date);
     const balance = await getOrCreateLeaveBalance(connection, row.employee_id, year, month);

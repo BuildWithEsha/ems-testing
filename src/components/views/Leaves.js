@@ -66,6 +66,18 @@ export default function Leaves({ initialTab, initialManagerSection }) {
   const [allFutureLeaves, setAllFutureLeaves] = useState([]);
   const [allPastLeaves, setAllPastLeaves] = useState([]);
   const [departmentSearch, setDepartmentSearch] = useState('');
+  const [adminDepartments, setAdminDepartments] = useState([]);
+  const [allLeavesFilters, setAllLeavesFilters] = useState({
+    startDate: '',
+    endDate: '',
+    departmentId: '',
+    type: 'all',
+  });
+  const [ackHistoryFilters, setAckHistoryFilters] = useState({
+    startDate: '',
+    endDate: '',
+    departmentId: '',
+  });
   const isAdmin = user?.role === 'admin' || user?.role === 'Admin';
   const isManagerOrAdmin = isAdmin || user?.is_manager;
 
@@ -205,13 +217,15 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     }
   };
 
-  const loadAllLeaves = async (filter) => {
+  const loadAllLeaves = async (filter, filters = {}) => {
     if (!isAdmin) return;
     try {
-      const url = departmentId
-        ? `/api/leaves/all?filter=${filter}&department_id=${departmentId}`
-        : `/api/leaves/all?filter=${filter}`;
-      const res = await fetch(url, {
+      const params = new URLSearchParams({ filter });
+      if (filters.departmentId) params.set('department_id', filters.departmentId);
+      if (filters.startDate) params.set('start_date', filters.startDate);
+      if (filters.endDate) params.set('end_date', filters.endDate);
+      if (filters.type && filters.type !== 'all') params.set('type', filters.type);
+      const res = await fetch(`/api/leaves/all?${params.toString()}`, {
         headers: { 'x-user-role': user?.role || 'admin' },
       });
       if (res.ok) {
@@ -224,14 +238,17 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     }
   };
 
-  const loadAckHistory = async () => {
+  const loadAckHistory = async (filters = {}) => {
     if (!isAdmin) return;
     try {
-      const url = departmentId ? `/api/leaves/acknowledged-history?department_id=${departmentId}` : '/api/leaves/acknowledged-history';
+      const params = new URLSearchParams();
+      if (filters.departmentId) params.set('department_id', filters.departmentId);
+      if (filters.startDate) params.set('start_date', filters.startDate);
+      if (filters.endDate) params.set('end_date', filters.endDate);
+      const qs = params.toString();
+      const url = qs ? `/api/leaves/acknowledged-history?${qs}` : '/api/leaves/acknowledged-history';
       const res = await fetch(url, {
-        headers: {
-          'x-user-role': user?.role || 'employee',
-        },
+        headers: { 'x-user-role': user?.role || 'employee' },
       });
       if (res.ok) {
         const rows = await res.json();
@@ -285,7 +302,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
       return;
     }
     try {
-      const res = await fetch(`/api/leaves/date-availability?date=${encodeURIComponent(date)}`);
+      const res = await fetch(`/api/leaves/date-availability?date=${encodeURIComponent(date)}${employeeId ? `&employee_id=${employeeId}` : ''}`);
       if (res.ok) {
         const data = await res.json();
         setDateAvailability(data);
@@ -329,11 +346,19 @@ export default function Leaves({ initialTab, initialManagerSection }) {
 
   useEffect(() => {
     if (mode === 'department' && isAdmin) {
-      if (departmentTab === TABS.ACK_HISTORY) loadAckHistory();
-      else if (departmentTab === TABS.ALL_FUTURE) loadAllLeaves('future');
-      else if (departmentTab === TABS.ALL_PAST) loadAllLeaves('past');
+      if (departmentTab === TABS.ACK_HISTORY) loadAckHistory(ackHistoryFilters);
+      else if (departmentTab === TABS.ALL_FUTURE) loadAllLeaves('future', allLeavesFilters);
+      else if (departmentTab === TABS.ALL_PAST) loadAllLeaves('past', allLeavesFilters);
     }
   }, [mode, departmentTab, isAdmin]);
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    fetch('/api/departments')
+      .then((res) => (res.ok ? res.json() : []))
+      .then((list) => setAdminDepartments(Array.isArray(list) ? list : []))
+      .catch(() => setAdminDepartments([]));
+  }, [isAdmin]);
 
   useEffect(() => {
     if ((mode === 'my' || (mode === 'department' && isAdmin)) && employeeId) {
@@ -514,13 +539,19 @@ export default function Leaves({ initialTab, initialManagerSection }) {
         if (dateAvailability?.bookedBy?.length > 0) payload.requested_swap_with_leave_id = dateAvailability.bookedBy[0].leave_id;
       }
 
+      const applyHeaders = {
+        'Content-Type': 'application/json',
+        'x-user-id': String(employeeId || ''),
+        'x-user-role': String(user?.role || user?.user_role || 'employee'),
+      };
+
       let res = await fetch('/api/leaves/apply', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: applyHeaders,
         body: JSON.stringify(payload),
       });
 
-      let data = await res.json();
+      let data = await res.json().catch(() => ({}));
 
       if (data.date_blocked && !data.success) {
         alert(data.message || 'This date is an important event. Select an emergency reason and try again.');
@@ -544,10 +575,10 @@ export default function Leaves({ initialTab, initialManagerSection }) {
         }
         res = await fetch('/api/leaves/apply', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: applyHeaders,
           body: JSON.stringify({ ...payload, confirm_exceed: true }),
         });
-        data = await res.json();
+        data = await res.json().catch(() => ({}));
       }
 
       if (data.conflict && !data.success) {
@@ -559,8 +590,9 @@ export default function Leaves({ initialTab, initialManagerSection }) {
         return;
       }
 
-      if (!res.ok || !data.success) {
-        alert(data.error || 'Failed to apply for leave');
+      const success = res.ok && (res.status === 201 || data.success === true);
+      if (!success) {
+        alert(data.error || data.message || 'Failed to apply for leave');
         setLoading(false);
         return;
       }
@@ -1337,12 +1369,18 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                 {report.paid_quota}
               </div>
               <div>
-                <span className="font-medium text-gray-700">Effective after deductions:</span>{' '}
+                <span className="font-medium text-gray-700">Effective (this month):</span>{' '}
                 {report.effective_quota ??
                   Math.max(0, (report.paid_quota || 0) - (report.next_month_deduction || 0))}
+                <span className="text-gray-500 ml-0.5">
+                  (base − {report.next_month_deduction ?? 0} from past absences)
+                </span>
               </div>
               <div>
                 <span className="font-medium text-gray-700">Used:</span> {report.paid_used}
+              </div>
+              <div className="text-gray-500 pt-0.5">
+                Remaining = Effective − Used = {report.remaining_paid ?? 0}
               </div>
             </div>
           </div>
@@ -1357,7 +1395,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
               <span className="ml-1 text-sm font-medium text-gray-500">total</span>
             </div>
             <div className="text-xs text-gray-600">
-              Absentees reduce future paid leave quotas until fully recovered.
+              Each absentee deducts 1 paid leave from a future month (1 absentee → 1 next month deduction). Deductions apply until fully recovered.
             </div>
           </div>
 
@@ -1483,9 +1521,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                     <th className="px-4 py-2 text-left font-medium text-gray-700">Reason</th>
                     <th className="px-4 py-2 text-left font-medium text-gray-700">Marked by</th>
                     <th className="px-4 py-2 text-left font-medium text-gray-700">Marked at</th>
-                    {isManagerOrAdmin && (
-                      <th className="px-4 py-2 text-left font-medium text-gray-700">Actions</th>
-                    )}
+                    <th className="px-4 py-2 text-left font-medium text-gray-700">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
@@ -1510,40 +1546,39 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                       <td className="px-4 py-2 text-gray-800">
                         {u.decision_at ? formatDateTime(u.decision_at) : '-'}
                       </td>
-                      {isManagerOrAdmin && (
-                        <td className="px-4 py-2 text-gray-800">
-                          <button
-                            type="button"
-                            onClick={async () => {
-                              if (!window.confirm('Delete this absentee record?')) return;
-                              try {
-                                const res = await fetch(`/api/leaves/uninformed/${u.id}`, {
-                                  method: 'DELETE',
-                                  headers: {
-                                    'Content-Type': 'application/json',
-                                    'user-role':
-                                      user?.role ||
-                                      user?.user_role ||
-                                      (user?.designation || 'employee'),
-                                  },
-                                });
-                                const data = await res.json().catch(() => ({}));
-                                if (!res.ok || !data.success) {
-                                  alert(data.error || 'Failed to delete uninformed leave');
-                                  return;
-                                }
-                                await loadReport();
-                              } catch (err) {
-                                console.error('Error deleting absentee record', err);
-                                alert('Error deleting absentee record');
+                      <td className="px-4 py-2 text-gray-800">
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            if (!window.confirm('Delete this absentee record from the database? This will update your leave balance and deductions.')) return;
+                            try {
+                              const res = await fetch(`/api/leaves/uninformed/${u.id}`, {
+                                method: 'DELETE',
+                                headers: {
+                                  'Content-Type': 'application/json',
+                                  'x-user-id': String(employeeId || ''),
+                                  'user-role':
+                                    user?.role ||
+                                    user?.user_role ||
+                                    (user?.designation || 'employee'),
+                                },
+                              });
+                              const data = await res.json().catch(() => ({}));
+                              if (!res.ok) {
+                                alert(data.error || 'Failed to delete uninformed leave');
+                                return;
                               }
-                            }}
-                            className="inline-flex items-center px-2 py-1 text-xs rounded bg-red-600 text-white hover:bg-red-700"
-                          >
-                            Delete
-                          </button>
-                        </td>
-                      )}
+                              await loadReport();
+                            } catch (err) {
+                              console.error('Error deleting absentee record', err);
+                              alert('Error deleting absentee record');
+                            }
+                          }}
+                          className="inline-flex items-center px-2 py-1 text-xs rounded bg-red-600 text-white hover:bg-red-700"
+                        >
+                          Delete
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -1907,14 +1942,78 @@ export default function Leaves({ initialTab, initialManagerSection }) {
       }
       case TABS.MY_ACK: {
         const ackRows = (myLeaves.acknowledged || []).filter((r) => r.acknowledged_by != null);
+        const filteredAck = filterByCommonCriteria(ackRows, myFilters);
         return (
-          <div className="space-y-6">
+          <div className="space-y-4">
             <h2 className="text-lg font-semibold text-gray-900">Acknowledged leaves</h2>
             <p className="text-sm text-gray-600">Leaves that were acknowledged by admin (e.g. emergency on important or booked dates).</p>
-            {ackRows.length === 0 ? (
-              <div className="bg-white border rounded p-6 text-gray-500">No acknowledged leaves.</div>
+            <div className="flex flex-wrap gap-3 text-xs text-gray-700 bg-white border rounded px-4 py-3">
+              <div>
+                <label className="block mb-1 font-medium">From</label>
+                <input
+                  type="date"
+                  value={myFilters.startDate}
+                  onChange={(e) => setMyFilters((f) => ({ ...f, startDate: e.target.value }))}
+                  className="border rounded px-2 py-1"
+                />
+              </div>
+              <div>
+                <label className="block mb-1 font-medium">To</label>
+                <input
+                  type="date"
+                  value={myFilters.endDate}
+                  onChange={(e) => setMyFilters((f) => ({ ...f, endDate: e.target.value }))}
+                  className="border rounded px-2 py-1"
+                />
+              </div>
+              <div>
+                <label className="block mb-1 font-medium">Min days</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.5"
+                  value={myFilters.minDays}
+                  onChange={(e) => setMyFilters((f) => ({ ...f, minDays: e.target.value }))}
+                  className="border rounded px-2 py-1 w-20"
+                />
+              </div>
+              <div>
+                <label className="block mb-1 font-medium">Max days</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.5"
+                  value={myFilters.maxDays}
+                  onChange={(e) => setMyFilters((f) => ({ ...f, maxDays: e.target.value }))}
+                  className="border rounded px-2 py-1 w-20"
+                />
+              </div>
+              <div>
+                <label className="block mb-1 font-medium">Type</label>
+                <select
+                  value={myFilters.type}
+                  onChange={(e) => setMyFilters((f) => ({ ...f, type: e.target.value }))}
+                  className="border rounded px-2 py-1"
+                >
+                  <option value="all">All</option>
+                  <option value="regular">Regular</option>
+                  <option value="uninformed">Uninformed</option>
+                </select>
+              </div>
+              <button
+                type="button"
+                className="ml-auto text-[11px] text-indigo-600 underline"
+                onClick={() =>
+                  setMyFilters({ startDate: '', endDate: '', minDays: '', maxDays: '', type: 'all' })
+                }
+              >
+                Clear filters
+              </button>
+            </div>
+            {filteredAck.length === 0 ? (
+              <div className="bg-white border rounded p-6 text-gray-500">No acknowledged leaves match the filters.</div>
             ) : (
-              renderLeaveTable(ackRows)
+              renderLeaveTable(filteredAck)
             )}
           </div>
         );
@@ -1933,15 +2032,139 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     switch (departmentTab) {
       case TABS.ALL_FUTURE:
         return (
-          <div className="space-y-6">
+          <div className="space-y-4">
             <h2 className="text-lg font-semibold text-gray-900">All employees – Future leaves</h2>
+            <div className="flex flex-wrap items-end gap-3 text-sm bg-white border rounded-lg px-4 py-3">
+              <div>
+                <label className="block mb-1 font-medium text-gray-700">From</label>
+                <input
+                  type="date"
+                  value={allLeavesFilters.startDate}
+                  onChange={(e) => setAllLeavesFilters((f) => ({ ...f, startDate: e.target.value }))}
+                  className="border rounded px-2 py-1.5"
+                />
+              </div>
+              <div>
+                <label className="block mb-1 font-medium text-gray-700">To</label>
+                <input
+                  type="date"
+                  value={allLeavesFilters.endDate}
+                  onChange={(e) => setAllLeavesFilters((f) => ({ ...f, endDate: e.target.value }))}
+                  className="border rounded px-2 py-1.5"
+                />
+              </div>
+              <div>
+                <label className="block mb-1 font-medium text-gray-700">Department</label>
+                <select
+                  value={allLeavesFilters.departmentId}
+                  onChange={(e) => setAllLeavesFilters((f) => ({ ...f, departmentId: e.target.value }))}
+                  className="border rounded px-2 py-1.5 min-w-[140px]"
+                >
+                  <option value="">All departments</option>
+                  {adminDepartments.map((d) => (
+                    <option key={d.id} value={d.id}>{d.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block mb-1 font-medium text-gray-700">Type</label>
+                <select
+                  value={allLeavesFilters.type}
+                  onChange={(e) => setAllLeavesFilters((f) => ({ ...f, type: e.target.value }))}
+                  className="border rounded px-2 py-1.5"
+                >
+                  <option value="all">All</option>
+                  <option value="regular">Regular</option>
+                  <option value="uninformed">Uninformed</option>
+                </select>
+              </div>
+              <button
+                type="button"
+                onClick={() => loadAllLeaves('future', allLeavesFilters)}
+                className="px-3 py-1.5 bg-indigo-600 text-white rounded text-sm hover:bg-indigo-700"
+              >
+                Apply filters
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setAllLeavesFilters({ startDate: '', endDate: '', departmentId: '', type: 'all' });
+                  setTimeout(() => loadAllLeaves('future', {}), 0);
+                }}
+                className="text-sm text-indigo-600 underline"
+              >
+                Clear
+              </button>
+            </div>
             {renderDepartmentTable(allFutureLeaves, false)}
           </div>
         );
       case TABS.ALL_PAST:
         return (
-          <div className="space-y-6">
+          <div className="space-y-4">
             <h2 className="text-lg font-semibold text-gray-900">All employees – Past leaves</h2>
+            <div className="flex flex-wrap items-end gap-3 text-sm bg-white border rounded-lg px-4 py-3">
+              <div>
+                <label className="block mb-1 font-medium text-gray-700">From</label>
+                <input
+                  type="date"
+                  value={allLeavesFilters.startDate}
+                  onChange={(e) => setAllLeavesFilters((f) => ({ ...f, startDate: e.target.value }))}
+                  className="border rounded px-2 py-1.5"
+                />
+              </div>
+              <div>
+                <label className="block mb-1 font-medium text-gray-700">To</label>
+                <input
+                  type="date"
+                  value={allLeavesFilters.endDate}
+                  onChange={(e) => setAllLeavesFilters((f) => ({ ...f, endDate: e.target.value }))}
+                  className="border rounded px-2 py-1.5"
+                />
+              </div>
+              <div>
+                <label className="block mb-1 font-medium text-gray-700">Department</label>
+                <select
+                  value={allLeavesFilters.departmentId}
+                  onChange={(e) => setAllLeavesFilters((f) => ({ ...f, departmentId: e.target.value }))}
+                  className="border rounded px-2 py-1.5 min-w-[140px]"
+                >
+                  <option value="">All departments</option>
+                  {adminDepartments.map((d) => (
+                    <option key={d.id} value={d.id}>{d.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block mb-1 font-medium text-gray-700">Type</label>
+                <select
+                  value={allLeavesFilters.type}
+                  onChange={(e) => setAllLeavesFilters((f) => ({ ...f, type: e.target.value }))}
+                  className="border rounded px-2 py-1.5"
+                >
+                  <option value="all">All</option>
+                  <option value="regular">Regular</option>
+                  <option value="uninformed">Uninformed</option>
+                </select>
+              </div>
+              <button
+                type="button"
+                onClick={() => loadAllLeaves('past', allLeavesFilters)}
+                className="px-3 py-1.5 bg-indigo-600 text-white rounded text-sm hover:bg-indigo-700"
+              >
+                Apply filters
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setAllLeavesFilters({ startDate: '', endDate: '', departmentId: '', type: 'all' });
+                  setTimeout(() => loadAllLeaves('past', {}), 0);
+                }}
+                className="text-sm text-indigo-600 underline"
+              >
+                Clear
+              </button>
+            </div>
             {renderDepartmentTable(allPastLeaves, false)}
           </div>
         );
@@ -2004,8 +2227,58 @@ export default function Leaves({ initialTab, initialManagerSection }) {
       }
       case TABS.ACK_HISTORY:
         return (
-          <div className="space-y-6">
+          <div className="space-y-4">
             <h2 className="text-lg font-semibold text-gray-900">Acknowledge history</h2>
+            <div className="flex flex-wrap items-end gap-3 text-sm bg-white border rounded-lg px-4 py-3">
+              <div>
+                <label className="block mb-1 font-medium text-gray-700">From</label>
+                <input
+                  type="date"
+                  value={ackHistoryFilters.startDate}
+                  onChange={(e) => setAckHistoryFilters((f) => ({ ...f, startDate: e.target.value }))}
+                  className="border rounded px-2 py-1.5"
+                />
+              </div>
+              <div>
+                <label className="block mb-1 font-medium text-gray-700">To</label>
+                <input
+                  type="date"
+                  value={ackHistoryFilters.endDate}
+                  onChange={(e) => setAckHistoryFilters((f) => ({ ...f, endDate: e.target.value }))}
+                  className="border rounded px-2 py-1.5"
+                />
+              </div>
+              <div>
+                <label className="block mb-1 font-medium text-gray-700">Department</label>
+                <select
+                  value={ackHistoryFilters.departmentId}
+                  onChange={(e) => setAckHistoryFilters((f) => ({ ...f, departmentId: e.target.value }))}
+                  className="border rounded px-2 py-1.5 min-w-[140px]"
+                >
+                  <option value="">All departments</option>
+                  {adminDepartments.map((d) => (
+                    <option key={d.id} value={d.id}>{d.name}</option>
+                  ))}
+                </select>
+              </div>
+              <button
+                type="button"
+                onClick={() => loadAckHistory(ackHistoryFilters)}
+                className="px-3 py-1.5 bg-indigo-600 text-white rounded text-sm hover:bg-indigo-700"
+              >
+                Apply filters
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setAckHistoryFilters({ startDate: '', endDate: '', departmentId: '' });
+                  setTimeout(() => loadAckHistory({}), 0);
+                }}
+                className="text-sm text-indigo-600 underline"
+              >
+                Clear
+              </button>
+            </div>
             <div className="bg-white border rounded p-4">
               {ackHistoryRows.length === 0 ? (
                 <p className="text-sm text-gray-500">No acknowledged leaves.</p>
@@ -2287,27 +2560,48 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     return (
       <>
         {pendingActionModal && pendingActionModal.type === 'ack' && isAdmin && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-            <div className="bg-white rounded-xl shadow-xl max-w-md w-full mx-4 p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">Acknowledge emergency leave</h3>
-              <p className="text-sm text-gray-700 mb-2">
-                An employee has requested leave for {pendingActionModal.data.start_date}
-                {pendingActionModal.data.end_date !== pendingActionModal.data.start_date ? ` – ${pendingActionModal.data.end_date}` : ''}
-                {pendingActionModal.data.emergency_type ? ` (${pendingActionModal.data.emergency_type})` : ''}.
-              </p>
-              <p className="text-xs text-gray-500 mb-4">{pendingActionModal.data.employee_name}</p>
-              <div className="flex flex-wrap gap-3 justify-end items-center">
-                <select id="ack-leave-type-dept" className="border rounded px-2 py-1.5 text-sm" defaultValue="paid">
-                  <option value="paid">Paid</option>
-                  <option value="other">Other</option>
-                </select>
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+            <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full overflow-hidden">
+              <div className="px-6 py-4 bg-amber-50 border-b border-amber-100">
+                <h3 className="text-lg font-semibold text-gray-900">Acknowledge emergency leave</h3>
+                <p className="text-sm text-amber-800 mt-0.5">An employee has requested leave on a booked or important date.</p>
+              </div>
+              <div className="px-6 py-4 space-y-4 text-sm">
+                <div className="grid grid-cols-1 gap-3">
+                  <div className="flex justify-between py-2 border-b border-gray-100">
+                    <span className="font-medium text-gray-500">Employee</span>
+                    <span className="text-gray-900">{pendingActionModal.data.employee_name || '—'}</span>
+                  </div>
+                  <div className="flex justify-between py-2 border-b border-gray-100">
+                    <span className="font-medium text-gray-500">Date(s)</span>
+                    <span className="text-gray-900">
+                      {formatDate(pendingActionModal.data.start_date)}
+                      {pendingActionModal.data.end_date && pendingActionModal.data.end_date !== pendingActionModal.data.start_date
+                        ? ` – ${formatDate(pendingActionModal.data.end_date)}`
+                        : ''}
+                    </span>
+                  </div>
+                  <div className="flex justify-between py-2 border-b border-gray-100">
+                    <span className="font-medium text-gray-500">Emergency reason</span>
+                    <span className="text-gray-900 font-medium">{pendingActionModal.data.emergency_type || '—'}</span>
+                  </div>
+                  <div className="flex justify-between py-2">
+                    <span className="font-medium text-gray-500">Leave type to approve as</span>
+                    <select id="ack-leave-type-dept" className="border rounded px-2 py-1.5 text-sm text-gray-900" defaultValue="paid">
+                      <option value="paid">Paid</option>
+                      <option value="other">Other</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+              <div className="px-6 py-4 flex flex-wrap gap-3 justify-end bg-gray-50 border-t border-gray-200">
                 <button
                   type="button"
                   onClick={() => {
                     const leaveType = document.getElementById('ack-leave-type-dept')?.value || 'paid';
                     handleAcknowledge(pendingActionModal.data.leave_id, false, leaveType);
                   }}
-                  className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                  className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 bg-white hover:bg-gray-50 font-medium"
                 >
                   Reject
                 </button>
@@ -2317,9 +2611,88 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                     const leaveType = document.getElementById('ack-leave-type-dept')?.value || 'paid';
                     handleAcknowledge(pendingActionModal.data.leave_id, true, leaveType);
                   }}
-                  className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
+                  className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium"
                 >
                   Acknowledge
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        {selectedLeaveForDetails && (
+          <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-xl w-full mx-4 overflow-hidden">
+              <div className="px-6 py-4 bg-gradient-to-r from-indigo-600 to-indigo-500 text-white flex items-center justify-between">
+                <div>
+                  <h2 className="text-lg font-semibold">Leave details</h2>
+                  {selectedLeaveForDetails.employee_name && (
+                    <p className="text-xs text-indigo-100 mt-0.5">{selectedLeaveForDetails.employee_name}</p>
+                  )}
+                </div>
+                <span className="inline-flex items-center rounded-full bg-white/10 px-3 py-1 text-xs font-medium">
+                  {selectedLeaveForDetails.status || 'pending'}
+                </span>
+              </div>
+              <div className="px-6 py-4 space-y-3 text-sm text-gray-700 bg-gray-50">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2">
+                  <div>
+                    <span className="font-semibold">Dates:</span>{' '}
+                    {formatDate(selectedLeaveForDetails.start_date)}
+                    {selectedLeaveForDetails.start_date !== selectedLeaveForDetails.end_date ? ` – ${formatDate(selectedLeaveForDetails.end_date)}` : ''}
+                  </div>
+                  {selectedLeaveForDetails.start_segment && (
+                    <div>
+                      <span className="font-semibold">Segments:</span>{' '}
+                      {selectedLeaveForDetails.start_segment} → {selectedLeaveForDetails.end_segment}
+                    </div>
+                  )}
+                  <div>
+                    <span className="font-semibold">Days:</span>{' '}
+                    {Number(selectedLeaveForDetails.days_requested).toFixed(2)}
+                  </div>
+                  <div>
+                    <span className="font-semibold">Paid:</span>{' '}
+                    {selectedLeaveForDetails.is_paid ? 'Yes' : 'No'}
+                  </div>
+                  <div>
+                    <span className="font-semibold">Absent:</span>{' '}
+                    {selectedLeaveForDetails.is_uninformed ? 'Yes' : 'No'}
+                  </div>
+                  {(selectedLeaveForDetails.department_name || selectedLeaveForDetails.department) && (
+                    <div>
+                      <span className="font-semibold">Department:</span>{' '}
+                      {selectedLeaveForDetails.department_name || selectedLeaveForDetails.department}
+                    </div>
+                  )}
+                  {selectedLeaveForDetails.reason && (
+                    <div>
+                      <span className="font-semibold">Reason:</span> {selectedLeaveForDetails.reason}
+                    </div>
+                  )}
+                  {selectedLeaveForDetails.decision_reason && (
+                    <div>
+                      <span className="font-semibold">Decision notes:</span> {selectedLeaveForDetails.decision_reason}
+                    </div>
+                  )}
+                  {selectedLeaveForDetails.created_at && (
+                    <div>
+                      <span className="font-semibold">Applied at:</span> {formatDateTime(selectedLeaveForDetails.created_at)}
+                    </div>
+                  )}
+                  {selectedLeaveForDetails.decision_at && (
+                    <div>
+                      <span className="font-semibold">Decided at:</span> {formatDateTime(selectedLeaveForDetails.decision_at)}
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="border-t border-gray-200 px-6 py-3 flex justify-end bg-white">
+                <button
+                  type="button"
+                  onClick={() => setSelectedLeaveForDetails(null)}
+                  className="px-4 py-2 text-sm rounded-md bg-gray-100 text-gray-800 hover:bg-gray-200"
+                >
+                  Close
                 </button>
               </div>
             </div>
@@ -2583,33 +2956,48 @@ export default function Leaves({ initialTab, initialManagerSection }) {
         </div>
       )}
       {pendingActionModal && pendingActionModal.type === 'ack' && isAdmin && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full mx-4 p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">Acknowledge emergency leave</h3>
-            <p className="text-sm text-gray-700 mb-2">
-              An employee has requested leave for {pendingActionModal.data.start_date}
-              {pendingActionModal.data.end_date !== pendingActionModal.data.start_date ? ` – ${pendingActionModal.data.end_date}` : ''}
-              {pendingActionModal.data.emergency_type ? ` (${pendingActionModal.data.emergency_type})` : ''}.
-            </p>
-            <p className="text-xs text-gray-500 mb-4">
-              {pendingActionModal.data.employee_name}
-            </p>
-            <div className="flex flex-wrap gap-3 justify-end items-center">
-              <select
-                id="ack-leave-type"
-                className="border rounded px-2 py-1.5 text-sm"
-                defaultValue="paid"
-              >
-                <option value="paid">Paid</option>
-                <option value="other">Other</option>
-              </select>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full overflow-hidden">
+            <div className="px-6 py-4 bg-amber-50 border-b border-amber-100">
+              <h3 className="text-lg font-semibold text-gray-900">Acknowledge emergency leave</h3>
+              <p className="text-sm text-amber-800 mt-0.5">An employee has requested leave on a booked or important date.</p>
+            </div>
+            <div className="px-6 py-4 space-y-4 text-sm">
+              <div className="grid grid-cols-1 gap-3">
+                <div className="flex justify-between py-2 border-b border-gray-100">
+                  <span className="font-medium text-gray-500">Employee</span>
+                  <span className="text-gray-900">{pendingActionModal.data.employee_name || '—'}</span>
+                </div>
+                <div className="flex justify-between py-2 border-b border-gray-100">
+                  <span className="font-medium text-gray-500">Date(s)</span>
+                  <span className="text-gray-900">
+                    {formatDate(pendingActionModal.data.start_date)}
+                    {pendingActionModal.data.end_date && pendingActionModal.data.end_date !== pendingActionModal.data.start_date
+                      ? ` – ${formatDate(pendingActionModal.data.end_date)}`
+                      : ''}
+                  </span>
+                </div>
+                <div className="flex justify-between py-2 border-b border-gray-100">
+                  <span className="font-medium text-gray-500">Emergency reason</span>
+                  <span className="text-gray-900 font-medium">{pendingActionModal.data.emergency_type || '—'}</span>
+                </div>
+                <div className="flex justify-between py-2">
+                  <span className="font-medium text-gray-500">Leave type to approve as</span>
+                  <select id="ack-leave-type" className="border rounded px-2 py-1.5 text-sm text-gray-900" defaultValue="paid">
+                    <option value="paid">Paid</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+            <div className="px-6 py-4 flex flex-wrap gap-3 justify-end bg-gray-50 border-t border-gray-200">
               <button
                 type="button"
                 onClick={() => {
                   const leaveType = document.getElementById('ack-leave-type')?.value || 'paid';
                   handleAcknowledge(pendingActionModal.data.leave_id, false, leaveType);
                 }}
-                className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 bg-white hover:bg-gray-50 font-medium"
               >
                 Reject
               </button>
@@ -2619,7 +3007,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                   const leaveType = document.getElementById('ack-leave-type')?.value || 'paid';
                   handleAcknowledge(pendingActionModal.data.leave_id, true, leaveType);
                 }}
-                className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
+                className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium"
               >
                 Acknowledge
               </button>

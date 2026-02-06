@@ -1,11 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { ChevronLeft, ChevronRight, Lock, Unlock } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Lock, Unlock, RefreshCw } from 'lucide-react';
 
 const CELL_COLORS = {
   holiday: 'bg-sky-200',
-  important: 'bg-red-400',
-  rejected: 'bg-red-400',
+  important: 'bg-amber-500',   // orange/amber for important (no leave) – distinct from rejected
+  rejected: 'bg-red-500',      // red for rejected leaves
   awol: 'bg-purple-400',
   full_day: 'bg-green-300',
   first_half: 'bg-yellow-300',
@@ -42,9 +42,12 @@ export default function LeavesCalendar() {
   const [month, setMonth] = useState(() => new Date().getMonth() + 1);
   const [data, setData] = useState({ employees: [], leaves: [], blockedDates: [], importantDates: [], holidayDates: [] });
   const [loading, setLoading] = useState(true);
+  const [departments, setDepartments] = useState([]);
+  const [importantDepartmentId, setImportantDepartmentId] = useState(''); // '' or number = which dept for "important" (empty = all)
   const [bulkFrom, setBulkFrom] = useState('');
   const [bulkTo, setBulkTo] = useState('');
   const [bulkType, setBulkType] = useState('important');
+  const [bulkDepartmentId, setBulkDepartmentId] = useState('');
   const [bulkLabel, setBulkLabel] = useState('');
   const [bulkSubmitting, setBulkSubmitting] = useState(false);
   const isAdmin = user?.role === 'admin' || user?.role === 'Admin';
@@ -53,12 +56,14 @@ export default function LeavesCalendar() {
   const lastDay = new Date(year, month, 0).getDate();
   const end = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
 
-  const loadCalendar = () => {
+  const loadCalendar = useCallback((showLoading = false) => {
+    if (showLoading) setLoading(true);
     fetch(`/api/leaves/calendar?start=${start}&end=${end}`)
       .then((res) => res.ok ? res.json() : { employees: [], leaves: [], blockedDates: [], importantDates: [], holidayDates: [] })
       .then(setData)
-      .catch(() => setData({ employees: [], leaves: [], blockedDates: [], importantDates: [], holidayDates: [] }));
-  };
+      .catch(() => setData({ employees: [], leaves: [], blockedDates: [], importantDates: [], holidayDates: [] }))
+      .finally(() => { if (showLoading) setLoading(false); });
+  }, [start, end]);
 
   useEffect(() => {
     let cancelled = false;
@@ -77,30 +82,57 @@ export default function LeavesCalendar() {
     return () => { cancelled = true; };
   }, [start, end]);
 
+  // Refetch when user returns to the tab/window so calendar shows latest after apply or acknowledge
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') loadCalendar();
+    };
+    const onFocus = () => loadCalendar();
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('focus', onFocus);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('focus', onFocus);
+    };
+  }, [loadCalendar]);
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    fetch('/api/departments')
+      .then((res) => (res.ok ? res.json() : []))
+      .then((list) => setDepartments(Array.isArray(list) ? list : []))
+      .catch(() => setDepartments([]));
+  }, [isAdmin]);
+
   const days = getDaysInMonth(year, month);
   const blockedDates = data.blockedDates || [];
-  const importantSet = new Set(
-    (data.importantDates || []).map((b) => b.date).concat(
-      blockedDates.filter((b) => b.type === 'important').map((b) => b.date)
-    )
+  const allImportantEntries = (data.importantDates || []).concat(
+    (blockedDates || []).filter((b) => b.type === 'important')
   );
+  const importantSet = new Set(allImportantEntries.map((b) => b.date));
   const holidaySet = new Set(
     (data.holidayDates || []).map((b) => b.date).concat(
-      blockedDates.filter((b) => b.type === 'holiday').map((b) => b.date)
+      (blockedDates || []).filter((b) => b.type === 'holiday').map((b) => b.date)
     )
   );
   const isSunday = (dateStr) => new Date(dateStr + 'T12:00:00').getDay() === 0;
+  const isDateImportantForEmployee = (dateStr, emp) =>
+    allImportantEntries.some(
+      (b) => b.date === dateStr && (b.department_id == null || b.department_id === emp.department_id)
+    );
 
   const markDate = async (date, type = 'important') => {
     if (!isAdmin) return;
     try {
+      const body = { date, type };
+      if (type === 'important' && importantDepartmentId !== '') body.department_id = Number(importantDepartmentId) || null;
       const res = await fetch('/api/leaves/blocked-dates', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'x-user-role': user?.role || 'employee',
         },
-        body: JSON.stringify({ date, type }),
+        body: JSON.stringify(body),
       });
       const d = await res.json().catch(() => ({}));
       if (res.ok && d.success) loadCalendar();
@@ -138,13 +170,15 @@ export default function LeavesCalendar() {
     }
     setBulkSubmitting(true);
     try {
+      const body = { dates, type: bulkType, label: bulkLabel || undefined };
+      if (bulkType === 'important' && bulkDepartmentId !== '') body.department_id = Number(bulkDepartmentId) || null;
       const res = await fetch('/api/leaves/blocked-dates', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'x-user-role': user?.role || 'employee',
         },
-        body: JSON.stringify({ dates, type: bulkType, label: bulkLabel || undefined }),
+        body: JSON.stringify(body),
       });
       const result = await res.json().catch(() => ({}));
       if (res.ok && result.success) {
@@ -193,6 +227,16 @@ export default function LeavesCalendar() {
       <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
         <h1 className="text-2xl font-semibold text-gray-900">Leave Calendar</h1>
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => loadCalendar(true)}
+            className="p-2 rounded-md border border-gray-300 bg-white hover:bg-gray-50 flex items-center gap-1.5 text-sm text-gray-700"
+            aria-label="Refresh calendar"
+            title="Refresh to see latest leaves"
+          >
+            <RefreshCw className="w-4 h-4" />
+            Refresh
+          </button>
           <button
             type="button"
             onClick={prevMonth}
@@ -282,6 +326,23 @@ export default function LeavesCalendar() {
                 <option value="holiday">Holiday</option>
               </select>
             </div>
+            {bulkType === 'important' && (
+              <div>
+                <label className="block text-xs text-gray-500 mb-0.5">For department</label>
+                <select
+                  value={bulkDepartmentId}
+                  onChange={(e) => setBulkDepartmentId(e.target.value)}
+                  className="border rounded px-2 py-1.5 text-sm min-w-[140px]"
+                >
+                  <option value="">All departments</option>
+                  {departments.map((dept) => (
+                    <option key={dept.id} value={dept.id}>
+                      {dept.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div>
               <label className="block text-xs text-gray-500 mb-0.5">Label (optional)</label>
               <input
@@ -301,7 +362,22 @@ export default function LeavesCalendar() {
               {bulkSubmitting ? 'Applying...' : 'Apply'}
             </button>
           </div>
-          <p className="text-xs text-gray-500 mt-2">Or click lock on a date to mark as important; unlock to remove.</p>
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+            <span>When marking Important, apply to department:</span>
+            <select
+              value={importantDepartmentId}
+              onChange={(e) => setImportantDepartmentId(e.target.value)}
+              className="border rounded px-2 py-1 text-sm"
+            >
+              <option value="">All departments</option>
+              {departments.map((dept) => (
+                <option key={dept.id} value={dept.id}>
+                  {dept.name}
+                </option>
+              ))}
+            </select>
+            <span>— then click lock on a date. Unlock removes all important for that date.</span>
+          </div>
         </div>
       )}
 
@@ -315,7 +391,7 @@ export default function LeavesCalendar() {
               {days.map((d) => {
                 const isImportant = importantSet.has(d);
                 const isHoliday = holidaySet.has(d) || isSunday(d);
-                const headerBg = isImportant ? 'bg-red-400 text-white' : isHoliday ? 'bg-sky-200 text-gray-800' : 'text-gray-700';
+                const headerBg = isImportant ? 'bg-amber-500 text-white' : isHoliday ? 'bg-sky-200 text-gray-800' : 'text-gray-700';
                 const isMarked = isImportant || holidaySet.has(d);
                 return (
                   <th
@@ -359,8 +435,9 @@ export default function LeavesCalendar() {
               const empLeaves = (data.leaves || []).filter((l) => l.employee_id === emp.id);
               return (
                 <tr key={emp.id} className="border-b border-gray-100 hover:bg-gray-50/50">
-                  <td className="sticky left-0 z-10 px-3 py-1.5 font-medium text-gray-800 bg-white border-r border-gray-200">
+                  <td className="sticky left-0 z-10 px-3 py-1.5 font-medium text-gray-800 bg-white border-r border-gray-200" title={emp.department ? `Dept: ${emp.department}` : ''}>
                     {emp.name}
+                    {emp.department && <span className="block text-xs font-normal text-gray-500">{emp.department}</span>}
                   </td>
                   {days.map((dateStr) => {
                     const leave = empLeaves.find(
@@ -368,7 +445,7 @@ export default function LeavesCalendar() {
                     );
                     let style = getCellStyle(leave, dateStr);
                     if (!style) {
-                      if (importantSet.has(dateStr)) style = CELL_COLORS.important;
+                      if (isDateImportantForEmployee(dateStr, emp)) style = CELL_COLORS.important;
                       else if (holidaySet.has(dateStr) || isSunday(dateStr)) style = CELL_COLORS.holiday;
                       else style = 'bg-gray-50';
                     }
