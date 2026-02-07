@@ -458,13 +458,19 @@ const AuthenticatedApp = () => {
       case 'leaves':
         return (
           <Suspense fallback={<LoadingFallback />}>
-            <Leaves key="leaves" />
+            <Leaves
+              key="leaves"
+              initialManagerSection={user?.role === 'admin' || user?.role === 'Admin' ? 'department' : undefined}
+            />
           </Suspense>
         );
       case 'leaves_main':
         return (
           <Suspense fallback={<LoadingFallback />}>
-            <Leaves key="leaves_main" />
+            <Leaves
+              key="leaves_main"
+              initialManagerSection={user?.role === 'admin' || user?.role === 'Admin' ? 'department' : undefined}
+            />
           </Suspense>
         );
       case 'leaves_acknowledge':

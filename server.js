@@ -11718,14 +11718,16 @@ app.get('/api/leaves/calendar', async (req, res) => {
   }
 });
 
-// Mark date(s) as important (per department) or holiday (admin only). Accept single date or bulk dates[]. For important, department_id = specific dept (null = all departments).
+// Mark date(s) as important (per department) or holiday (admin only). Accept date or dates[]. For important, department_id (single) or department_ids (array); null/empty = all departments.
 app.post('/api/leaves/blocked-dates', async (req, res) => {
   const userRole = (req.headers['x-user-role'] || req.headers['user-role'] || '').toLowerCase();
   if (userRole !== 'admin') return res.status(403).json({ error: 'Only admins can mark dates.' });
-  const { date, dates, type, label, department_id } = req.body || {};
+  const { date, dates, type, label, department_id, department_ids } = req.body || {};
   const typeVal = (type || 'important').toLowerCase() === 'holiday' ? 'holiday' : 'important';
   const reasonPrefix = typeVal === 'important' ? 'IMPORTANT_EVENT' : 'HOLIDAY';
-  const deptId = department_id != null && department_id !== '' ? Number(department_id) : null;
+  const deptIds = Array.isArray(department_ids) && department_ids.length > 0
+    ? department_ids.map((id) => Number(id)).filter(Number.isFinite)
+    : (department_id != null && department_id !== '' ? [Number(department_id)] : [null]);
   const dateList = Array.isArray(dates) && dates.length > 0
     ? dates.filter((d) => d && String(d).match(/^\d{4}-\d{2}-\d{2}$/))
     : (date && String(date).match(/^\d{4}-\d{2}-\d{2}$/) ? [date] : []);
@@ -11735,25 +11737,27 @@ app.post('/api/leaves/blocked-dates', async (req, res) => {
     connection = await mysqlPool.getConnection();
     await connection.ping();
     let inserted = 0;
-    for (const d of dateList) {
-      const [existing] = await connection.execute(
-        typeVal === 'holiday'
-          ? `SELECT id FROM leave_requests WHERE employee_id = 0 AND reason LIKE 'HOLIDAY%' AND department_id IS NULL AND start_date = ? AND end_date = ?`
-          : `SELECT id FROM leave_requests WHERE employee_id = 0 AND reason LIKE 'IMPORTANT_EVENT%' AND start_date = ? AND end_date = ?
-             AND ((? IS NULL AND department_id IS NULL) OR department_id = ?)`,
-        typeVal === 'holiday' ? [d, d] : [d, d, deptId, deptId]
-      );
-      if (existing.length > 0) continue;
-      const reason = label ? `${reasonPrefix}:${label}` : reasonPrefix;
-      const insertDeptId = typeVal === 'holiday' ? null : deptId;
-      await connection.execute(
-        `INSERT INTO leave_requests (employee_id, department_id, status, reason, start_date, end_date, start_segment, end_segment, days_requested, is_paid, is_uninformed)
-         VALUES (0, ?, 'approved', ?, ?, ?, 'full_day', 'full_day', 0, 0, 0)`,
-        [insertDeptId, reason, d, d]
-      );
-      inserted++;
+    for (const deptId of deptIds) {
+      for (const d of dateList) {
+        const [existing] = await connection.execute(
+          typeVal === 'holiday'
+            ? `SELECT id FROM leave_requests WHERE employee_id = 0 AND reason LIKE 'HOLIDAY%' AND department_id IS NULL AND start_date = ? AND end_date = ?`
+            : `SELECT id FROM leave_requests WHERE employee_id = 0 AND reason LIKE 'IMPORTANT_EVENT%' AND start_date = ? AND end_date = ?
+               AND ((? IS NULL AND department_id IS NULL) OR department_id = ?)`,
+          typeVal === 'holiday' ? [d, d] : [d, d, deptId, deptId]
+        );
+        if (existing.length > 0) continue;
+        const reason = label ? `${reasonPrefix}:${label}` : reasonPrefix;
+        const insertDeptId = typeVal === 'holiday' ? null : deptId;
+        await connection.execute(
+          `INSERT INTO leave_requests (employee_id, department_id, status, reason, start_date, end_date, start_segment, end_segment, days_requested, is_paid, is_uninformed)
+           VALUES (0, ?, 'approved', ?, ?, ?, 'full_day', 'full_day', 0, 0, 0)`,
+          [insertDeptId, reason, d, d]
+        );
+        inserted++;
+      }
     }
-    res.status(201).json({ success: true, dates: dateList, type: typeVal, inserted, label: label || null, department_id: typeVal === 'important' ? deptId : null });
+    res.status(201).json({ success: true, dates: dateList, type: typeVal, inserted, label: label || null });
   } catch (err) {
     console.error('Error marking blocked date(s):', err);
     res.status(500).json({ error: 'Database error' });

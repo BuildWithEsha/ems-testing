@@ -65,6 +65,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
   });
   const lastPendingIdsRef = useRef(null); // for ack result popups
   const [ackResultModal, setAckResultModal] = useState(null); // { type: 'approved' | 'rejected', leave: row }
+  const [emergencySubmitModal, setEmergencySubmitModal] = useState(false); // show "please wait" after emergency leave submit
   const [myLeaves, setMyLeaves] = useState({ pending: [], recent_approved: [], recent_rejected: [], acknowledged: [] });
   const [policy, setPolicy] = useState(null);
   const [report, setReport] = useState(null);
@@ -695,7 +696,10 @@ export default function Leaves({ initialTab, initialManagerSection }) {
         return;
       }
 
-      if (data.status === 'pending') {
+      const wasEmergencyRequest = !!form.emergency_type && (dateAvailability?.bookedByCount > 0 || !dateAvailability?.available);
+      if (wasEmergencyRequest) {
+        setEmergencySubmitModal(true);
+      } else if (data.status === 'pending') {
         alert('Your leave has been submitted. Admin has yet to acknowledge your leave.');
       } else {
         alert('Leave application submitted successfully');
@@ -1582,12 +1586,9 @@ export default function Leaves({ initialTab, initialManagerSection }) {
 
   const getStarRating = (leavesTaken) => {
     const n = Number(leavesTaken) || 0;
-    if (n >= 5) return { stars: -1, label: 'Negative' };
-    if (n === 4) return { stars: 0, label: '0 stars' };
-    if (n === 3) return { stars: 1, label: '1 star' };
-    if (n === 2) return { stars: 2, label: '2 stars' };
-    if (n === 1) return { stars: 2, label: '2 stars' };
-    return { stars: 3, label: '3 stars' };
+    const stars = Math.max(-1, Math.min(3, 3 - n));
+    const labels = { 3: '3 stars', 2: '2 stars', 1: '1 star', 0: '0 stars', [-1]: 'Negative' };
+    return { stars, label: labels[stars] ?? (stars === -1 ? 'Negative' : `${stars} star(s)`) };
   };
 
   const renderReport = () => {
@@ -1604,12 +1605,12 @@ export default function Leaves({ initialTab, initialManagerSection }) {
       <div className="bg-white border rounded p-6 text-gray-700 space-y-4">
         <h2 className="text-lg font-semibold text-gray-900 mb-2">My Leave Report</h2>
         {/* Star rating (leaves taken this month) */}
-        <div className="border rounded-lg p-4 bg-gray-50 flex flex-wrap items-center gap-3">
+        <div className="border border-gray-200 rounded-lg p-4 bg-gray-50 flex flex-wrap items-center gap-4">
           <span className="text-xs font-semibold uppercase tracking-wide text-gray-600">Leave rating (this month)</span>
-          <span className="text-sm text-gray-600">Leaves taken: {leavesTaken}</span>
+          <span className="text-sm text-gray-700">Leaves taken: <strong>{leavesTaken}</strong></span>
           <span className="flex items-center gap-0.5">
             {rating.stars === -1 ? (
-              <span className="text-red-600 font-bold" title="5+ leaves">−1</span>
+              <span className="text-red-600 font-bold" title="4+ leaves">−1</span>
             ) : (
               [1, 2, 3].map((i) => (
                 <span key={i} className={i <= rating.stars ? 'text-amber-500' : 'text-gray-300'} aria-hidden="true">
@@ -3217,15 +3218,32 @@ export default function Leaves({ initialTab, initialManagerSection }) {
           </div>
         </div>
       )}
+      {emergencySubmitModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">Request sent</h3>
+            <p className="text-sm text-gray-700 mb-4">
+              Your request has been sent. Please wait. You will be notified when the booker responds or admin decides.
+            </p>
+            <button
+              type="button"
+              onClick={() => setEmergencySubmitModal(false)}
+              className="w-full px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium"
+            >
+              OK
+            </button>
+          </div>
+        </div>
+      )}
       {ackResultModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-2">
-              {ackResultModal.type === 'approved' ? 'Leave acknowledged' : 'Leave rejected'}
+              {ackResultModal.type === 'approved' ? 'Leave applied' : 'Leave rejected'}
             </h3>
             <p className="text-sm text-gray-700 mb-4">
               {ackResultModal.type === 'approved'
-                ? 'Your leave has been acknowledged.'
+                ? 'Your leave has been applied.'
                 : 'Your leave has been rejected. If you are absent on these dates you will be counted as absent.'}
             </p>
             {ackResultModal.leave && (
