@@ -41,7 +41,6 @@ const EarnTrackWages = lazy(() => import('./components/views/EarnTrackWages'));
 // UI Components
 import Modal from './components/ui/Modal';
 import Button from './components/ui/Button';
-import PendingLeaveActionsModal from './components/PendingLeaveActionsModal';
 
 // Main App Component with Authentication
 const AppContent = () => {
@@ -618,7 +617,6 @@ const AuthenticatedApp = () => {
 
   return (
     <div className="flex h-screen overflow-hidden bg-gray-50">
-      <PendingLeaveActionsModal />
       {/* Sidebar - flex-shrink-0 so it keeps fixed width and doesn't participate in overflow */}
       <div className="flex-shrink-0 h-screen">
         <Sidebar currentView={view} onViewChange={handleViewChange} />
