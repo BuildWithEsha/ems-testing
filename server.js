@@ -12035,8 +12035,23 @@ app.get('/api/leaves/pending-actions', async (req, res) => {
       start_date: r.start_date,
       end_date: r.end_date,
       emergency_type: r.emergency_type || r.reason,
+      reason: r.reason || r.emergency_type || '',
       my_start_date: r.my_start,
       my_end_date: r.my_end
+    }));
+
+    // Accepted swaps waiting for booker to move their leave (so we can show "you did not change date" if they close edit without changing)
+    const [acceptedSwapRows] = await connection.execute(
+      `SELECT req.id AS requesting_leave_id, my.id AS my_leave_id
+       FROM leave_requests req
+       JOIN leave_requests my ON my.id = req.requested_swap_with_leave_id
+       WHERE req.requested_swap_with_leave_id IS NOT NULL AND req.status = 'pending'
+         AND req.swap_responded_at IS NOT NULL AND req.swap_accepted = 1 AND my.employee_id = ?`,
+      [currentUserId]
+    );
+    const acceptedSwapTargets = (acceptedSwapRows || []).map((r) => ({
+      my_leave_id: r.my_leave_id,
+      requesting_leave_id: r.requesting_leave_id
     }));
 
     let acknowledgeRequests = [];
@@ -12066,9 +12081,37 @@ app.get('/api/leaves/pending-actions', async (req, res) => {
       }));
     }
 
-    res.json({ swapRequests, acknowledgeRequests });
+    res.json({ swapRequests, acknowledgeRequests, acceptedSwapTargets });
   } catch (err) {
     console.error('Error fetching pending actions:', err);
+    res.status(500).json({ error: 'Database error' });
+  } finally {
+    if (connection) connection.release();
+  }
+});
+
+// Booker rejects swap after having accepted (e.g. closed edit without changing date); sends requester's leave to admin for acknowledgment
+app.post('/api/leaves/:id/reject-swap-after-accept', async (req, res) => {
+  const { id } = req.params;
+  const currentUserId = Number(req.body?.employee_id || req.headers['x-user-id'] || req.headers['user-id'] || 0);
+  if (!currentUserId) return res.status(400).json({ error: 'employee_id is required' });
+  let connection;
+  try {
+    connection = await mysqlPool.getConnection();
+    await connection.ping();
+    const [rows] = await connection.execute('SELECT id, requested_swap_with_leave_id FROM leave_requests WHERE id = ?', [id]);
+    if (rows.length === 0) return res.status(404).json({ error: 'Leave not found' });
+    const requesterLeave = rows[0];
+    if (!requesterLeave.requested_swap_with_leave_id) return res.status(400).json({ error: 'This leave has no swap request' });
+    const [myLeave] = await connection.execute('SELECT id, employee_id FROM leave_requests WHERE id = ?', [requesterLeave.requested_swap_with_leave_id]);
+    if (myLeave.length === 0 || myLeave[0].employee_id !== currentUserId) return res.status(403).json({ error: 'You are not the booker for this swap' });
+    await connection.execute(
+      'UPDATE leave_requests SET requested_swap_with_leave_id = NULL, swap_responded_at = NULL, swap_accepted = 0 WHERE id = ?',
+      [id]
+    );
+    res.json({ success: true, leave_id: id });
+  } catch (err) {
+    console.error('Error rejecting swap after accept:', err);
     res.status(500).json({ error: 'Database error' });
   } finally {
     if (connection) connection.release();
@@ -12188,6 +12231,43 @@ app.patch('/api/leaves/:id', async (req, res) => {
     if (leave.status !== 'approved' && leave.status !== 'pending') {
       await connection.rollback();
       return res.status(400).json({ error: 'Only approved or pending leaves can be updated' });
+    }
+    // Validate new date range: must not be blocked (event) or already booked by another employee
+    let deptId = leave.department_id || null;
+    if (!deptId && currentUserId) {
+      const [empRows] = await connection.execute('SELECT department FROM employees WHERE id = ? LIMIT 1', [currentUserId]);
+      if (empRows.length > 0 && empRows[0].department) {
+        const [dRows] = await connection.execute('SELECT id FROM departments WHERE name = ? LIMIT 1', [empRows[0].department]);
+        deptId = dRows.length ? dRows[0].id : null;
+      }
+    }
+    const [blockedRows] = await connection.execute(
+      `SELECT id FROM leave_requests WHERE employee_id = 0
+       AND start_date <= ? AND end_date >= ?
+       AND (
+         (reason LIKE 'HOLIDAY%' AND department_id IS NULL)
+         OR (reason LIKE 'IMPORTANT_EVENT%' AND (department_id IS NULL OR department_id = ?))
+       ) LIMIT 1`,
+      [end_date, start_date, deptId]
+    );
+    if (blockedRows.length > 0) {
+      await connection.rollback();
+      return res.status(400).json({
+        error: 'Leave cannot be moved to this date; it falls on an event (holiday or important date).',
+        date_blocked: true
+      });
+    }
+    const [bookedRows] = await connection.execute(
+      `SELECT id FROM leave_requests WHERE employee_id != 0 AND id != ?
+       AND status IN ('pending','approved') AND start_date <= ? AND end_date >= ? LIMIT 1`,
+      [id, end_date, start_date]
+    );
+    if (bookedRows.length > 0) {
+      await connection.rollback();
+      return res.status(400).json({
+        error: 'This date range is already booked by another employee. Choose different dates.',
+        date_booked: true
+      });
     }
     const daysRequested = Math.max(1, Math.ceil((new Date(end_date) - new Date(start_date)) / (24 * 3600 * 1000)) + 1);
     await connection.execute(

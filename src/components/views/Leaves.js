@@ -43,6 +43,8 @@ export default function Leaves({ initialTab, initialManagerSection }) {
   const [ackHistoryRows, setAckHistoryRows] = useState([]);
   const [editingLeave, setEditingLeave] = useState(null);
   const [editLeaveForm, setEditLeaveForm] = useState({ start_date: '', end_date: '' });
+  const [editSwapContext, setEditSwapContext] = useState(null); // { requesting_leave_id } when editing a leave that is an accepted-swap target
+  const [noChangeModal, setNoChangeModal] = useState(null); // { requesting_leave_id, leave } when booker closed edit without changing date
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState({
     start_date: '',
@@ -399,6 +401,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
         setPendingActions({
           swapRequests: data.swapRequests || [],
           acknowledgeRequests: data.acknowledgeRequests || [],
+          acceptedSwapTargets: data.acceptedSwapTargets || [],
         });
         const swap = (data.swapRequests || [])[0];
         const ack = (data.acknowledgeRequests || [])[0];
@@ -1060,8 +1063,12 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                         <button
                           type="button"
                           onClick={() => {
+                            const start = (row.start_date && new Date(row.start_date).toISOString) ? new Date(row.start_date).toISOString().split('T')[0] : (row.start_date || '').slice(0, 10) || row.start_date;
+                            const end = (row.end_date && new Date(row.end_date).toISOString) ? new Date(row.end_date).toISOString().split('T')[0] : (row.end_date || '').slice(0, 10) || row.end_date;
                             setEditingLeave(row);
-                            setEditLeaveForm({ start_date: row.start_date, end_date: row.end_date });
+                            setEditLeaveForm({ start_date: start || row.start_date, end_date: end || row.end_date });
+                            const accepted = (pendingActions?.acceptedSwapTargets || []).find((s) => Number(s.my_leave_id) === Number(row.id));
+                            setEditSwapContext(accepted ? { requesting_leave_id: accepted.requesting_leave_id } : null);
                           }}
                           className="px-2 py-1 text-xs rounded bg-amber-50 text-amber-700 hover:bg-amber-100"
                         >
@@ -1105,10 +1112,24 @@ export default function Leaves({ initialTab, initialManagerSection }) {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        alert(data.error || 'Failed to update leave');
+        if (data.date_blocked || data.date_booked) {
+          alert(data.error || 'Cannot move leave to these dates.');
+        } else {
+          alert(data.error || 'Failed to update leave');
+        }
         return;
       }
-      setEditingLeave(null);
+      const origStart = (editingLeave.start_date && new Date(editingLeave.start_date).toISOString) ? new Date(editingLeave.start_date).toISOString().split('T')[0] : (editingLeave.start_date || '').slice(0, 10);
+      const origEnd = (editingLeave.end_date && new Date(editingLeave.end_date).toISOString) ? new Date(editingLeave.end_date).toISOString().split('T')[0] : (editingLeave.end_date || '').slice(0, 10);
+      const datesUnchanged = editLeaveForm.start_date === origStart && editLeaveForm.end_date === origEnd;
+      if (datesUnchanged && editSwapContext) {
+        setNoChangeModal({ requesting_leave_id: editSwapContext.requesting_leave_id, leave: editingLeave });
+        setEditingLeave(null);
+        setEditSwapContext(null);
+      } else {
+        setEditingLeave(null);
+        setEditSwapContext(null);
+      }
       await loadMyLeaves();
       await loadPendingActions();
     } catch (err) {
@@ -3119,23 +3140,32 @@ export default function Leaves({ initialTab, initialManagerSection }) {
               <div className="rounded-xl border border-gray-200 bg-gray-50/80 p-4">
                 <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Your booked leave</div>
                 <div className="text-sm font-medium text-gray-900">
-                  {pendingActionModal.data.my_start_date}
-                  {pendingActionModal.data.my_end_date !== pendingActionModal.data.my_start_date
-                    ? ` – ${pendingActionModal.data.my_end_date}`
+                  {formatDate(pendingActionModal.data.my_start_date)}
+                  {pendingActionModal.data.my_end_date && String(pendingActionModal.data.my_end_date) !== String(pendingActionModal.data.my_start_date)
+                    ? ` – ${formatDate(pendingActionModal.data.my_end_date)}`
                     : ''}
                 </div>
               </div>
               <div className="rounded-xl border border-amber-200/80 bg-amber-50/60 p-4">
                 <div className="text-xs font-semibold text-amber-800/90 uppercase tracking-wider mb-1.5">Requested period</div>
                 <div className="text-sm font-medium text-gray-900">
-                  {pendingActionModal.data.start_date}
-                  {pendingActionModal.data.end_date !== pendingActionModal.data.start_date
-                    ? ` – ${pendingActionModal.data.end_date}`
+                  {formatDate(pendingActionModal.data.start_date)}
+                  {pendingActionModal.data.end_date && String(pendingActionModal.data.end_date) !== String(pendingActionModal.data.start_date)
+                    ? ` – ${formatDate(pendingActionModal.data.end_date)}`
                     : ''}
                 </div>
-                {pendingActionModal.data.emergency_type && (
-                  <div className="mt-2 text-xs text-amber-800/90">
-                    Reason: {pendingActionModal.data.emergency_type}
+                {(pendingActionModal.data.emergency_type || pendingActionModal.data.reason) && (
+                  <div className="mt-2 space-y-0.5">
+                    {pendingActionModal.data.emergency_type && (
+                      <div className="text-xs text-amber-800/90">
+                        <span className="font-medium">Reason:</span> {pendingActionModal.data.emergency_type}
+                      </div>
+                    )}
+                    {pendingActionModal.data.reason && pendingActionModal.data.reason !== pendingActionModal.data.emergency_type && (
+                      <div className="text-xs text-amber-800/80">
+                        {pendingActionModal.data.reason}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -3250,7 +3280,15 @@ export default function Leaves({ initialTab, initialManagerSection }) {
             <div className="mt-4 flex gap-2 justify-end">
               <button
                 type="button"
-                onClick={() => setEditingLeave(null)}
+                onClick={() => {
+                  if (editSwapContext) {
+                    setNoChangeModal({ requesting_leave_id: editSwapContext.requesting_leave_id, leave: editingLeave });
+                    setEditingLeave(null);
+                    setEditSwapContext(null);
+                  } else {
+                    setEditingLeave(null);
+                  }
+                }}
                 className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
               >
                 Cancel
@@ -3261,6 +3299,58 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                 className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
               >
                 Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {noChangeModal && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" aria-modal="true" role="dialog">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-gray-200/80 p-6">
+            <h3 className="text-xl font-semibold text-gray-900 mb-2">You did not change your leave date</h3>
+            <p className="text-sm text-gray-600 leading-relaxed mb-6">
+              The swap request cannot be fulfilled unless you move your leave to different dates. You can reject the swap (the request will go to admin for acknowledgment) or try again and change your dates.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    const res = await fetch(`/api/leaves/${noChangeModal.requesting_leave_id}/reject-swap-after-accept`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json', 'x-user-id': String(user?.id || '') },
+                      body: JSON.stringify({ employee_id: employeeId }),
+                    });
+                    const data = await res.json().catch(() => ({}));
+                    if (!res.ok) {
+                      alert(data.error || 'Failed to reject swap');
+                      return;
+                    }
+                    setNoChangeModal(null);
+                    await loadPendingActions();
+                    await loadMyLeaves();
+                  } catch (e) {
+                    alert('Failed to reject swap');
+                  }
+                }}
+                className="px-5 py-2.5 border border-gray-300 rounded-xl text-gray-700 bg-white hover:bg-gray-50 font-medium transition-colors"
+              >
+                Reject (send to admin)
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const leave = noChangeModal.leave;
+                  const start = (leave.start_date && new Date(leave.start_date).toISOString) ? new Date(leave.start_date).toISOString().split('T')[0] : (leave.start_date || '').slice(0, 10) || leave.start_date;
+                  const end = (leave.end_date && new Date(leave.end_date).toISOString) ? new Date(leave.end_date).toISOString().split('T')[0] : (leave.end_date || '').slice(0, 10) || leave.end_date;
+                  setNoChangeModal(null);
+                  setEditingLeave(leave);
+                  setEditLeaveForm({ start_date: start || leave.start_date, end_date: end || leave.end_date });
+                  setEditSwapContext({ requesting_leave_id: noChangeModal.requesting_leave_id });
+                }}
+                className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 font-medium transition-colors shadow-sm"
+              >
+                Try again
               </button>
             </div>
           </div>
