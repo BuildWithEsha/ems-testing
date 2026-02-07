@@ -11456,16 +11456,7 @@ app.post('/api/leaves/apply', async (req, res) => {
     );
     const leavesTakenThisMonth = Number(countRows[0]?.cnt || 0);
 
-    // If already 2+ leaves this month and they request paid, reject (frontend greys out Paid)
     const isPaidLeaveType = (leave_type || 'paid') === 'paid';
-    if (leavesTakenThisMonth >= 2 && isPaidLeaveType) {
-      return res.status(200).json({
-        success: false,
-        paid_not_available: true,
-        message: 'Paid leave not available; you have already taken 2 leaves this month.'
-      });
-    }
-
     const willExceedPaid = used + requested > effectiveQuota;
     if (isPaidLeaveType && willExceedPaid && !confirm_exceed) {
       return res.status(200).json({

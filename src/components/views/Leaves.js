@@ -571,8 +571,8 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     const daysRequested = computeDaysRequested();
     const leavesTakenThisMonth = report?.leaves_taken_this_month ?? 0;
     const policyApplies = leavesTakenThisMonth >= 2 || daysRequested > 2;
-    if (policyApplies && (!policyForm.policy_reason_detail?.trim() || !policyForm.expected_return_date?.trim())) {
-      alert('Please fill in the policy details: how long, what is the issue, and when you will be back.');
+    if (policyApplies && !policyForm.expected_return_date?.trim()) {
+      alert('Please fill in when you will be back.');
       return;
     }
     const isRedDate = dateAvailability && (!dateAvailability.available || dateAvailability.bookedByCount > 0);
@@ -594,7 +594,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
         leave_type: policyApplies ? 'other' : (form.leave_type || 'paid'),
       };
       if (policyApplies) {
-        payload.policy_reason_detail = policyForm.policy_reason_detail || '';
+        payload.policy_reason_detail = form.reason || '';
         payload.expected_return_date = policyForm.expected_return_date || '';
         payload.policy_duration_explanation = policyForm.policy_duration_explanation || '';
       }
@@ -703,7 +703,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     const daysRequested = computeDaysRequested();
     const leavesTakenThisMonth = report?.leaves_taken_this_month ?? 0;
     const policyApplies = leavesTakenThisMonth >= 2 || daysRequested > 2;
-    const paidDisabled = leavesTakenThisMonth >= 2;
+    const paidDisabled = (report?.remaining_paid ?? 1) <= 0;
     const isEventBlocked = dateAvailability?.blocked;
     const isMondayBlocked = isMondayRestrictedDepartment() && dateRangeIncludesMonday(form.start_date, form.end_date);
     const applyDisabled = isEventBlocked || isMondayBlocked;
@@ -799,7 +799,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
               <option value="other">Other</option>
             </select>
             {paidDisabled && (
-              <p className="mt-1 text-xs text-amber-700">Paid leave not available; you have already taken 2 leaves this month.</p>
+              <p className="mt-1 text-xs text-amber-700">Paid leave not available; you have no paid leave remaining this month.</p>
             )}
           </div>
         </div>
@@ -839,16 +839,6 @@ export default function Leaves({ initialTab, initialManagerSection }) {
             <p className="text-sm font-medium text-blue-900">
               According to leave policy this will be recorded as unpaid leave and must be acknowledged by admin before it applies.
             </p>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">What is the issue? / How long will you be away?</label>
-              <textarea
-                value={policyForm.policy_reason_detail}
-                onChange={(e) => setPolicyForm((p) => ({ ...p, policy_reason_detail: e.target.value }))}
-                className="w-full border rounded px-3 py-2"
-                rows={2}
-                placeholder="Describe the reason and duration"
-              />
-            </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">When will you be back?</label>
               <input
