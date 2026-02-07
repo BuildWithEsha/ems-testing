@@ -89,7 +89,8 @@ const OverEstimateTaskNotificationPanel = ({
           startDate: startDate || localStart,
           endDate: endDate || localEnd,
           minOverMinutes: minOverMinutes ?? localMinOver,
-          designation: (designation || localDesignation) || undefined
+          ...((designation || localDesignation) ? { designation: designation || localDesignation } : {}),
+          ...(filters.department ? { department: filters.department } : {})
         })
       });
       if (!response.ok) {

@@ -161,7 +161,9 @@ const LowHoursNotificationPanel = ({
         },
         body: JSON.stringify({
           date: selectedDate,
-          minHours: minHoursThreshold
+          minHours: minHoursThreshold,
+          ...(filters.department ? { department: filters.department } : {}),
+          ...(filters.designation ? { designation: filters.designation } : {})
         })
       });
       if (!response.ok) {

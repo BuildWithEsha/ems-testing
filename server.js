@@ -9958,8 +9958,8 @@ app.post('/api/tickets', async (req, res) => {
   }
 });
 
-// Helper: create less-hours tickets for a given date and threshold (in hours)
-async function createLessHoursTicketsForDate(targetDate, thresholdHours = 6, createdByUserId = null) {
+// Helper: create less-hours tickets for a given date and threshold (in hours); optional department and designation
+async function createLessHoursTicketsForDate(targetDate, thresholdHours = 6, createdByUserId = null, department = null, designation = null) {
   let connection;
   try {
     connection = await mysqlPool.getConnection();
@@ -9970,7 +9970,18 @@ async function createLessHoursTicketsForDate(targetDate, thresholdHours = 6, cre
     const startDate = `${dateStr} 00:00:00`;
     const endDate = `${dateStr} 23:59:59`;
 
-    // Reuse the same low-hours query logic as /api/notifications/low-hours-employees
+    const params = [startDate, endDate];
+    let whereClause = 'e.status = \'Active\'';
+    if (department) {
+      whereClause += ' AND e.department = ?';
+      params.push(department);
+    }
+    if (designation) {
+      whereClause += ' AND e.designation = ?';
+      params.push(designation);
+    }
+    params.push(minSeconds);
+
     const query = `
       SELECT 
         e.id,
@@ -9992,13 +10003,13 @@ async function createLessHoursTicketsForDate(targetDate, thresholdHours = 6, cre
       FROM employees e
       LEFT JOIN task_timesheet tt ON tt.employee_name = e.name
         AND tt.start_time >= ? AND tt.start_time <= ?
-      WHERE e.status = 'Active'
+      WHERE ${whereClause}
       GROUP BY e.id, e.name, e.employee_id, e.department, e.designation
       HAVING total_seconds < ?
       ORDER BY total_seconds ASC, e.department, e.name
     `;
 
-    const [rows] = await connection.execute(query, [startDate, endDate, minSeconds]);
+    const [rows] = await connection.execute(query, params);
 
     let ticketsCreated = 0;
     for (const row of rows) {
@@ -10071,7 +10082,7 @@ async function createLessHoursTicketsForDate(targetDate, thresholdHours = 6, cre
 }
 
 // Helper: create over-estimate tickets for a date range (same filter logic as GET /api/notifications/tasks-over-estimate)
-async function createOverEstTicketsForRange(startDate, endDate, minOverMinutes = 10, designation = null, createdByUserId = null) {
+async function createOverEstTicketsForRange(startDate, endDate, minOverMinutes = 10, designation = null, department = null, createdByUserId = null) {
   let connection;
   try {
     connection = await mysqlPool.getConnection();
@@ -10094,6 +10105,10 @@ async function createOverEstTicketsForRange(startDate, endDate, minOverMinutes =
     if (designation) {
       where += ` AND e.designation = ?`;
       params.push(designation);
+    }
+    if (department) {
+      where += ` AND e.department = ?`;
+      params.push(department);
     }
 
     const query = `
@@ -10250,15 +10265,21 @@ app.post('/api/tickets/auto-less-hours', async (req, res) => {
   const body = req.body || {};
   const dateFromBody = body.date;
   const minHoursFromBody = body.minHours;
+  const departmentFromBody = body.department || null;
+  const designationFromBody = body.designation || null;
   const dateFromQuery = req.query.date;
   const minHoursFromQuery = req.query.minHours;
+  const departmentFromQuery = req.query.department || null;
+  const designationFromQuery = req.query.designation || null;
   const createdByHeader = req.headers['user-id'] || req.headers['x-user-id'] || null;
 
   const targetDate = (dateFromBody || dateFromQuery || new Date().toISOString().split('T')[0]).split('T')[0];
   const thresholdHours = Number(minHoursFromBody || minHoursFromQuery || 6) || 6;
+  const department = departmentFromBody || departmentFromQuery || null;
+  const designation = designationFromBody || designationFromQuery || null;
 
   try {
-    const result = await createLessHoursTicketsForDate(targetDate, thresholdHours, createdByHeader);
+    const result = await createLessHoursTicketsForDate(targetDate, thresholdHours, createdByHeader, department, designation);
     res.json(result);
   } catch (err) {
     console.error('Error auto-creating less-hours tickets:', err);
@@ -10298,10 +10319,11 @@ app.post('/api/tickets/auto-over-estimate', async (req, res) => {
   const endDate = (body.endDate || req.query.endDate || new Date().toISOString().split('T')[0]).split('T')[0];
   const minOverMinutes = Number(body.minOverMinutes ?? req.query.minOverMinutes ?? 10) || 10;
   const designation = body.designation || req.query.designation || null;
+  const department = body.department || req.query.department || null;
   const createdByHeader = req.headers['user-id'] || req.headers['x-user-id'] || null;
 
   try {
-    const result = await createOverEstTicketsForRange(startDate, endDate, minOverMinutes, designation, createdByHeader);
+    const result = await createOverEstTicketsForRange(startDate, endDate, minOverMinutes, designation, department, createdByHeader);
     res.json(result);
   } catch (err) {
     console.error('Error auto-creating over-estimate tickets:', err);
