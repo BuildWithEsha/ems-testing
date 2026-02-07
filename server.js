@@ -430,7 +430,7 @@ const initializeDatabaseTables = async () => {
       )
     `);
 
-    // Leave requests: add columns for emergency/swap/acknowledge/important-date (ignore if already exist)
+    // Leave requests: add columns for emergency/swap/acknowledge/important-date/policy (ignore if already exist)
     const leaveRequestNewColumns = [
       ['emergency_type', 'VARCHAR(100) NULL'],
       ['requested_swap_with_leave_id', 'INT NULL'],
@@ -438,7 +438,9 @@ const initializeDatabaseTables = async () => {
       ['swap_accepted', 'TINYINT(1) NULL'],
       ['acknowledged_by', 'INT NULL'],
       ['acknowledged_at', 'DATETIME NULL'],
-      ['is_important_date_override', 'TINYINT(1) NOT NULL DEFAULT 0']
+      ['is_important_date_override', 'TINYINT(1) NOT NULL DEFAULT 0'],
+      ['policy_reason_detail', 'TEXT NULL'],
+      ['expected_return_date', 'DATE NULL']
     ];
     for (const [colName, colDef] of leaveRequestNewColumns) {
       try {
@@ -11304,7 +11306,9 @@ app.post('/api/leaves/apply', async (req, res) => {
     leave_type,
     emergency_type,
     is_important_date_override,
-    requested_swap_with_leave_id
+    requested_swap_with_leave_id,
+    policy_reason_detail,
+    expected_return_date
   } = req.body || {};
 
   if (!employee_id || !start_date || !end_date) {
@@ -11332,6 +11336,23 @@ app.post('/api/leaves/apply', async (req, res) => {
       deptId = dRows.length ? dRows[0].id : null;
     }
 
+    const departmentName = String(empRows[0].department || '').toLowerCase().trim();
+    const mondayRestrictedDepts = ['graphic designing', 'procurement', 'warehouse'];
+    const isMondayRestrictedDept = mondayRestrictedDepts.some((d) => departmentName === d || departmentName.includes(d));
+    if (isMondayRestrictedDept && start_date && end_date) {
+      const start = new Date(start_date);
+      const end = new Date(end_date);
+      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+        if (d.getDay() === 1) {
+          return res.status(200).json({
+            success: false,
+            monday_restricted: true,
+            message: 'Leave on Monday is not allowed for your department.'
+          });
+        }
+      }
+    }
+
     // Blocked: holiday applies to all; important applies when department_id IS NULL (all) OR = applicant's department
     const [blockedRows] = await connection.execute(
       `SELECT id FROM leave_requests WHERE employee_id = 0
@@ -11343,11 +11364,12 @@ app.post('/api/leaves/apply', async (req, res) => {
       [end_date, start_date, deptId]
     );
     const isDateBlocked = blockedRows.length > 0;
-    if (isDateBlocked && !emergency_type) {
+    // Event dates: full block – no leave application allowed (no emergency override)
+    if (isDateBlocked) {
       return res.status(200).json({
         success: false,
         date_blocked: true,
-        message: 'This date is an important event; you cannot apply for leave normally. Use emergency to request.'
+        message: 'Leave cannot be applied on this date due to an event.'
       });
     }
 
@@ -11424,7 +11446,26 @@ app.post('/api/leaves/apply', async (req, res) => {
       ? days_requested
       : 1;
 
+    // Count approved leave requests this month (for policy and paid grey-out)
+    const monthStart = `${year}-${String(month).padStart(2, '0')}-01`;
+    const monthEnd = `${year}-${String(month).padStart(2, '0')}-31`;
+    const [countRows] = await connection.execute(
+      `SELECT COUNT(*) AS cnt FROM leave_requests
+       WHERE employee_id = ? AND status = 'approved' AND start_date >= ? AND start_date <= ?`,
+      [employee_id, monthStart, monthEnd]
+    );
+    const leavesTakenThisMonth = Number(countRows[0]?.cnt || 0);
+
+    // If already 2+ leaves this month and they request paid, reject (frontend greys out Paid)
     const isPaidLeaveType = (leave_type || 'paid') === 'paid';
+    if (leavesTakenThisMonth >= 2 && isPaidLeaveType) {
+      return res.status(200).json({
+        success: false,
+        paid_not_available: true,
+        message: 'Paid leave not available; you have already taken 2 leaves this month.'
+      });
+    }
+
     const willExceedPaid = used + requested > effectiveQuota;
     if (isPaidLeaveType && willExceedPaid && !confirm_exceed) {
       return res.status(200).json({
@@ -11435,10 +11476,15 @@ app.post('/api/leaves/apply', async (req, res) => {
       });
     }
 
-    const isPaid = isPaidLeaveType && !willExceedPaid ? 1 : 0;
-    const importantOverride = (isDateBlocked || is_important_date_override) ? 1 : 0;
-    // Auto-approve when date is available (green): no approval needed for paid/other on available dates
-    const initialStatus = (isDateBlocked || existingLeaveId) ? 'pending' : 'approved';
+    // Policy flow: >2 leaves already this month OR >2 days requested => unpaid, pending, admin must acknowledge
+    const policyApplies = leavesTakenThisMonth >= 2 || requested > 2;
+    const importantOverride = is_important_date_override ? 1 : 0;
+    let initialStatus = (existingLeaveId ? 'pending' : 'approved');
+    let isPaid = isPaidLeaveType && !willExceedPaid ? 1 : 0;
+    if (policyApplies) {
+      initialStatus = 'pending';
+      isPaid = 0;
+    }
 
     const insertQuery = `
       INSERT INTO leave_requests (
@@ -11455,8 +11501,10 @@ app.post('/api/leaves/apply', async (req, res) => {
         is_uninformed,
         emergency_type,
         requested_swap_with_leave_id,
-        is_important_date_override
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
+        is_important_date_override,
+        policy_reason_detail,
+        expected_return_date
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)
     `;
 
     const [result] = await connection.execute(insertQuery, [
@@ -11472,7 +11520,9 @@ app.post('/api/leaves/apply', async (req, res) => {
       isPaid,
       emergency_type || null,
       swapLeaveId,
-      importantOverride
+      importantOverride,
+      policy_reason_detail || null,
+      expected_return_date || null
     ]);
 
     if (initialStatus === 'approved') {
@@ -11576,7 +11626,7 @@ app.get('/api/leaves/calendar', async (req, res) => {
     connection = await mysqlPool.getConnection();
     await connection.ping();
     const [employees] = await connection.execute(
-      `SELECT e.id, e.name, e.department,
+      `SELECT e.id, e.name, e.department, e.designation,
         (SELECT id FROM departments d WHERE d.name = e.department LIMIT 1) AS department_id
        FROM employees e
        WHERE e.status = 'Active'
@@ -11621,7 +11671,8 @@ app.get('/api/leaves/calendar', async (req, res) => {
         id: r.id,
         name: r.name,
         department: r.department,
-        department_id: r.department_id
+        department_id: r.department_id,
+        designation: r.designation || null
       })),
       leaves: leaves.map((r) => ({
         id: r.id,
@@ -12181,7 +12232,9 @@ app.get('/api/leaves/all', async (req, res) => {
       query += ' AND lr.start_date <= ?';
       params.push(end_date);
     }
-    if (type === 'regular') {
+    if (type === 'paid') {
+      query += ' AND lr.is_paid = 1 AND (lr.is_uninformed = 0 OR lr.is_uninformed IS NULL)';
+    } else if (type === 'regular') {
       query += ' AND (lr.is_uninformed = 0 OR lr.is_uninformed IS NULL)';
     } else if (type === 'uninformed') {
       query += ' AND lr.is_uninformed = 1';
@@ -12802,6 +12855,13 @@ app.get('/api/leaves/report', async (req, res) => {
       0
     );
 
+    const [leavesCountRows] = await connection.execute(
+      `SELECT COUNT(*) AS cnt FROM leave_requests
+       WHERE employee_id = ? AND status = 'approved' AND start_date >= ? AND start_date <= ?`,
+      [employee_id, startDate, endDate]
+    );
+    const leaves_taken_this_month = Number(leavesCountRows[0]?.cnt || 0);
+
     const uninformedCount = Math.max(Number(balance.uninformed_leaves) || 0, uninformedRows.length);
 
     res.json({
@@ -12816,7 +12876,8 @@ app.get('/api/leaves/report', async (req, res) => {
       effective_quota: effectiveQuota,
       uninformed_details: uninformedRows,
       future_deductions: futureBalances,
-      total_future_deduction: totalFutureDeduction
+      total_future_deduction: totalFutureDeduction,
+      leaves_taken_this_month
     });
   } catch (err) {
     console.error('Error fetching leave report:', err);

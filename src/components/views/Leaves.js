@@ -55,6 +55,15 @@ export default function Leaves({ initialTab, initialManagerSection }) {
   const [pendingActions, setPendingActions] = useState({ swapRequests: [], acknowledgeRequests: [] });
   const [pendingActionModal, setPendingActionModal] = useState(null); // { type: 'swap'|'ack', data }
   const EMERGENCY_OPTIONS = ['Medical', 'Family emergency', 'Bereavement', 'Other'];
+  // Departments that cannot take leave on Monday (must match server)
+  const MONDAY_RESTRICTED_DEPARTMENTS = ['graphic designing', 'procurement', 'warehouse'];
+  const [policyForm, setPolicyForm] = useState({
+    policy_reason_detail: '',
+    expected_return_date: '',
+    policy_duration_explanation: '',
+  });
+  const lastPendingIdsRef = useRef(null); // for ack result popups
+  const [ackResultModal, setAckResultModal] = useState(null); // { type: 'approved' | 'rejected', leave: row }
   const [myLeaves, setMyLeaves] = useState({ pending: [], recent_approved: [], recent_rejected: [], acknowledged: [] });
   const [policy, setPolicy] = useState(null);
   const [report, setReport] = useState(null);
@@ -143,10 +152,30 @@ export default function Leaves({ initialTab, initialManagerSection }) {
       const res = await fetch(`/api/leaves/my?employee_id=${employeeId}`);
       if (res.ok) {
         const data = await res.json();
+        const pending = data.pending || [];
+        const recent_approved = data.recent_approved || [];
+        const recent_rejected = data.recent_rejected || [];
+        const prevPendingIds = lastPendingIdsRef.current ? new Set(lastPendingIdsRef.current) : new Set();
+        const currentPendingIds = new Set(pending.map((p) => p.id));
+        lastPendingIdsRef.current = pending.map((p) => p.id);
+
+        // Detect newly acknowledged (moved from pending to approved) or rejected
+        let approvedLeave = null;
+        let rejectedLeave = null;
+        for (const id of prevPendingIds) {
+          if (currentPendingIds.has(id)) continue;
+          const inApproved = recent_approved.find((r) => r.id === id);
+          const inRejected = recent_rejected.find((r) => r.id === id);
+          if (inApproved) approvedLeave = inApproved;
+          if (inRejected) rejectedLeave = inRejected;
+        }
+        if (rejectedLeave) setAckResultModal({ type: 'rejected', leave: rejectedLeave });
+        else if (approvedLeave) setAckResultModal({ type: 'approved', leave: approvedLeave });
+
         setMyLeaves({
-          pending: data.pending || [],
-          recent_approved: data.recent_approved || [],
-          recent_rejected: data.recent_rejected || [],
+          pending,
+          recent_approved,
+          recent_rejected,
           acknowledged: data.acknowledged || [],
         });
       }
@@ -373,6 +402,22 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     setForm((prev) => ({ ...prev, [name]: value }));
   };
 
+  const dateRangeIncludesMonday = (startDateStr, endDateStr) => {
+    if (!startDateStr || !endDateStr) return false;
+    const start = new Date(startDateStr);
+    const end = new Date(endDateStr);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return false;
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      if (d.getDay() === 1) return true; // 1 = Monday
+    }
+    return false;
+  };
+
+  const isMondayRestrictedDepartment = () => {
+    const dept = String(user?.department || '').toLowerCase().trim();
+    return MONDAY_RESTRICTED_DEPARTMENTS.some((d) => dept === d || dept.includes(d));
+  };
+
   const computeDaysRequested = () => {
     if (!form.start_date || !form.end_date) return 0;
     const start = new Date(form.start_date);
@@ -513,11 +558,26 @@ export default function Leaves({ initialTab, initialManagerSection }) {
       alert('Please complete all fields, including leave type, before applying for leave.');
       return;
     }
-    const isRedDate = dateAvailability && (!dateAvailability.available || dateAvailability.blocked || dateAvailability.bookedByCount > 0);
+    // Event dates: no leave at all (backend also blocks)
+    if (dateAvailability?.blocked) {
+      alert('Leave cannot be applied on this date due to an event.');
+      return;
+    }
+    // Monday restriction for specific departments
+    if (isMondayRestrictedDepartment() && dateRangeIncludesMonday(form.start_date, form.end_date)) {
+      alert('Leave on Monday is not allowed for your department.');
+      return;
+    }
+    const daysRequested = computeDaysRequested();
+    const leavesTakenThisMonth = report?.leaves_taken_this_month ?? 0;
+    const policyApplies = leavesTakenThisMonth >= 2 || daysRequested > 2;
+    if (policyApplies && (!policyForm.policy_reason_detail?.trim() || !policyForm.expected_return_date?.trim())) {
+      alert('Please fill in the policy details: how long, what is the issue, and when you will be back.');
+      return;
+    }
+    const isRedDate = dateAvailability && (!dateAvailability.available || dateAvailability.bookedByCount > 0);
     if (isRedDate && !form.emergency_type) {
-      alert(dateAvailability.blocked
-        ? 'This date is an important event; you cannot apply for leave normally. Please select an emergency reason.'
-        : 'This date is already booked. Please select an emergency reason to request leave.');
+      alert('This date is already booked. Please select an emergency reason to request leave.');
       return;
     }
     setLoading(true);
@@ -530,12 +590,16 @@ export default function Leaves({ initialTab, initialManagerSection }) {
         end_date: form.end_date,
         start_segment: form.start_segment,
         end_segment: form.end_segment,
-        days_requested: computeDaysRequested(),
-        leave_type: form.leave_type || 'paid',
+        days_requested: daysRequested,
+        leave_type: policyApplies ? 'other' : (form.leave_type || 'paid'),
       };
+      if (policyApplies) {
+        payload.policy_reason_detail = policyForm.policy_reason_detail || '';
+        payload.expected_return_date = policyForm.expected_return_date || '';
+        payload.policy_duration_explanation = policyForm.policy_duration_explanation || '';
+      }
       if (form.emergency_type) {
         payload.emergency_type = form.emergency_type;
-        if (dateAvailability?.blocked) payload.is_important_date_override = true;
         if (dateAvailability?.bookedBy?.length > 0) payload.requested_swap_with_leave_id = dateAvailability.bookedBy[0].leave_id;
       }
 
@@ -554,7 +618,17 @@ export default function Leaves({ initialTab, initialManagerSection }) {
       let data = await res.json().catch(() => ({}));
 
       if (data.date_blocked && !data.success) {
-        alert(data.message || 'This date is an important event. Select an emergency reason and try again.');
+        alert(data.message || 'Leave cannot be applied on this date due to an event.');
+        setLoading(false);
+        return;
+      }
+      if (data.paid_not_available && !data.success) {
+        alert(data.message || 'Paid leave not available; you have already taken 2 leaves this month.');
+        setLoading(false);
+        return;
+      }
+      if (data.monday_restricted && !data.success) {
+        alert(data.message || 'Leave on Monday is not allowed for your department.');
         setLoading(false);
         return;
       }
@@ -573,10 +647,11 @@ export default function Leaves({ initialTab, initialManagerSection }) {
           setLoading(false);
           return;
         }
+        payload.confirm_exceed = true;
         res = await fetch('/api/leaves/apply', {
           method: 'POST',
           headers: applyHeaders,
-          body: JSON.stringify({ ...payload, confirm_exceed: true }),
+          body: JSON.stringify(payload),
         });
         data = await res.json().catch(() => ({}));
       }
@@ -597,7 +672,11 @@ export default function Leaves({ initialTab, initialManagerSection }) {
         return;
       }
 
-      alert('Leave application submitted successfully');
+      if (data.status === 'pending') {
+        alert('Your leave has been submitted. Admin has yet to acknowledge your leave.');
+      } else {
+        alert('Leave application submitted successfully');
+      }
       setForm({
         start_date: '',
         end_date: '',
@@ -607,6 +686,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
         leave_type: 'paid',
         emergency_type: '',
       });
+      setPolicyForm({ policy_reason_detail: '', expected_return_date: '', policy_duration_explanation: '' });
       setDateAvailability(null);
       await loadMyLeaves();
       await loadReport();
@@ -621,6 +701,13 @@ export default function Leaves({ initialTab, initialManagerSection }) {
 
   const renderApplyForm = () => {
     const daysRequested = computeDaysRequested();
+    const leavesTakenThisMonth = report?.leaves_taken_this_month ?? 0;
+    const policyApplies = leavesTakenThisMonth >= 2 || daysRequested > 2;
+    const paidDisabled = leavesTakenThisMonth >= 2;
+    const isEventBlocked = dateAvailability?.blocked;
+    const isMondayBlocked = isMondayRestrictedDepartment() && dateRangeIncludesMonday(form.start_date, form.end_date);
+    const applyDisabled = isEventBlocked || isMondayBlocked;
+
     return (
       <div className="bg-white border rounded p-6">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -657,7 +744,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                   <span className="text-green-600 font-medium">Date available</span>
                 ) : (
                   <span className="text-red-600 font-medium">
-                    {dateAvailability.blocked ? 'Important event – no leave' : 'Date already booked'}
+                    {dateAvailability.blocked ? 'Event – leave not allowed' : 'Date already booked'}
                   </span>
                 )}
               </div>
@@ -703,24 +790,35 @@ export default function Leaves({ initialTab, initialManagerSection }) {
             <label className="block text-sm font-medium text-gray-700 mb-1">Leave type</label>
             <select
               name="leave_type"
-              value={form.leave_type}
+              value={paidDisabled ? 'other' : form.leave_type}
               onChange={handleFormChange}
-              className="w-full border rounded px-3 py-2"
+              className={`w-full border rounded px-3 py-2 ${paidDisabled ? 'bg-gray-100 text-gray-500' : ''}`}
+              disabled={paidDisabled}
             >
-              <option value="paid">Paid</option>
+              <option value="paid" disabled={paidDisabled}>Paid</option>
               <option value="other">Other</option>
             </select>
+            {paidDisabled && (
+              <p className="mt-1 text-xs text-amber-700">Paid leave not available; you have already taken 2 leaves this month.</p>
+            )}
           </div>
         </div>
 
-        {dateAvailability && !dateAvailability.available && form.start_date && (
+        {isEventBlocked && form.start_date && (
+          <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded">
+            <p className="text-sm text-red-800">Leave cannot be applied on this date due to an event.</p>
+          </div>
+        )}
+
+        {isMondayBlocked && form.start_date && form.end_date && (
           <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded">
-            <p className="text-sm text-amber-800 mb-2">
-              {dateAvailability.blocked
-                ? 'This date is an important event; you cannot apply for leave normally.'
-                : 'This date is already booked.'}
-              Select an emergency reason below to request leave.
-            </p>
+            <p className="text-sm text-amber-800">Leave on Monday is not allowed for your department.</p>
+          </div>
+        )}
+
+        {dateAvailability && !dateAvailability.available && !dateAvailability.blocked && form.start_date && (
+          <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded">
+            <p className="text-sm text-amber-800 mb-2">This date is already booked. Select an emergency reason below to request leave.</p>
             <label className="block text-sm font-medium text-gray-700 mb-1">Emergency reason</label>
             <select
               name="emergency_type"
@@ -733,6 +831,43 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                 <option key={opt} value={opt}>{opt}</option>
               ))}
             </select>
+          </div>
+        )}
+
+        {policyApplies && (
+          <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded space-y-3">
+            <p className="text-sm font-medium text-blue-900">
+              According to leave policy this will be recorded as unpaid leave and must be acknowledged by admin before it applies.
+            </p>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">What is the issue? / How long will you be away?</label>
+              <textarea
+                value={policyForm.policy_reason_detail}
+                onChange={(e) => setPolicyForm((p) => ({ ...p, policy_reason_detail: e.target.value }))}
+                className="w-full border rounded px-3 py-2"
+                rows={2}
+                placeholder="Describe the reason and duration"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">When will you be back?</label>
+              <input
+                type="date"
+                value={policyForm.expected_return_date}
+                onChange={(e) => setPolicyForm((p) => ({ ...p, expected_return_date: e.target.value }))}
+                className="w-full border rounded px-3 py-2"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Additional details (optional)</label>
+              <input
+                type="text"
+                value={policyForm.policy_duration_explanation}
+                onChange={(e) => setPolicyForm((p) => ({ ...p, policy_duration_explanation: e.target.value }))}
+                className="w-full border rounded px-3 py-2"
+                placeholder="Any other relevant information"
+              />
+            </div>
           </div>
         )}
 
@@ -756,7 +891,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
           <button
             type="button"
             onClick={applyForLeave}
-            disabled={loading}
+            disabled={loading || applyDisabled}
             className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50"
           >
             {loading ? 'Submitting...' : 'Apply for Leave'}
@@ -862,6 +997,10 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                         <span className="inline-flex px-2 py-1 text-xs rounded-full bg-yellow-100 text-yellow-800">
                           Absent
                         </span>
+                      ) : row.is_paid ? (
+                        <span className="inline-flex px-2 py-1 text-xs rounded-full bg-blue-100 text-blue-800">
+                          Paid
+                        </span>
                       ) : (
                         <span className="inline-flex px-2 py-1 text-xs rounded-full bg-green-100 text-green-800">
                           Regular
@@ -870,11 +1009,15 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                     </td>
                     <td className="px-4 py-2 text-gray-800">{row.reason}</td>
                     <td className="px-4 py-2 text-gray-800">
-                      {row.status}
-                      {row.decision_reason ? ` – ${row.decision_reason}` : ''}
-                      {row.status !== 'pending' && row.decision_by_name
-                        ? ` (by ${row.decision_by_name})`
-                        : ''}
+                      {row.status === 'pending' ? (
+                        <span className="text-amber-700 font-medium">Pending – Admin has yet to acknowledge your leave</span>
+                      ) : (
+                        <>
+                          {row.status}
+                          {row.decision_reason ? ` – ${row.decision_reason}` : ''}
+                          {row.decision_by_name ? ` (by ${row.decision_by_name})` : ''}
+                        </>
+                      )}
                     </td>
                     <td className="px-4 py-2 text-gray-800">
                     <div className="flex gap-1 flex-wrap">
@@ -1071,7 +1214,8 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     }
   };
 
-  const renderDepartmentTable = (rows, showActions) => {
+  const renderDepartmentTable = (rows, showActions, options = {}) => {
+    const { hideFilters = false } = options;
     const filtered = rows
       .filter((row) => {
         if (!departmentSearch) return true;
@@ -1082,7 +1226,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
           reason.toLowerCase().includes(departmentSearch.toLowerCase())
         );
       })
-      .filter((row) => filterByCommonCriteria([row], deptFilters).length === 1);
+      .filter((row) => hideFilters || filterByCommonCriteria([row], deptFilters).length === 1);
 
     return (
       <div className="bg-white border rounded p-4">
@@ -1099,6 +1243,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
               className="border rounded px-3 py-1.5 text-sm w-64"
             />
           </div>
+          {!hideFilters && (
           <div className="flex flex-wrap gap-3 text-xs text-gray-700">
             <div>
               <label className="block mb-1 font-medium">From</label>
@@ -1202,6 +1347,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
               Clear filters
             </button>
           </div>
+          )}
         </div>
         {filtered.length === 0 ? (
           <div className="text-gray-500 text-sm">No records.</div>
@@ -1242,6 +1388,10 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                     {row.is_uninformed ? (
                       <span className="inline-flex px-2 py-1 text-xs rounded-full bg-yellow-100 text-yellow-800">
                         Absent
+                      </span>
+                    ) : row.is_paid ? (
+                      <span className="inline-flex px-2 py-1 text-xs rounded-full bg-blue-100 text-blue-800">
+                        Paid
                       </span>
                     ) : (
                       <span className="inline-flex px-2 py-1 text-xs rounded-full bg-green-100 text-green-800">
@@ -1343,6 +1493,16 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     </div>
   );
 
+  const getStarRating = (leavesTaken) => {
+    const n = Number(leavesTaken) || 0;
+    if (n >= 5) return { stars: -1, label: 'Negative' };
+    if (n === 4) return { stars: 0, label: '0 stars' };
+    if (n === 3) return { stars: 1, label: '1 star' };
+    if (n === 2) return { stars: 2, label: '2 stars' };
+    if (n === 1) return { stars: 2, label: '2 stars' };
+    return { stars: 3, label: '3 stars' };
+  };
+
   const renderReport = () => {
     if (!report) {
       return (
@@ -1351,9 +1511,28 @@ export default function Leaves({ initialTab, initialManagerSection }) {
         </div>
       );
     }
+    const leavesTaken = report.leaves_taken_this_month ?? 0;
+    const rating = getStarRating(leavesTaken);
     return (
       <div className="bg-white border rounded p-6 text-gray-700 space-y-4">
         <h2 className="text-lg font-semibold text-gray-900 mb-2">My Leave Report</h2>
+        {/* Star rating (leaves taken this month) */}
+        <div className="border rounded-lg p-4 bg-gray-50 flex flex-wrap items-center gap-3">
+          <span className="text-xs font-semibold uppercase tracking-wide text-gray-600">Leave rating (this month)</span>
+          <span className="text-sm text-gray-600">Leaves taken: {leavesTaken}</span>
+          <span className="flex items-center gap-0.5">
+            {rating.stars === -1 ? (
+              <span className="text-red-600 font-bold" title="5+ leaves">−1</span>
+            ) : (
+              [1, 2, 3].map((i) => (
+                <span key={i} className={i <= rating.stars ? 'text-amber-500' : 'text-gray-300'} aria-hidden="true">
+                  ★
+                </span>
+              ))
+            )}
+          </span>
+          <span className="text-xs text-gray-500">{rating.label}</span>
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {/* Paid leaves summary */}
           <div className="border rounded-lg p-4 bg-white shadow-sm flex flex-col gap-2">
@@ -2075,6 +2254,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                   className="border rounded px-2 py-1.5"
                 >
                   <option value="all">All</option>
+                  <option value="paid">Paid</option>
                   <option value="regular">Regular</option>
                   <option value="uninformed">Uninformed</option>
                 </select>
@@ -2097,7 +2277,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                 Clear
               </button>
             </div>
-            {renderDepartmentTable(allFutureLeaves, false)}
+            {renderDepartmentTable(allFutureLeaves, false, { hideFilters: true })}
           </div>
         );
       case TABS.ALL_PAST:
@@ -2144,6 +2324,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                   className="border rounded px-2 py-1.5"
                 >
                   <option value="all">All</option>
+                  <option value="paid">Paid</option>
                   <option value="regular">Regular</option>
                   <option value="uninformed">Uninformed</option>
                 </select>
@@ -2166,7 +2347,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                 Clear
               </button>
             </div>
-            {renderDepartmentTable(allPastLeaves, false)}
+            {renderDepartmentTable(allPastLeaves, false, { hideFilters: true })}
           </div>
         );
       case TABS.ACKNOWLEDGE: {
@@ -2936,6 +3117,35 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                 Accept
               </button>
             </div>
+          </div>
+        </div>
+      )}
+      {ackResultModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">
+              {ackResultModal.type === 'approved' ? 'Leave acknowledged' : 'Leave rejected'}
+            </h3>
+            <p className="text-sm text-gray-700 mb-4">
+              {ackResultModal.type === 'approved'
+                ? 'Your leave has been acknowledged.'
+                : 'Your leave has been rejected. If you are absent on these dates you will be counted as absent.'}
+            </p>
+            {ackResultModal.leave && (
+              <p className="text-xs text-gray-500 mb-4">
+                {formatDate(ackResultModal.leave.start_date)}
+                {ackResultModal.leave.end_date && ackResultModal.leave.end_date !== ackResultModal.leave.start_date
+                  ? ` – ${formatDate(ackResultModal.leave.end_date)}`
+                  : ''}
+              </p>
+            )}
+            <button
+              type="button"
+              onClick={() => setAckResultModal(null)}
+              className="w-full px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium"
+            >
+              Close
+            </button>
           </div>
         </div>
       )}

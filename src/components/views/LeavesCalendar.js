@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { ChevronLeft, ChevronRight, Lock, Unlock, RefreshCw } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Lock, Unlock, RefreshCw, Filter } from 'lucide-react';
 
 const CELL_COLORS = {
   holiday: 'bg-sky-200',
@@ -98,6 +98,9 @@ export default function LeavesCalendar() {
   const [unmarkType, setUnmarkType] = useState('important');
   const [unmarkSubmitting, setUnmarkSubmitting] = useState(false);
   const [unmarkDepartmentId, setUnmarkDepartmentId] = useState('');
+  const [filterEmployeeName, setFilterEmployeeName] = useState('');
+  const [filterDepartmentId, setFilterDepartmentId] = useState('');
+  const [filterDesignation, setFilterDesignation] = useState('');
   const isAdmin = user?.role === 'admin' || user?.role === 'Admin';
 
   const start = `${year}-${String(month).padStart(2, '0')}-01`;
@@ -161,6 +164,42 @@ export default function LeavesCalendar() {
 
   const days = getDaysInMonth(year, month);
   const blockedDates = data.blockedDates || [];
+
+  // Filter options derived from calendar data (works for both admin and employees)
+  const departmentOptions = useMemo(() => {
+    const map = new Map();
+    (data.employees || []).forEach((e) => {
+      if (e.department_id != null && e.department && !map.has(e.department_id)) {
+        map.set(e.department_id, { id: e.department_id, name: e.department });
+      }
+    });
+    return Array.from(map.values()).sort((a, b) => String(a.name).localeCompare(b.name));
+  }, [data.employees]);
+
+  const designationOptions = useMemo(() => {
+    const set = new Set();
+    (data.employees || []).forEach((e) => {
+      if (e.designation && String(e.designation).trim()) set.add(String(e.designation).trim());
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [data.employees]);
+
+  const filteredEmployees = useMemo(() => {
+    let list = data.employees || [];
+    if (filterEmployeeName.trim()) {
+      const q = filterEmployeeName.toLowerCase().trim();
+      list = list.filter((e) => (e.name || '').toLowerCase().includes(q));
+    }
+    if (filterDepartmentId !== '') {
+      list = list.filter((e) => String(e.department_id) === String(filterDepartmentId));
+    }
+    if (filterDesignation !== '') {
+      list = list.filter(
+        (e) => String(e.designation || '').trim().toLowerCase() === filterDesignation.trim().toLowerCase()
+      );
+    }
+    return list;
+  }, [data.employees, filterEmployeeName, filterDepartmentId, filterDesignation]);
   const allImportantEntries = (data.importantDates || []).concat(
     (blockedDates || []).filter((b) => b.type === 'important')
   );
@@ -337,6 +376,70 @@ export default function LeavesCalendar() {
             <ChevronRight className="w-5 h-5" />
           </button>
         </div>
+      </div>
+
+      {/* Filters: employee name, department, designation (for both admin and employees) */}
+      <div className="mb-4 p-4 bg-white border rounded-lg shadow-sm">
+        <h2 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+          <Filter className="w-4 h-4" />
+          Filter calendar
+        </h2>
+        <div className="flex flex-wrap items-end gap-3">
+          <div>
+            <label className="block text-xs text-gray-500 mb-0.5">Employee name</label>
+            <input
+              type="text"
+              value={filterEmployeeName}
+              onChange={(e) => setFilterEmployeeName(e.target.value)}
+              placeholder="Search by name..."
+              className="border rounded px-2 py-1.5 text-sm min-w-[160px]"
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-0.5">Department</label>
+            <select
+              value={filterDepartmentId}
+              onChange={(e) => setFilterDepartmentId(e.target.value)}
+              className="border rounded px-2 py-1.5 text-sm min-w-[140px]"
+            >
+              <option value="">All departments</option>
+              {departmentOptions.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-0.5">Designation</label>
+            <select
+              value={filterDesignation}
+              onChange={(e) => setFilterDesignation(e.target.value)}
+              className="border rounded px-2 py-1.5 text-sm min-w-[140px]"
+            >
+              <option value="">All designations</option>
+              {designationOptions.map((des) => (
+                <option key={des} value={des}>
+                  {des}
+                </option>
+              ))}
+            </select>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setFilterEmployeeName('');
+              setFilterDepartmentId('');
+              setFilterDesignation('');
+            }}
+            className="px-3 py-1.5 text-sm border border-gray-300 rounded hover:bg-gray-50 text-gray-700"
+          >
+            Clear filters
+          </button>
+        </div>
+        <p className="text-xs text-gray-500 mt-2">
+          Showing {filteredEmployees.length} of {(data.employees || []).length} employees
+        </p>
       </div>
 
       {/* Legend */}
@@ -605,13 +708,17 @@ export default function LeavesCalendar() {
             </tr>
           </thead>
           <tbody>
-            {(data.employees || []).map((emp) => {
+            {filteredEmployees.map((emp) => {
               const empLeaves = (data.leaves || []).filter((l) => l.employee_id === emp.id);
               return (
                 <tr key={emp.id} className="border-b border-gray-100 hover:bg-gray-50/50">
-                  <td className="sticky left-0 z-10 px-3 py-1.5 font-medium text-gray-800 bg-white border-r border-gray-200" title={emp.department ? `Dept: ${emp.department}` : ''}>
+                  <td className="sticky left-0 z-10 px-3 py-1.5 font-medium text-gray-800 bg-white border-r border-gray-200" title={[emp.department, emp.designation].filter(Boolean).join(' · ') || undefined}>
                     {emp.name}
-                    {emp.department && <span className="block text-xs font-normal text-gray-500">{emp.department}</span>}
+                    {(emp.department || emp.designation) && (
+                      <span className="block text-xs font-normal text-gray-500">
+                        {[emp.department, emp.designation].filter(Boolean).join(' · ')}
+                      </span>
+                    )}
                   </td>
                   {days.map((dateStr) => {
                     const leave = empLeaves.find(
