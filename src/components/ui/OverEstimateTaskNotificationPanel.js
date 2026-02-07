@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
-import { AlertTriangle, X, Filter, Search, Calendar, Users, Clock as ClockIcon, ChevronDown, ChevronRight, Building, Settings } from 'lucide-react';
+import { AlertTriangle, X, Filter, Search, Calendar, Users, Clock as ClockIcon, ChevronDown, ChevronRight, Building, Settings, Ticket } from 'lucide-react';
+import { useAuth } from '../../contexts/AuthContext';
 
 const formatHMS = (seconds) => {
   const s = Math.max(0, Math.floor(seconds || 0));
@@ -21,6 +22,8 @@ const OverEstimateTaskNotificationPanel = ({
   loading,
   error
 }) => {
+  const { user } = useAuth();
+
   const [localStart, localEnd, localDesignation, localMinOver] = useMemo(
     () => [startDate, endDate, designation || '', minOverMinutes],
     [startDate, endDate, designation, minOverMinutes]
@@ -49,6 +52,59 @@ const OverEstimateTaskNotificationPanel = ({
 
   const [showFilters, setShowFilters] = useState(false);
   const [expandedDepartments, setExpandedDepartments] = useState(new Set());
+  const [creatingTickets, setCreatingTickets] = useState(false);
+
+  const isManagerByDesignation = user?.designation && String(user.designation).toLowerCase().includes('manager');
+  const canCreateOverEstTickets = !!user && (
+    user.role === 'admin' ||
+    user.role === 'Admin' ||
+    user?.is_manager ||
+    (user?.role && String(user.role).toLowerCase() === 'manager') ||
+    isManagerByDesignation ||
+    user.permissions?.includes('all') ||
+    user.permissions?.includes('tickets_auto_less_hours')
+  );
+
+  const handleCreateOverEstTickets = async () => {
+    if (!canCreateOverEstTickets) return;
+    const taskCount = Object.values(groupedByDepartment).reduce((sum, arr) => sum + arr.length, 0);
+    if (taskCount === 0) {
+      alert('No tasks over estimate to create tickets for.');
+      return;
+    }
+    const confirmMessage = `Create "Task overestimated" tickets for ${taskCount} task(s) in the selected date range?`;
+    if (!window.confirm(confirmMessage)) return;
+    setCreatingTickets(true);
+    try {
+      const response = await fetch('/api/tickets/auto-over-estimate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'user-role': user?.role || 'admin',
+          'user-permissions': JSON.stringify(user?.permissions || ['all']),
+          'user-id': String(user?.id || ''),
+          ...(user?.designation != null && user.designation !== '' ? { 'x-user-designation': String(user.designation) } : {})
+        },
+        body: JSON.stringify({
+          startDate: startDate || localStart,
+          endDate: endDate || localEnd,
+          minOverMinutes: minOverMinutes ?? localMinOver,
+          designation: (designation || localDesignation) || undefined
+        })
+      });
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || 'Failed to auto-create over-estimate tickets');
+      }
+      const result = await response.json();
+      alert(`Created ${result.ticketsCreated || 0} "Task overestimated" ticket(s) for the selected range.`);
+    } catch (err) {
+      console.error('Error auto-creating over-estimate tickets:', err);
+      alert(err.message || 'Failed to auto-create over-estimate tickets');
+    } finally {
+      setCreatingTickets(false);
+    }
+  };
 
   const handleDepartmentToggle = (dept) => {
     setExpandedDepartments(prev => {
@@ -208,6 +264,18 @@ const OverEstimateTaskNotificationPanel = ({
               <Filter className="w-4 h-4" />
               <span>{totalCount} task{totalCount !== 1 ? 's' : ''} over estimate</span>
             </div>
+            {canCreateOverEstTickets && totalCount > 0 && (
+              <button
+                type="button"
+                onClick={handleCreateOverEstTickets}
+                disabled={creatingTickets}
+                className="flex items-center space-x-2 px-3 py-2 text-sm bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors disabled:opacity-50"
+                title="Create tickets for tasks over estimate"
+              >
+                <Ticket className="w-4 h-4" />
+                <span>{creatingTickets ? 'Creating...' : 'Create tickets'}</span>
+              </button>
+            )}
           </div>
 
           <form className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">

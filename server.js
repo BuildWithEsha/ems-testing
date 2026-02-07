@@ -10070,6 +10070,156 @@ async function createLessHoursTicketsForDate(targetDate, thresholdHours = 6, cre
   }
 }
 
+// Helper: create over-estimate tickets for a date range (same filter logic as GET /api/notifications/tasks-over-estimate)
+async function createOverEstTicketsForRange(startDate, endDate, minOverMinutes = 10, designation = null, createdByUserId = null) {
+  let connection;
+  try {
+    connection = await mysqlPool.getConnection();
+    await connection.ping();
+  } catch (e) {
+    throw new Error('Database connection failed');
+  }
+
+  try {
+    const start = (startDate || new Date().toISOString().split('T')[0]).split('T')[0];
+    const end = (endDate || new Date().toISOString().split('T')[0]).split('T')[0];
+    const minOver = Number(minOverMinutes) >= 0 ? Number(minOverMinutes) : 10;
+    const minOverSeconds = minOver * 60;
+
+    const params = [];
+    let where = `tt.start_time >= ? AND tt.start_time <= ?`;
+    const startDateStr = `${start} 00:00:00`;
+    const endDateStr = `${end} 23:59:59`;
+    params.push(startDateStr, endDateStr);
+    if (designation) {
+      where += ` AND e.designation = ?`;
+      params.push(designation);
+    }
+
+    const query = `
+      SELECT
+        tt.task_id,
+        t.title AS task_title,
+        t.labels,
+        t.priority,
+        t.department,
+        tt.employee_name,
+        e.id AS employee_id,
+        e.designation,
+        DATE(tt.start_time) AS log_date,
+        MAX(COALESCE(t.time_estimate_hours, 0)) AS time_estimate_hours,
+        MAX(COALESCE(t.time_estimate_minutes, 0)) AS time_estimate_minutes,
+        SUM(
+          CASE 
+            WHEN tt.hours_logged_seconds IS NOT NULL AND tt.hours_logged_seconds != 0 
+              THEN ABS(tt.hours_logged_seconds)
+            WHEN tt.hours_logged IS NOT NULL AND tt.hours_logged != 0 
+              THEN ABS(tt.hours_logged)
+            WHEN tt.start_time IS NOT NULL AND tt.end_time IS NOT NULL THEN 
+              ABS(TIMESTAMPDIFF(SECOND, tt.start_time, tt.end_time))
+            ELSE 0
+          END
+        ) AS actual_seconds
+      FROM task_timesheet tt
+      LEFT JOIN tasks t ON t.id = tt.task_id
+      LEFT JOIN employees e ON e.name = tt.employee_name
+      WHERE ${where}
+      GROUP BY
+        tt.task_id,
+        t.title,
+        t.labels,
+        t.priority,
+        tt.employee_name,
+        e.id,
+        e.designation,
+        t.department,
+        DATE(tt.start_time)
+      ORDER BY log_date DESC, actual_seconds DESC
+    `;
+
+    const [rows] = await connection.execute(query, params);
+
+    const items = rows.map(row => {
+      const estHours = Number(row.time_estimate_hours) || 0;
+      const estMinutes = Number(row.time_estimate_minutes) || 0;
+      let estimateSeconds = 0;
+      if (estHours > 0 || estMinutes > 0) {
+        estimateSeconds = (estHours * 60 + estMinutes) * 60;
+      }
+      const actualSeconds = Number(row.actual_seconds) || 0;
+      const overrunSeconds = Math.max(0, actualSeconds - estimateSeconds);
+      return {
+        task_id: row.task_id,
+        task_title: row.task_title,
+        department: row.department || null,
+        employee_name: row.employee_name,
+        employee_id: row.employee_id,
+        log_date: row.log_date,
+        estimate_seconds: estimateSeconds,
+        actual_seconds: actualSeconds,
+        overrun_seconds: overrunSeconds,
+      };
+    }).filter(r => r.overrun_seconds >= minOverSeconds && r.estimate_seconds > 0);
+
+    let ticketsCreated = 0;
+    for (const row of items) {
+      const employeeId = row.employee_id;
+      if (!employeeId) continue;
+
+      const logDateStr = row.log_date && (typeof row.log_date === 'string' ? row.log_date : row.log_date.toISOString ? row.log_date.toISOString().split('T')[0] : null) || '';
+      const taskTitle = (row.task_title || `Task #${row.task_id}`).trim();
+      const overrunSec = row.overrun_seconds || 0;
+      const overrunH = Math.floor(overrunSec / 3600);
+      const overrunM = Math.floor((overrunSec % 3600) / 60);
+      const overrunLabel = overrunH > 0 ? `${overrunH}h ${overrunM}m` : `${overrunM} minutes`;
+      const description = `You have logged "${overrunLabel}" extra hours or minutes for "${taskTitle}" task on date ${logDateStr}.`;
+
+      const [existing] = await connection.execute(
+        `SELECT id FROM tickets 
+         WHERE category = 'Task Overestimated' 
+           AND assigned_to = ? 
+           AND DATE(created_at) = ? 
+           AND description = ?
+           AND status IN ('Open', 'In Progress')
+         LIMIT 1`,
+        [employeeId, logDateStr, description]
+      );
+      if (existing.length > 0) continue;
+
+      const { ticketNumber } = await generateTicketNumber(connection);
+      const title = 'Task overestimated';
+      const category = 'Task Overestimated';
+      const priority = 'High';
+
+      const [result] = await connection.execute(
+        `INSERT INTO tickets (ticket_number, title, description, category, priority, status, assigned_to, department, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [ticketNumber, title, description, category, priority, 'Open', employeeId, row.department, createdByUserId || employeeId]
+      );
+      const ticketId = result.insertId;
+
+      try {
+        await createNotification(
+          employeeId,
+          ticketId,
+          'new_ticket_assigned',
+          'New Ticket Assigned',
+          `You have been assigned a new ticket: ${title}`
+        );
+      } catch (notifyErr) {
+        console.warn('Failed to create over-estimate ticket notification:', notifyErr);
+      }
+      ticketsCreated += 1;
+    }
+
+    return { startDate: start, endDate: end, minOverMinutes: minOver, ticketsCreated };
+  } finally {
+    if (connection) {
+      connection.release();
+    }
+  }
+}
+
 // Admin-only endpoint to auto-create less-hours tickets for a given date/threshold
 app.post('/api/tickets/auto-less-hours', async (req, res) => {
   const userRole = (req.headers['user-role'] || req.headers['x-user-role'] || 'employee').toString();
@@ -10113,6 +10263,49 @@ app.post('/api/tickets/auto-less-hours', async (req, res) => {
   } catch (err) {
     console.error('Error auto-creating less-hours tickets:', err);
     res.status(500).json({ error: 'Failed to auto-create less-hours tickets' });
+  }
+});
+
+// Auto-create over-estimate tickets (same permissions as auto-less-hours)
+app.post('/api/tickets/auto-over-estimate', async (req, res) => {
+  const userRole = (req.headers['user-role'] || req.headers['x-user-role'] || 'employee').toString();
+  const userPermissionsHeader = req.headers['user-permissions'] || req.headers['x-user-permissions'] || '[]';
+  const userDesignation = (req.headers['x-user-designation'] || req.headers['user-designation'] || '').toString().trim().toLowerCase();
+
+  let userPermissions = [];
+  try {
+    userPermissions = typeof userPermissionsHeader === 'string'
+      ? JSON.parse(userPermissionsHeader)
+      : [];
+  } catch (e) {
+    return res.status(400).json({ error: 'Invalid permissions format' });
+  }
+
+  const isManagerByRole = userRole === 'admin' || userRole === 'Admin' || userRole === 'manager' || userRole === 'Manager';
+  const isManagerByDesignation = userDesignation !== '' && userDesignation.includes('manager');
+  const canRun =
+    isManagerByRole ||
+    isManagerByDesignation ||
+    userPermissions.includes('all') ||
+    userPermissions.includes('tickets_auto_less_hours');
+
+  if (!canRun) {
+    return res.status(403).json({ error: 'Access denied: You do not have permission to auto-create over-estimate tickets' });
+  }
+
+  const body = req.body || {};
+  const startDate = (body.startDate || req.query.startDate || new Date().toISOString().split('T')[0]).split('T')[0];
+  const endDate = (body.endDate || req.query.endDate || new Date().toISOString().split('T')[0]).split('T')[0];
+  const minOverMinutes = Number(body.minOverMinutes ?? req.query.minOverMinutes ?? 10) || 10;
+  const designation = body.designation || req.query.designation || null;
+  const createdByHeader = req.headers['user-id'] || req.headers['x-user-id'] || null;
+
+  try {
+    const result = await createOverEstTicketsForRange(startDate, endDate, minOverMinutes, designation, createdByHeader);
+    res.json(result);
+  } catch (err) {
+    console.error('Error auto-creating over-estimate tickets:', err);
+    res.status(500).json({ error: 'Failed to auto-create over-estimate tickets' });
   }
 });
 // Get single ticket
@@ -10312,6 +10505,8 @@ app.post('/api/tickets/:id/replies', upload.any(), async (req, res) => {
   if (!reply_text || !replied_by || !replied_by_name) {
     return res.status(400).json({ error: 'Reply text, replied_by, and replied_by_name are required' });
   }
+
+  const isInternal = (is_internal === true || is_internal === 'true' || String(is_internal).toLowerCase() === 'true') ? 1 : 0;
   
   let connection;
   try {
@@ -10336,7 +10531,7 @@ app.post('/api/tickets/:id/replies', upload.any(), async (req, res) => {
       replied_by_name,
       reply_text,
       reply_type || 'customer_reply',
-      is_internal || false
+      isInternal
     ]);
     
     // Get the created reply
@@ -10466,6 +10661,8 @@ app.post('/api/tickets/:id/replies', upload.any(), async (req, res) => {
 app.put('/api/tickets/:ticketId/replies/:replyId', async (req, res) => {
   const { ticketId, replyId } = req.params;
   const { reply_text, reply_type, is_internal } = req.body;
+
+  const isInternal = (is_internal === true || is_internal === 'true' || String(is_internal).toLowerCase() === 'true') ? 1 : 0;
   
   let connection;
   try {
@@ -10485,7 +10682,7 @@ app.put('/api/tickets/:ticketId/replies/:replyId', async (req, res) => {
       WHERE id = ? AND ticket_id = ?
     `;
     
-    await connection.execute(updateQuery, [reply_text, reply_type, is_internal, replyId, ticketId]);
+    await connection.execute(updateQuery, [reply_text, reply_type, isInternal, replyId, ticketId]);
     
     // Get updated reply
     const selectQuery = `
