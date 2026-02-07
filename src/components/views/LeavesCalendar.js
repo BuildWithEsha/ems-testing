@@ -87,15 +87,17 @@ export default function LeavesCalendar() {
   const [data, setData] = useState({ employees: [], leaves: [], blockedDates: [], importantDates: [], holidayDates: [] });
   const [loading, setLoading] = useState(true);
   const [departments, setDepartments] = useState([]);
-  // Mark: single date, optional day-of-week (mark all that day in current month), single department, type, label
-  const [markDate, setMarkDate] = useState('');
+  // Mark: from/to dates, optional day-of-week, single department, type, label
+  const [markFrom, setMarkFrom] = useState('');
+  const [markTo, setMarkTo] = useState('');
   const [markDayOfWeek, setMarkDayOfWeek] = useState(''); // '' or '0'-'6'
   const [markType, setMarkType] = useState('important');
   const [markLabel, setMarkLabel] = useState('');
   const [markSubmitting, setMarkSubmitting] = useState(false);
   const [markDepartmentId, setMarkDepartmentId] = useState(''); // '' = all departments
-  // Unmark: optional date, optional day-of-week, single department, type, label
-  const [unmarkDate, setUnmarkDate] = useState('');
+  // Unmark: from/to dates, optional day-of-week, single department, type, label
+  const [unmarkFrom, setUnmarkFrom] = useState('');
+  const [unmarkTo, setUnmarkTo] = useState('');
   const [unmarkDayOfWeek, setUnmarkDayOfWeek] = useState('');
   const [unmarkLabel, setUnmarkLabel] = useState('');
   const [unmarkType, setUnmarkType] = useState('important');
@@ -291,25 +293,49 @@ export default function LeavesCalendar() {
     }
   };
 
-  // Get all dates in current calendar month that fall on a given day of week (0-6).
+  // Format local date as YYYY-MM-DD (avoid UTC shift from toISOString).
+  const toLocalDateStr = (d) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  };
+
+  // Get all dates in current calendar month that fall on a given day of week (0-6). Use local date.
   const getDatesInMonthForDayOfWeek = (dayOfWeek) => {
     const dayNum = Number(dayOfWeek);
     if (!Number.isFinite(dayNum) || dayNum < 0 || dayNum > 6) return [];
     const first = new Date(year, month - 1, 1);
     const last = new Date(year, month, 0);
     const dates = [];
-    for (let d = new Date(first); d <= last; d.setDate(d.getDate() + 1)) {
-      if (d.getDay() === dayNum) dates.push(d.toISOString().slice(0, 10));
+    for (let d = new Date(first.getTime()); d <= last; d.setDate(d.getDate() + 1)) {
+      if (d.getDay() === dayNum) dates.push(toLocalDateStr(d));
     }
     return dates;
   };
 
-  // Mark: (1) If only Day is set: mark all dates in current month that fall on that day. (2) If Date is set: mark that date.
+  // Build date list from from/to: single day if one missing, or range inclusive.
+  const getDateRange = (from, to) => {
+    const a = from && String(from).match(/^\d{4}-\d{2}-\d{2}$/) ? from : null;
+    const b = to && String(to).match(/^\d{4}-\d{2}-\d{2}$/) ? to : null;
+    if (!a && !b) return [];
+    const start = new Date(a || b);
+    const end = new Date(b || a);
+    if (start > end) return [];
+    const list = [];
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      list.push(toLocalDateStr(d));
+    }
+    return list;
+  };
+
+  // Mark: (1) If only Day is set: mark all dates in current month that fall on that day. (2) If From/To set: mark that range (or single day).
   const handleMark = async () => {
     if (!isAdmin) return;
     const dayNum = markDayOfWeek !== '' && markDayOfWeek !== undefined ? Number(markDayOfWeek) : null;
-    const hasDayOnly = Number.isFinite(dayNum) && dayNum >= 0 && dayNum <= 6 && (!markDate || !String(markDate).match(/^\d{4}-\d{2}-\d{2}$/));
-    const hasDate = markDate && String(markDate).match(/^\d{4}-\d{2}-\d{2}$/);
+    const dateRange = getDateRange(markFrom, markTo);
+    const hasDayOnly = Number.isFinite(dayNum) && dayNum >= 0 && dayNum <= 6 && dateRange.length === 0;
+    const hasDateRange = dateRange.length > 0;
 
     if (hasDayOnly) {
       const dates = getDatesInMonthForDayOfWeek(dayNum);
@@ -336,10 +362,10 @@ export default function LeavesCalendar() {
       }
       return;
     }
-    if (!hasDate) return;
+    if (!hasDateRange) return;
     setMarkSubmitting(true);
     try {
-      const body = { date: markDate, dates: [markDate], type: markType, label: markLabel || undefined };
+      const body = { dates: dateRange, type: markType, label: markLabel || undefined };
       if (markType === 'important') body.department_id = markDepartmentId ? Number(markDepartmentId) : null;
       const res = await fetch('/api/leaves/blocked-dates', {
         method: 'POST',
@@ -348,7 +374,8 @@ export default function LeavesCalendar() {
       });
       const result = await res.json().catch(() => ({}));
       if (res.ok && result.success) {
-        setMarkDate('');
+        setMarkFrom('');
+        setMarkTo('');
         setMarkLabel('');
         loadCalendar();
       }
@@ -359,12 +386,13 @@ export default function LeavesCalendar() {
     }
   };
 
-  // Unmark: (1) If only Day is set: unmark all dates in current month that fall on that day. (2) If Date is set: unmark that date.
+  // Unmark: (1) If only Day is set: unmark all dates in current month that fall on that day. (2) If From/To set: unmark that range.
   const handleUnmark = async () => {
     if (!isAdmin) return;
     const dayNum = unmarkDayOfWeek !== '' && unmarkDayOfWeek !== undefined ? Number(unmarkDayOfWeek) : null;
-    const hasDayOnly = Number.isFinite(dayNum) && dayNum >= 0 && dayNum <= 6 && (!unmarkDate || !String(unmarkDate).match(/^\d{4}-\d{2}-\d{2}$/));
-    const hasDate = unmarkDate && String(unmarkDate).match(/^\d{4}-\d{2}-\d{2}$/);
+    const dateRange = getDateRange(unmarkFrom, unmarkTo);
+    const hasDayOnly = Number.isFinite(dayNum) && dayNum >= 0 && dayNum <= 6 && dateRange.length === 0;
+    const hasDateRange = dateRange.length > 0;
 
     if (hasDayOnly) {
       const dates = getDatesInMonthForDayOfWeek(dayNum);
@@ -392,16 +420,21 @@ export default function LeavesCalendar() {
       }
       return;
     }
-    if (!hasDate) return;
+    if (!hasDateRange) return;
     setUnmarkSubmitting(true);
     try {
-      let url = `/api/leaves/blocked-dates/${unmarkDate}?type=${unmarkType}`;
-      if (unmarkType === 'important' && unmarkDepartmentId) url += `&department_id=${encodeURIComponent(unmarkDepartmentId)}`;
-      if (unmarkLabel && String(unmarkLabel).trim()) url += `&label=${encodeURIComponent(String(unmarkLabel).trim())}`;
-      const res = await fetch(url, { method: 'DELETE', headers: { 'x-user-role': user?.role || 'admin' } });
-      const result = await res.json().catch(() => ({}));
-      if (res.ok && result.success) {
-        setUnmarkDate('');
+      let anySuccess = false;
+      for (const date of dateRange) {
+        let url = `/api/leaves/blocked-dates/${date}?type=${unmarkType}`;
+        if (unmarkType === 'important' && unmarkDepartmentId) url += `&department_id=${encodeURIComponent(unmarkDepartmentId)}`;
+        if (unmarkLabel && String(unmarkLabel).trim()) url += `&label=${encodeURIComponent(String(unmarkLabel).trim())}`;
+        const res = await fetch(url, { method: 'DELETE', headers: { 'x-user-role': user?.role || 'admin' } });
+        const result = await res.json().catch(() => ({}));
+        if (res.ok && result.success) anySuccess = true;
+      }
+      if (anySuccess) {
+        setUnmarkFrom('');
+        setUnmarkTo('');
         setUnmarkLabel('');
         loadCalendar();
       }
@@ -578,14 +611,23 @@ export default function LeavesCalendar() {
       {isAdmin && (
         <div className="mb-4 p-5 bg-white border rounded-lg shadow-sm space-y-6">
           <h2 className="text-base font-semibold text-gray-800 mb-1">Mark (admin)</h2>
-          <p className="text-xs text-gray-500 mb-3">Set a date to mark one day, or set a day (e.g. Sunday) to mark all that weekday in the current month. Optional: department and label.</p>
+          <p className="text-xs text-gray-500 mb-3">Set From/To to mark a date range, or set a day (e.g. Sunday) to mark all that weekday in the current month. Optional: department and label.</p>
           <div className="flex flex-wrap items-end gap-4">
             <div>
-              <label className="block text-xs text-gray-500 mb-0.5">Date</label>
+              <label className="block text-xs text-gray-500 mb-0.5">From</label>
               <input
                 type="date"
-                value={markDate}
-                onChange={(e) => setMarkDate(e.target.value)}
+                value={markFrom}
+                onChange={(e) => setMarkFrom(e.target.value)}
+                className="border rounded px-2 py-1.5 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-0.5">To</label>
+              <input
+                type="date"
+                value={markTo}
+                onChange={(e) => setMarkTo(e.target.value)}
                 className="border rounded px-2 py-1.5 text-sm"
               />
             </div>
@@ -639,7 +681,7 @@ export default function LeavesCalendar() {
             <button
               type="button"
               onClick={handleMark}
-              disabled={markSubmitting || (!markDate && (markDayOfWeek === '' || markDayOfWeek === undefined))}
+              disabled={markSubmitting || (getDateRange(markFrom, markTo).length === 0 && (markDayOfWeek === '' || markDayOfWeek === undefined))}
               className="px-3 py-1.5 bg-indigo-600 text-white rounded text-sm hover:bg-indigo-700 disabled:opacity-50"
             >
               {markSubmitting ? 'Applying...' : 'Apply'}
@@ -648,14 +690,23 @@ export default function LeavesCalendar() {
 
           <div className="pt-5 border-t border-gray-200">
             <h3 className="text-base font-semibold text-gray-800 mb-1">Unmark (admin)</h3>
-            <p className="text-xs text-gray-500 mb-3">Remove by date (one day) or by day (all that weekday in the current month). Optional: department and label.</p>
+            <p className="text-xs text-gray-500 mb-3">Set From/To to unmark a date range, or set a day to unmark all that weekday in the current month. Optional: department and label.</p>
             <div className="flex flex-wrap items-end gap-4">
               <div>
-                <label className="block text-xs text-gray-500 mb-0.5">Date</label>
+                <label className="block text-xs text-gray-500 mb-0.5">From</label>
                 <input
                   type="date"
-                  value={unmarkDate}
-                  onChange={(e) => setUnmarkDate(e.target.value)}
+                  value={unmarkFrom}
+                  onChange={(e) => setUnmarkFrom(e.target.value)}
+                  className="border rounded px-2 py-1.5 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-0.5">To</label>
+                <input
+                  type="date"
+                  value={unmarkTo}
+                  onChange={(e) => setUnmarkTo(e.target.value)}
                   className="border rounded px-2 py-1.5 text-sm"
                 />
               </div>
@@ -709,7 +760,7 @@ export default function LeavesCalendar() {
               <button
                 type="button"
                 onClick={handleUnmark}
-                disabled={unmarkSubmitting || (!unmarkDate && (unmarkDayOfWeek === '' || unmarkDayOfWeek === undefined))}
+                disabled={unmarkSubmitting || (getDateRange(unmarkFrom, unmarkTo).length === 0 && (unmarkDayOfWeek === '' || unmarkDayOfWeek === undefined))}
                 className="px-3 py-1.5 bg-amber-600 text-white rounded text-sm hover:bg-amber-700 disabled:opacity-50"
               >
                 {unmarkSubmitting ? 'Unmarking...' : 'Unmark'}
