@@ -167,10 +167,11 @@ const OverEstimateTaskNotificationPanel = ({
     };
   }, [notifications, filters]);
 
+  const { modalRef, modalStyle, dragHandleProps } = useDraggableModal(isOpen);
+
   if (!isOpen) return null;
 
   const totalCount = Object.values(groupedByDepartment).reduce((sum, arr) => sum + arr.length, 0);
-  const { modalRef, modalStyle, dragHandleProps } = useDraggableModal(isOpen);
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
