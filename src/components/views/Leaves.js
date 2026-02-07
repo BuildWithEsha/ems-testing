@@ -606,11 +606,6 @@ export default function Leaves({ initialTab, initialManagerSection }) {
       alert('Leave cannot be applied on this date due to an event.');
       return;
     }
-    if (departmentRestrictedDays.length > 0 && dateRangeIncludesRestrictedDay(form.start_date, form.end_date, departmentRestrictedDays)) {
-      const daysStr = restrictedDayNames().join(', ');
-      alert(`Leave on ${daysStr} is not allowed for your department.`);
-      return;
-    }
     const daysRequested = computeDaysRequested();
     const policyApplies = form.leave_type === 'other';
     if (policyApplies && !policyForm.expected_return_date?.trim()) {
@@ -666,11 +661,6 @@ export default function Leaves({ initialTab, initialManagerSection }) {
       }
       if (data.paid_not_available && !data.success) {
         alert(data.message || 'Paid leave not available; you have already taken 2 leaves this month.');
-        setLoading(false);
-        return;
-      }
-      if (data.monday_restricted && !data.success) {
-        alert(data.message || 'Leave on a restricted day is not allowed for your department.');
         setLoading(false);
         return;
       }
@@ -756,8 +746,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     const effectiveLeaveType = paidDisabled ? 'other' : form.leave_type;
     const showPolicyForm = effectiveLeaveType === 'other';
     const isEventBlocked = dateAvailability?.blocked;
-    const isDayRestricted = departmentRestrictedDays.length > 0 && dateRangeIncludesRestrictedDay(form.start_date, form.end_date, departmentRestrictedDays);
-    const applyDisabled = isEventBlocked || isDayRestricted;
+    const applyDisabled = isEventBlocked;
 
     return (
       <div className="bg-white border border-gray-200 rounded-lg shadow-sm p-6 space-y-6">
@@ -858,12 +847,6 @@ export default function Leaves({ initialTab, initialManagerSection }) {
         {isEventBlocked && form.start_date && (
           <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded">
             <p className="text-sm text-red-800">Leave cannot be applied on this date due to an event.</p>
-          </div>
-        )}
-
-        {isDayRestricted && form.start_date && form.end_date && (
-          <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded">
-            <p className="text-sm text-amber-800">Leave on {restrictedDayNames().join(', ')} is not allowed for your department.</p>
           </div>
         )}
 
@@ -2962,19 +2945,19 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     return (
       <>
         {pendingActionModal && pendingActionModal.type === 'ack' && isAdmin && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-            <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full overflow-hidden">
-              <div className="px-6 py-4 bg-amber-50 border-b border-amber-100">
-                <h3 className="text-lg font-semibold text-gray-900">Acknowledge emergency leave</h3>
-                <p className="text-sm text-amber-800 mt-0.5">An employee has requested leave on a booked or important date.</p>
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" aria-modal="true" role="dialog">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-gray-200/80">
+              <div className="px-6 py-5 bg-gradient-to-b from-amber-50 to-amber-50/80 border-b border-amber-100">
+                <h3 className="text-xl font-semibold text-gray-900">Acknowledge emergency leave</h3>
+                <p className="text-sm text-amber-800/90 mt-1.5 leading-relaxed">An employee has requested leave on a booked or important date.</p>
               </div>
-              <div className="px-6 py-4 space-y-4 text-sm">
-                <div className="grid grid-cols-1 gap-3">
-                  <div className="flex justify-between py-2 border-b border-gray-100">
+              <div className="px-6 py-5 space-y-0 text-sm">
+                <div className="grid grid-cols-1 gap-0">
+                  <div className="flex justify-between py-3 border-b border-gray-100">
                     <span className="font-medium text-gray-500">Employee</span>
                     <span className="text-gray-900">{pendingActionModal.data.employee_name || '—'}</span>
                   </div>
-                  <div className="flex justify-between py-2 border-b border-gray-100">
+                  <div className="flex justify-between py-3 border-b border-gray-100">
                     <span className="font-medium text-gray-500">Date(s)</span>
                     <span className="text-gray-900">
                       {formatDate(pendingActionModal.data.start_date)}
@@ -2983,27 +2966,27 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                         : ''}
                     </span>
                   </div>
-                  <div className="flex justify-between py-2 border-b border-gray-100">
+                  <div className="flex justify-between py-3 border-b border-gray-100">
                     <span className="font-medium text-gray-500">Emergency reason</span>
                     <span className="text-gray-900 font-medium">{pendingActionModal.data.emergency_type || '—'}</span>
                   </div>
-                  <div className="flex justify-between py-2">
+                  <div className="flex justify-between items-center py-3">
                     <span className="font-medium text-gray-500">Leave type to approve as</span>
-                    <select id="ack-leave-type-dept" className="border rounded px-2 py-1.5 text-sm text-gray-900" defaultValue="paid">
+                    <select id="ack-leave-type-dept" className="border border-gray-300 rounded-xl px-3 py-2 text-sm text-gray-900 bg-white" defaultValue="paid">
                       <option value="paid">Paid</option>
                       <option value="other">Regular</option>
                     </select>
                   </div>
                 </div>
               </div>
-              <div className="px-6 py-4 flex flex-wrap gap-3 justify-end bg-gray-50 border-t border-gray-200">
+              <div className="px-6 py-4 flex flex-wrap gap-3 justify-end bg-gray-50/80 border-t border-gray-200">
                 <button
                   type="button"
                   onClick={() => {
                     const leaveType = document.getElementById('ack-leave-type-dept')?.value || 'paid';
                     handleAcknowledge(pendingActionModal.data.leave_id, false, leaveType);
                   }}
-                  className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 bg-white hover:bg-gray-50 font-medium"
+                  className="px-5 py-2.5 border border-gray-300 rounded-xl text-gray-700 bg-white hover:bg-gray-50 font-medium transition-colors"
                 >
                   Reject
                 </button>
@@ -3013,7 +2996,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                     const leaveType = document.getElementById('ack-leave-type-dept')?.value || 'paid';
                     handleAcknowledge(pendingActionModal.data.leave_id, true, leaveType);
                   }}
-                  className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium"
+                  className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 font-medium transition-colors shadow-sm"
                 >
                   Acknowledge
                 </button>
@@ -3126,15 +3109,15 @@ export default function Leaves({ initialTab, initialManagerSection }) {
   return (
     <>
       {pendingActionModal && pendingActionModal.type === 'swap' && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full overflow-hidden">
-            <div className="px-6 py-4 bg-amber-50 border-b border-amber-100">
-              <h3 className="text-lg font-semibold text-gray-900">Leave swap request</h3>
-              <p className="text-sm text-amber-800 mt-0.5">A colleague has requested leave on dates you currently have booked.</p>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" aria-modal="true" role="dialog">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-gray-200/80">
+            <div className="px-6 py-5 bg-gradient-to-b from-amber-50 to-amber-50/80 border-b border-amber-100">
+              <h3 className="text-xl font-semibold text-gray-900">Leave swap request</h3>
+              <p className="text-sm text-amber-800/90 mt-1.5 leading-relaxed">A colleague has requested leave on dates you currently have booked.</p>
             </div>
-            <div className="px-6 py-4 space-y-4">
-              <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
-                <div className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Your booked leave</div>
+            <div className="px-6 py-5 space-y-4 max-h-[60vh] overflow-y-auto">
+              <div className="rounded-xl border border-gray-200 bg-gray-50/80 p-4">
+                <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Your booked leave</div>
                 <div className="text-sm font-medium text-gray-900">
                   {pendingActionModal.data.my_start_date}
                   {pendingActionModal.data.my_end_date !== pendingActionModal.data.my_start_date
@@ -3142,8 +3125,8 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                     : ''}
                 </div>
               </div>
-              <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-3">
-                <div className="text-xs font-medium text-amber-700 uppercase tracking-wide mb-1">Requested period</div>
+              <div className="rounded-xl border border-amber-200/80 bg-amber-50/60 p-4">
+                <div className="text-xs font-semibold text-amber-800/90 uppercase tracking-wider mb-1.5">Requested period</div>
                 <div className="text-sm font-medium text-gray-900">
                   {pendingActionModal.data.start_date}
                   {pendingActionModal.data.end_date !== pendingActionModal.data.start_date
@@ -3151,27 +3134,27 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                     : ''}
                 </div>
                 {pendingActionModal.data.emergency_type && (
-                  <div className="mt-2 text-xs text-amber-800">
+                  <div className="mt-2 text-xs text-amber-800/90">
                     Reason: {pendingActionModal.data.emergency_type}
                   </div>
                 )}
               </div>
-              <p className="text-sm text-gray-600">
+              <p className="text-sm text-gray-600 leading-relaxed">
                 If you accept, you can change your leave dates later in <strong>Future leaves</strong> so the requested period becomes available.
               </p>
             </div>
-            <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 flex gap-3 justify-end">
+            <div className="px-6 py-4 bg-gray-50/80 border-t border-gray-200 flex gap-3 justify-end">
               <button
                 type="button"
                 onClick={() => handleRespondSwap(pendingActionModal.data.requesting_leave_id, false)}
-                className="px-4 py-2.5 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-100"
+                className="px-5 py-2.5 border border-gray-300 rounded-xl text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 transition-colors"
               >
                 Reject
               </button>
               <button
                 type="button"
                 onClick={() => handleRespondSwap(pendingActionModal.data.requesting_leave_id, true)}
-                className="px-4 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700"
+                className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-medium hover:bg-indigo-700 transition-colors shadow-sm"
               >
                 Accept
               </button>
@@ -3180,16 +3163,21 @@ export default function Leaves({ initialTab, initialManagerSection }) {
         </div>
       )}
       {emergencySubmitModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">Request sent</h3>
-            <p className="text-sm text-gray-700 mb-4">
-              Your request has been sent. Please wait. You will be notified when the booker responds or admin decides.
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" aria-modal="true" role="dialog">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-gray-200/80 p-6">
+            <div className="text-center mb-2">
+              <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-indigo-100 text-indigo-600 mb-3">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+              </div>
+              <h3 className="text-xl font-semibold text-gray-900">Request sent</h3>
+            </div>
+            <p className="text-sm text-gray-600 leading-relaxed mb-6 text-center">
+              Your request has been sent. You will be notified when the booker responds or admin decides.
             </p>
             <button
               type="button"
               onClick={() => setEmergencySubmitModal(false)}
-              className="w-full px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium"
+              className="w-full px-4 py-3 bg-indigo-600 text-white rounded-xl font-medium hover:bg-indigo-700 transition-colors shadow-sm"
             >
               OK
             </button>
@@ -3197,18 +3185,27 @@ export default function Leaves({ initialTab, initialManagerSection }) {
         </div>
       )}
       {ackResultModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">
-              {ackResultModal.type === 'approved' ? 'Leave applied' : 'Leave rejected'}
-            </h3>
-            <p className="text-sm text-gray-700 mb-4">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" aria-modal="true" role="dialog">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-gray-200/80 p-6">
+            <div className="text-center mb-2">
+              <div className={`inline-flex items-center justify-center w-12 h-12 rounded-full mb-3 ${ackResultModal.type === 'approved' ? 'bg-emerald-100 text-emerald-600' : 'bg-red-100 text-red-600'}`}>
+                {ackResultModal.type === 'approved' ? (
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                ) : (
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                )}
+              </div>
+              <h3 className="text-xl font-semibold text-gray-900">
+                {ackResultModal.type === 'approved' ? 'Leave applied' : 'Leave rejected'}
+              </h3>
+            </div>
+            <p className="text-sm text-gray-600 leading-relaxed mb-3 text-center">
               {ackResultModal.type === 'approved'
                 ? 'Your leave has been applied.'
                 : 'Your leave has been rejected. If you are absent on these dates you will be counted as absent.'}
             </p>
             {ackResultModal.leave && (
-              <p className="text-xs text-gray-500 mb-4">
+              <p className="text-xs text-gray-500 mb-5 text-center">
                 {formatDate(ackResultModal.leave.start_date)}
                 {ackResultModal.leave.end_date && ackResultModal.leave.end_date !== ackResultModal.leave.start_date
                   ? ` – ${formatDate(ackResultModal.leave.end_date)}`
@@ -3218,7 +3215,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
             <button
               type="button"
               onClick={() => setAckResultModal(null)}
-              className="w-full px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium"
+              className="w-full px-4 py-3 bg-indigo-600 text-white rounded-xl font-medium hover:bg-indigo-700 transition-colors shadow-sm"
             >
               Close
             </button>
@@ -3270,19 +3267,19 @@ export default function Leaves({ initialTab, initialManagerSection }) {
         </div>
       )}
       {pendingActionModal && pendingActionModal.type === 'ack' && isAdmin && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full overflow-hidden">
-            <div className="px-6 py-4 bg-amber-50 border-b border-amber-100">
-              <h3 className="text-lg font-semibold text-gray-900">Acknowledge emergency leave</h3>
-              <p className="text-sm text-amber-800 mt-0.5">An employee has requested leave on a booked or important date.</p>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" aria-modal="true" role="dialog">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-gray-200/80">
+            <div className="px-6 py-5 bg-gradient-to-b from-amber-50 to-amber-50/80 border-b border-amber-100">
+              <h3 className="text-xl font-semibold text-gray-900">Acknowledge emergency leave</h3>
+              <p className="text-sm text-amber-800/90 mt-1.5 leading-relaxed">An employee has requested leave on a booked or important date.</p>
             </div>
-            <div className="px-6 py-4 space-y-4 text-sm">
-              <div className="grid grid-cols-1 gap-3">
-                <div className="flex justify-between py-2 border-b border-gray-100">
+            <div className="px-6 py-5 space-y-0 text-sm">
+              <div className="grid grid-cols-1 gap-0">
+                <div className="flex justify-between py-3 border-b border-gray-100">
                   <span className="font-medium text-gray-500">Employee</span>
                   <span className="text-gray-900">{pendingActionModal.data.employee_name || '—'}</span>
                 </div>
-                <div className="flex justify-between py-2 border-b border-gray-100">
+                <div className="flex justify-between py-3 border-b border-gray-100">
                   <span className="font-medium text-gray-500">Date(s)</span>
                   <span className="text-gray-900">
                     {formatDate(pendingActionModal.data.start_date)}
@@ -3291,27 +3288,27 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                       : ''}
                   </span>
                 </div>
-                <div className="flex justify-between py-2 border-b border-gray-100">
+                <div className="flex justify-between py-3 border-b border-gray-100">
                   <span className="font-medium text-gray-500">Emergency reason</span>
                   <span className="text-gray-900 font-medium">{pendingActionModal.data.emergency_type || '—'}</span>
                 </div>
-                <div className="flex justify-between py-2">
+                <div className="flex justify-between items-center py-3">
                   <span className="font-medium text-gray-500">Leave type to approve as</span>
-                  <select id="ack-leave-type" className="border rounded px-2 py-1.5 text-sm text-gray-900" defaultValue="paid">
+                  <select id="ack-leave-type" className="border border-gray-300 rounded-xl px-3 py-2 text-sm text-gray-900 bg-white" defaultValue="paid">
                     <option value="paid">Paid</option>
                     <option value="other">Regular</option>
                   </select>
                 </div>
               </div>
             </div>
-            <div className="px-6 py-4 flex flex-wrap gap-3 justify-end bg-gray-50 border-t border-gray-200">
+            <div className="px-6 py-4 flex flex-wrap gap-3 justify-end bg-gray-50/80 border-t border-gray-200">
               <button
                 type="button"
                 onClick={() => {
                   const leaveType = document.getElementById('ack-leave-type')?.value || 'paid';
                   handleAcknowledge(pendingActionModal.data.leave_id, false, leaveType);
                 }}
-                className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 bg-white hover:bg-gray-50 font-medium"
+                className="px-5 py-2.5 border border-gray-300 rounded-xl text-gray-700 bg-white hover:bg-gray-50 font-medium transition-colors"
               >
                 Reject
               </button>
@@ -3321,7 +3318,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                   const leaveType = document.getElementById('ack-leave-type')?.value || 'paid';
                   handleAcknowledge(pendingActionModal.data.leave_id, true, leaveType);
                 }}
-                className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium"
+                className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 font-medium transition-colors shadow-sm"
               >
                 Acknowledge
               </button>

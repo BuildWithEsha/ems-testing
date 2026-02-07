@@ -11347,31 +11347,6 @@ app.post('/api/leaves/apply', async (req, res) => {
       deptId = dRows.length ? dRows[0].id : null;
     }
 
-    // Department restricted days: leave not allowed on certain weekdays for this department (from admin-configured rules)
-    if (deptId != null && start_date && end_date) {
-      const [restrictedRows] = await connection.execute(
-        'SELECT day_of_week FROM department_restricted_days WHERE department_id = ?',
-        [deptId]
-      );
-      const restrictedDays = new Set((restrictedRows || []).map((r) => Number(r.day_of_week)));
-      if (restrictedDays.size > 0) {
-        const start = new Date(start_date);
-        const end = new Date(end_date);
-        const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-        for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-          const dayOfWeek = d.getDay();
-          if (restrictedDays.has(dayOfWeek)) {
-            const dayName = dayNames[dayOfWeek] || 'this day';
-            return res.status(200).json({
-              success: false,
-              monday_restricted: true,
-              message: `Leave on ${dayName} is not allowed for your department.`
-            });
-          }
-        }
-      }
-    }
-
     // Blocked: holiday applies to all; important applies when department_id IS NULL (all) OR = applicant's department
     const [blockedRows] = await connection.execute(
       `SELECT id FROM leave_requests WHERE employee_id = 0
