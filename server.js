@@ -10481,6 +10481,40 @@ app.delete('/api/tickets/:id', async (req, res) => {
   }
 });
 
+// Bulk delete tickets (admin: requires delete_tickets or all)
+app.post('/api/tickets/bulk-delete', async (req, res) => {
+  const userPermissions = req.headers['user-permissions'] ? (typeof req.headers['user-permissions'] === 'string' ? JSON.parse(req.headers['user-permissions']) : req.headers['user-permissions']) : [];
+  const canDelete = userPermissions.includes('all') || userPermissions.includes('delete_tickets');
+  if (!canDelete) {
+    return res.status(403).json({ error: 'Access denied. You need delete_tickets permission.' });
+  }
+  const ids = req.body?.ids;
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return res.status(400).json({ error: 'Request body must include an array of ticket ids' });
+  }
+  const ticketIds = ids.filter((id) => Number.isInteger(Number(id)) && Number(id) > 0).map((id) => Number(id));
+  if (ticketIds.length === 0) {
+    return res.status(400).json({ error: 'No valid ticket ids provided' });
+  }
+  let connection;
+  try {
+    connection = await mysqlPool.getConnection();
+    await connection.ping();
+    const placeholders = ticketIds.map(() => '?').join(',');
+    await connection.execute(`DELETE FROM ticket_replies WHERE ticket_id IN (${placeholders})`, ticketIds);
+    const [result] = await connection.execute(`DELETE FROM tickets WHERE id IN (${placeholders})`, ticketIds);
+    const deleted = result.affectedRows || 0;
+    res.json({ message: 'Tickets deleted', deleted });
+  } catch (err) {
+    console.error('Error bulk-deleting tickets:', err);
+    res.status(500).json({ error: 'Database error' });
+  } finally {
+    if (connection) {
+      connection.release();
+    }
+  }
+});
+
 // Ticket Replies API Routes
 
 // Get all replies for a ticket

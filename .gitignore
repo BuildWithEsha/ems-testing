@@ -5,3 +5,4 @@ sync_progress.json
 compare_databases.js*
 .env.hosting
 scripts
+*.md

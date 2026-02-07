@@ -14,6 +14,7 @@ export default function Tickets() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [readTickets, setReadTickets] = useState(new Set()); // Track which tickets have been read
+  const [selectedTicketIds, setSelectedTicketIds] = useState(new Set()); // For bulk delete
 
   // Load read tickets from localStorage on component mount
   useEffect(() => {
@@ -66,27 +67,9 @@ export default function Tickets() {
   };
 
   const canDeleteTicket = (ticket) => {
-    console.log('Checking delete permissions for ticket:', ticket);
-    console.log('User:', user);
-    console.log('User permissions:', user?.permissions);
-    
-    if (!user || !user.permissions) {
-      console.log('No user or permissions found');
-      return false;
-    }
-    
-    if (user.permissions.includes('all') || user.permissions.includes('delete_tickets')) {
-      console.log('User has all permissions or delete_tickets permission');
-      return true;
-    }
-    
-    // For now, allow users to delete their own tickets if they have edit_tickets permission
-    if (user.permissions.includes('edit_tickets') && ticket.created_by === user.id) {
-      console.log('User has edit_tickets permission and is ticket creator');
-      return true;
-    }
-    
-    console.log('User has no delete permissions');
+    if (!user || !user.permissions) return false;
+    if (user.permissions.includes('all') || user.permissions.includes('delete_tickets')) return true;
+    if (user.permissions.includes('edit_tickets') && ticket.created_by === user.id) return true;
     return false;
   };
 
@@ -443,8 +426,9 @@ export default function Tickets() {
       });
 
       if (response.ok) {
-        // Remove the ticket from the local state
-        setTickets(prev => prev.filter(ticket => ticket.id !== ticketId));
+        setTickets(prev => prev.filter(t => t.id !== ticketId));
+        setSelectedTicketIds(prev => { const next = new Set(prev); next.delete(ticketId); return next; });
+        setReadTickets(prev => { const next = new Set(prev); next.delete(ticketId); try { localStorage.setItem(`readTickets_${user.id}`, JSON.stringify([...next])); } catch (e) {} return next; });
         alert('Ticket deleted successfully');
       } else {
         const errorData = await response.json();
@@ -454,6 +438,62 @@ export default function Tickets() {
       console.error('Error deleting ticket:', err);
       alert('Failed to delete ticket');
     }
+  };
+
+  const handleBulkDelete = async () => {
+    const ids = Array.from(selectedTicketIds);
+    if (ids.length === 0) return;
+    const deletable = tickets.filter(t => ids.includes(t.id) && canDeleteTicket(t));
+    if (deletable.length === 0) {
+      alert('No selected tickets can be deleted.');
+      return;
+    }
+    if (!window.confirm(`Delete ${deletable.length} selected ticket(s)? This cannot be undone.`)) return;
+    const headers = {
+      'Content-Type': 'application/json',
+      'user-permissions': JSON.stringify((user?.role === 'admin' || user?.role === 'Admin') ? ['all'] : (user?.permissions || [])),
+    };
+    try {
+      const response = await fetch('/api/tickets/bulk-delete', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ ids: deletable.map(t => t.id) }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (response.ok) {
+        const deletedIds = new Set(deletable.map(t => t.id));
+        setTickets(prev => prev.filter(t => !deletedIds.has(t.id)));
+        setSelectedTicketIds(prev => { const next = new Set(prev); deletedIds.forEach(id => next.delete(id)); return next; });
+        setReadTickets(prev => { const next = new Set(prev); deletedIds.forEach(id => next.delete(id)); try { localStorage.setItem(`readTickets_${user.id}`, JSON.stringify([...next])); } catch (e) {} return next; });
+        alert(`Deleted ${data.deleted ?? deletedIds.size} ticket(s).`);
+      } else {
+        alert(data.error || 'Failed to delete tickets');
+      }
+    } catch (err) {
+      console.error('Error bulk deleting tickets:', err);
+      alert('Failed to delete tickets');
+    }
+  };
+
+  const toggleSelectTicket = (ticketId) => {
+    setSelectedTicketIds(prev => {
+      const next = new Set(prev);
+      if (next.has(ticketId)) next.delete(ticketId);
+      else next.add(ticketId);
+      return next;
+    });
+  };
+
+  const selectAllDeletableInList = (ticketList) => {
+    const deletableIds = ticketList.filter(t => canDeleteTicket(t)).map(t => t.id);
+    if (deletableIds.length === 0) return;
+    setSelectedTicketIds(prev => {
+      const next = new Set(prev);
+      const allSelected = deletableIds.every(id => prev.has(id));
+      if (allSelected) deletableIds.forEach(id => next.delete(id));
+      else deletableIds.forEach(id => next.add(id));
+      return next;
+    });
   };
 
   // Add reply to ticket
@@ -656,9 +696,40 @@ export default function Tickets() {
         
         const unreadTickets = filteredTickets.filter(ticket => !readTickets.has(ticket.id));
         const readTicketsList = filteredTickets.filter(ticket => readTickets.has(ticket.id));
+        const deletableTickets = filteredTickets.filter(t => canDeleteTicket(t));
+        const hasDeletable = deletableTickets.length > 0;
+        const selectedCount = Array.from(selectedTicketIds).filter(id => canDeleteTicket(tickets.find(t => t.id === id))).length;
         
         return (
           <div className="space-y-6">
+            {/* Bulk actions toolbar */}
+            {hasDeletable && (
+              <div className="bg-white rounded-lg shadow-sm border border-gray-200 px-4 py-3 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <span className="text-sm text-gray-600">
+                    {selectedCount > 0 ? `${selectedCount} ticket(s) selected` : 'Select tickets to delete in bulk'}
+                  </span>
+                  {selectedCount > 0 && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={handleBulkDelete}
+                        className="px-3 py-1.5 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700"
+                      >
+                        Delete selected ({selectedCount})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedTicketIds(new Set())}
+                        className="px-3 py-1.5 text-sm bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
+                      >
+                        Clear selection
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
             {/* Unread Tickets Section */}
             {unreadTickets.length > 0 && (
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
@@ -672,6 +743,17 @@ export default function Tickets() {
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
+                {hasDeletable && (
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-10">
+                    <input
+                      type="checkbox"
+                      checked={unreadTickets.filter(t => canDeleteTicket(t)).length > 0 && unreadTickets.filter(t => canDeleteTicket(t)).every(t => selectedTicketIds.has(t.id))}
+                      onChange={() => selectAllDeletableInList(unreadTickets)}
+                      className="rounded border-gray-300"
+                      title="Select all (unread)"
+                    />
+                  </th>
+                )}
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Ticket
                 </th>
@@ -698,6 +780,20 @@ export default function Tickets() {
             <tbody className="bg-white divide-y divide-gray-200">
                       {unreadTickets.map((ticket) => (
                         <tr key={ticket.id} className="hover:bg-gray-50 bg-blue-50">
+                  {hasDeletable && (
+                    <td className="px-3 py-4 whitespace-nowrap">
+                      {canDeleteTicket(ticket) ? (
+                        <input
+                          type="checkbox"
+                          checked={selectedTicketIds.has(ticket.id)}
+                          onChange={() => toggleSelectTicket(ticket.id)}
+                          className="rounded border-gray-300"
+                        />
+                      ) : (
+                        <span className="w-4 inline-block" />
+                      )}
+                    </td>
+                  )}
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div>
                               <button
@@ -806,6 +902,17 @@ export default function Tickets() {
                   <table className="min-w-full divide-y divide-gray-200">
                     <thead className="bg-gray-50">
                       <tr>
+                        {hasDeletable && (
+                          <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-10">
+                            <input
+                              type="checkbox"
+                              checked={readTicketsList.filter(t => canDeleteTicket(t)).length > 0 && readTicketsList.filter(t => canDeleteTicket(t)).every(t => selectedTicketIds.has(t.id))}
+                              onChange={() => selectAllDeletableInList(readTicketsList)}
+                              className="rounded border-gray-300"
+                              title="Select all (read)"
+                            />
+                          </th>
+                        )}
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                           Ticket
                         </th>
@@ -832,6 +939,20 @@ export default function Tickets() {
                     <tbody className="bg-white divide-y divide-gray-200">
                       {readTicketsList.map((ticket) => (
                         <tr key={ticket.id} className="hover:bg-gray-50 opacity-75">
+                          {hasDeletable && (
+                            <td className="px-3 py-4 whitespace-nowrap">
+                              {canDeleteTicket(ticket) ? (
+                                <input
+                                  type="checkbox"
+                                  checked={selectedTicketIds.has(ticket.id)}
+                                  onChange={() => toggleSelectTicket(ticket.id)}
+                                  className="rounded border-gray-300"
+                                />
+                              ) : (
+                                <span className="w-4 inline-block" />
+                              )}
+                            </td>
+                          )}
                           <td className="px-6 py-4 whitespace-nowrap">
                             <div>
                               <button
