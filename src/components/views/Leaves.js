@@ -45,6 +45,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
   const [editLeaveForm, setEditLeaveForm] = useState({ start_date: '', end_date: '' });
   const [editSwapContext, setEditSwapContext] = useState(null); // { requesting_leave_id } when editing a leave that is an accepted-swap target
   const [noChangeModal, setNoChangeModal] = useState(null); // { requesting_leave_id, leave } when booker closed edit without changing date
+  const [editDateAvailability, setEditDateAvailability] = useState(null); // blocked/booked for the date range in Edit modal
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState({
     start_date: '',
@@ -387,6 +388,29 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     }
   };
 
+  const loadEditDateAvailability = async (startDate, endDate, excludeLeaveId) => {
+    if (!startDate || !editingLeave) {
+      setEditDateAvailability(null);
+      return;
+    }
+    const end = endDate && endDate !== startDate ? endDate : startDate;
+    try {
+      let url = `/api/leaves/date-availability?date=${encodeURIComponent(startDate)}`;
+      if (end !== startDate) url += `&end_date=${encodeURIComponent(end)}`;
+      if (employeeId) url += `&employee_id=${employeeId}`;
+      if (excludeLeaveId) url += `&exclude_leave_id=${encodeURIComponent(excludeLeaveId)}`;
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = await res.json();
+        setEditDateAvailability(data);
+      } else {
+        setEditDateAvailability(null);
+      }
+    } catch {
+      setEditDateAvailability(null);
+    }
+  };
+
   const loadPendingActions = async () => {
     if (!employeeId) return;
     try {
@@ -405,8 +429,11 @@ export default function Leaves({ initialTab, initialManagerSection }) {
         });
         const swap = (data.swapRequests || [])[0];
         const ack = (data.acknowledgeRequests || [])[0];
-        if (swap && !pendingActionModal) setPendingActionModal({ type: 'swap', data: swap });
-        else if (ack && !pendingActionModal) setPendingActionModal({ type: 'ack', data: ack });
+        if (!pendingActionModal) {
+          if (mode === 'department' && isAdmin && ack) setPendingActionModal({ type: 'ack', data: ack });
+          else if (swap) setPendingActionModal({ type: 'swap', data: swap });
+          else if (ack) setPendingActionModal({ type: 'ack', data: ack });
+        }
       }
     } catch {
       // ignore
@@ -419,8 +446,14 @@ export default function Leaves({ initialTab, initialManagerSection }) {
   }, [form.start_date, form.end_date]);
 
   useEffect(() => {
+    if (editingLeave && editLeaveForm.start_date) loadEditDateAvailability(editLeaveForm.start_date, editLeaveForm.end_date, editingLeave.id);
+    else setEditDateAvailability(null);
+  }, [editingLeave?.id, editLeaveForm.start_date, editLeaveForm.end_date]);
+
+  useEffect(() => {
     if (mode === 'department' && isAdmin) {
       if (departmentTab === TABS.ACK_HISTORY) loadAckHistory(ackHistoryFilters);
+      else if (departmentTab === TABS.ACKNOWLEDGE) loadPendingActions();
       else if (departmentTab === TABS.ALL_FUTURE) loadAllLeaves('future', allLeavesFilters);
       else if (departmentTab === TABS.ALL_PAST) loadAllLeaves('past', allLeavesFilters);
     }
@@ -2181,14 +2214,11 @@ export default function Leaves({ initialTab, initialManagerSection }) {
       case TABS.FUTURE: {
         const today = todayStr();
         const futureApproved = (myLeaves.recent_approved || []).filter((r) => r.end_date >= today);
-        const futureRows = filterByCommonCriteria(
-          [...(myLeaves.pending || []), ...futureApproved],
-          myFilters
-        );
+        const futureRows = filterByCommonCriteria(futureApproved, myFilters);
         return (
           <div className="space-y-4">
             <h2 className="text-lg font-semibold text-gray-900">Future leaves</h2>
-            <p className="text-sm text-gray-600">Upcoming applied and approved leaves (pending + approved with end date on or after today).</p>
+            <p className="text-sm text-gray-600">Approved leaves with end date on or after today. Pending leaves appear in Acknowledged after admin approves.</p>
             <div className="flex flex-wrap gap-3 text-xs text-gray-700 bg-white border rounded px-4 py-3">
               <div>
                 <label className="block mb-1 font-medium">From</label>
@@ -2569,18 +2599,18 @@ export default function Leaves({ initialTab, initialManagerSection }) {
         return (
           <div className="space-y-6">
             <h2 className="text-lg font-semibold text-gray-900">Acknowledge emergency leaves</h2>
-            <p className="text-sm text-gray-600">Leaves applied on important dates or after booker rejected swap. Approve as paid/other or reject.</p>
+            <p className="text-sm text-gray-600">Leaves applied on important dates or after booker rejected swap. If you missed the popup, use the list below to approve as paid/regular or reject.</p>
             {list.length === 0 ? (
               <div className="bg-white border rounded p-6 text-gray-500">No pending requests to acknowledge.</div>
             ) : (
               <div className="space-y-4">
                 {list.map((item) => (
-                  <div key={item.leave_id} className="bg-white border rounded p-4 flex flex-wrap items-center justify-between gap-3">
+                  <div key={item.leave_id} className="bg-white border rounded-lg p-4 flex flex-wrap items-center justify-between gap-3 border border-gray-200">
                     <div className="text-sm">
                       <span className="font-medium text-gray-900">{item.employee_name}</span>
                       <span className="text-gray-600">
-                        {' '}– {item.start_date}
-                        {item.end_date !== item.start_date ? ` to ${item.end_date}` : ''}
+                        {' '}– {formatDate(item.start_date)}
+                        {item.end_date && String(item.end_date) !== String(item.start_date) ? ` to ${formatDate(item.end_date)}` : ''}
                         {item.emergency_type ? ` (${item.emergency_type})` : ''}
                       </span>
                     </div>
@@ -2965,6 +2995,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
   if (mode === 'department') {
     return (
       <>
+        {selectedLeaveForDetails && renderLeaveDetailsModal()}
         {pendingActionModal && pendingActionModal.type === 'ack' && isAdmin && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" aria-modal="true" role="dialog">
             <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-gray-200/80">
@@ -3276,6 +3307,25 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                   className="w-full border rounded px-3 py-2"
                 />
               </div>
+              {editDateAvailability && editLeaveForm.start_date && (
+                <>
+                  {editDateAvailability.blocked && (
+                    <div className="p-3 bg-red-50 border border-red-200 rounded text-sm text-red-800">
+                      This date range falls on an event (holiday or important date). Choose different dates.
+                    </div>
+                  )}
+                  {!editDateAvailability.blocked && !editDateAvailability.available && editDateAvailability.bookedByCount > 0 && (
+                    <div className="p-3 bg-amber-50 border border-amber-200 rounded text-sm text-amber-800">
+                      This date range is already booked by another employee. Choose different dates.
+                    </div>
+                  )}
+                  {editDateAvailability.available && (
+                    <div className="p-3 bg-green-50 border border-green-200 rounded text-sm text-green-800">
+                      These dates are available.
+                    </div>
+                  )}
+                </>
+              )}
             </div>
             <div className="mt-4 flex gap-2 justify-end">
               <button

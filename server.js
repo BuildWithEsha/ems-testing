@@ -11554,10 +11554,11 @@ app.post('/api/leaves/apply', async (req, res) => {
 
 // Date availability for a single date or range (red/green): blocked or booked in range
 app.get('/api/leaves/date-availability', async (req, res) => {
-  const { date, end_date, employee_id } = req.query;
+  const { date, end_date, employee_id, exclude_leave_id } = req.query;
   const startDate = date || req.query.start_date;
   if (!startDate) return res.status(400).json({ error: 'date or start_date is required (YYYY-MM-DD)' });
   const endDate = end_date || req.query.end_date || startDate;
+  const excludeId = exclude_leave_id ? Number(exclude_leave_id) : null;
   let connection;
   try {
     connection = await mysqlPool.getConnection();
@@ -11583,13 +11584,16 @@ app.get('/api/leaves/date-availability', async (req, res) => {
        ) LIMIT 1`,
       [endDate, startDate, deptId]
     );
-    const [booked] = await connection.execute(
-      `SELECT lr.id, lr.employee_id, e.name AS employee_name FROM leave_requests lr
+    let bookedQuery = `SELECT lr.id, lr.employee_id, e.name AS employee_name FROM leave_requests lr
        JOIN employees e ON e.id = lr.employee_id
        WHERE lr.employee_id != 0 AND lr.status IN ('pending','approved')
-       AND lr.start_date <= ? AND lr.end_date >= ?`,
-      [endDate, startDate]
-    );
+       AND lr.start_date <= ? AND lr.end_date >= ?`;
+    const bookedParams = [endDate, startDate];
+    if (excludeId != null) {
+      bookedQuery += ' AND lr.id != ?';
+      bookedParams.push(excludeId);
+    }
+    const [booked] = await connection.execute(bookedQuery, bookedParams);
     const bookedUnique = booked.reduce((acc, r) => {
       if (!acc.some((x) => x.leave_id === r.id)) acc.push({ leave_id: r.id, employee_id: r.employee_id, employee_name: r.employee_name });
       return acc;
@@ -12441,7 +12445,8 @@ app.get('/api/leaves/all', async (req, res) => {
       query += ' AND lr.is_uninformed = 1';
     }
     if (filter === 'future') {
-      query += " AND lr.end_date >= CURDATE() AND lr.status IN ('pending','approved') AND (lr.is_uninformed = 0 OR lr.is_uninformed IS NULL)";
+      // Only approved leaves in Future; pending go to Acknowledge section
+      query += " AND lr.end_date >= CURDATE() AND lr.status = 'approved' AND (lr.is_uninformed = 0 OR lr.is_uninformed IS NULL)";
     } else if (filter === 'past') {
       query += " AND (lr.end_date < CURDATE() OR lr.status = 'rejected')";
     } else {
@@ -12491,7 +12496,8 @@ app.get('/api/leaves/my', async (req, res) => {
         acknowledged.push(row);
       }
       if (row.status === 'pending') {
-        pending.push(row);
+        const needsAck = !!(row.is_important_date_override === 1 || (row.requested_swap_with_leave_id != null && row.swap_responded_at != null && row.swap_accepted === 0));
+        pending.push({ ...row, needs_acknowledgment: needsAck });
       } else if (row.status === 'approved') {
         // Do not show absentees (uninformed) in standard approved lists
         if (!row.is_uninformed) {
