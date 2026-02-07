@@ -27,6 +27,9 @@ const LowHoursNotificationPanel = ({
   const [showSettings, setShowSettings] = useState(false);
   const [tempMinHoursThreshold, setTempMinHoursThreshold] = useState(minHoursThreshold);
   const [tempSelectedDate, setTempSelectedDate] = useState(selectedDate);
+  const [createTicketModalOpen, setCreateTicketModalOpen] = useState(false);
+  const [templateTitle, setTemplateTitle] = useState('EMS less hours.');
+  const [templateDescription, setTemplateDescription] = useState('');
 
   // Sync temp values when opening settings so form shows current threshold and date
   useEffect(() => {
@@ -146,11 +149,25 @@ const LowHoursNotificationPanel = ({
     user.permissions?.includes('tickets_auto_less_hours')
   );
 
+  const defaultTemplateDescription = `This notification is to notify you that you have hours logged less than ${minHoursThreshold} in EMS for ${selectedDate}.`;
+
+  const openCreateTicketModal = () => {
+    if (!canCreateLessHoursTickets) return;
+    setTemplateTitle('EMS less hours.');
+    setTemplateDescription(defaultTemplateDescription);
+    setCreateTicketModalOpen(true);
+  };
+
   const handleCreateLessHoursTickets = async () => {
     if (!canCreateLessHoursTickets) return;
-    const confirmMessage = `Create \"Less hours logged\" tickets for ${filteredNotifications.length} employee(s) on ${selectedDate}?`;
-    if (!window.confirm(confirmMessage)) return;
+    setCreateTicketModalOpen(false);
     try {
+      const body = {
+        date: selectedDate,
+        minHours: minHoursThreshold,
+        ...(filters.department ? { department: filters.department } : {}),
+        ...(filters.designation ? { designation: filters.designation } : {})
+      };
       const response = await fetch('/api/tickets/auto-less-hours', {
         method: 'POST',
         headers: {
@@ -160,12 +177,7 @@ const LowHoursNotificationPanel = ({
           'user-id': String(user?.id || ''),
           ...(user?.designation != null && user.designation !== '' ? { 'x-user-designation': String(user.designation) } : {})
         },
-        body: JSON.stringify({
-          date: selectedDate,
-          minHours: minHoursThreshold,
-          ...(filters.department ? { department: filters.department } : {}),
-          ...(filters.designation ? { designation: filters.designation } : {})
-        })
+        body: JSON.stringify(body)
       });
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
@@ -313,7 +325,7 @@ const LowHoursNotificationPanel = ({
               </button>
               {canCreateLessHoursTickets && (
                 <button
-                  onClick={handleCreateLessHoursTickets}
+                  onClick={openCreateTicketModal}
                   className="flex items-center space-x-2 px-3 py-2 text-sm bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors"
                   title="Create tickets for employees below threshold"
                 >
@@ -427,6 +439,56 @@ const LowHoursNotificationPanel = ({
           </div>
         </div>
       </div>
+
+      {/* Create tickets modal: template preview and confirm */}
+      {createTicketModalOpen && (
+        <div className="absolute inset-0 flex items-center justify-center z-[60] bg-black/40" onClick={(e) => e.target === e.currentTarget && setCreateTicketModalOpen(false)}>
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-lg mx-4 p-6" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold text-gray-900 mb-3">Create tickets – template preview</h3>
+            <p className="text-sm text-gray-600 mb-4">
+              The following template will be used for the {filteredNotifications.length} ticket(s). You can edit title and description below, then confirm to create.
+            </p>
+            <div className="space-y-3 mb-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
+                <input
+                  type="text"
+                  value={templateTitle}
+                  onChange={(e) => setTemplateTitle(e.target.value)}
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                  placeholder="Ticket title"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                <textarea
+                  value={templateDescription}
+                  onChange={(e) => setTemplateDescription(e.target.value)}
+                  rows={4}
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                  placeholder="Ticket description"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setCreateTicketModalOpen(false)}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleCreateLessHoursTickets}
+                className="px-4 py-2 text-sm font-medium text-white bg-orange-600 rounded-lg hover:bg-orange-700"
+              >
+                Create tickets
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

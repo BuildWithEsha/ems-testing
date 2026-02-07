@@ -54,6 +54,9 @@ const OverEstimateTaskNotificationPanel = ({
   const [showFilters, setShowFilters] = useState(false);
   const [expandedDepartments, setExpandedDepartments] = useState(new Set());
   const [creatingTickets, setCreatingTickets] = useState(false);
+  const [createTicketModalOpen, setCreateTicketModalOpen] = useState(false);
+  const [templateTitle, setTemplateTitle] = useState('Task overestimated');
+  const [templateDescription, setTemplateDescription] = useState('');
 
   const isManagerByDesignation = user?.designation && String(user.designation).toLowerCase().includes('manager');
   const canCreateOverEstTickets = !!user && (
@@ -66,15 +69,23 @@ const OverEstimateTaskNotificationPanel = ({
     user.permissions?.includes('tickets_auto_less_hours')
   );
 
-  const handleCreateOverEstTickets = async () => {
+  const openCreateTicketModal = () => {
     if (!canCreateOverEstTickets) return;
     const taskCount = Object.values(groupedByDepartment).reduce((sum, arr) => sum + arr.length, 0);
     if (taskCount === 0) {
       alert('No tasks over estimate to create tickets for.');
       return;
     }
-    const confirmMessage = `Create "Task overestimated" tickets for ${taskCount} task(s) in the selected date range?`;
-    if (!window.confirm(confirmMessage)) return;
+    setTemplateTitle('Task overestimated');
+    setTemplateDescription(
+      `This task exceeded its time estimate by at least ${minOverMinutes ?? localMinOver} minutes. Date range: ${startDate || localStart} to ${endDate || localEnd}.`
+    );
+    setCreateTicketModalOpen(true);
+  };
+
+  const handleCreateOverEstTickets = async () => {
+    if (!canCreateOverEstTickets) return;
+    setCreateTicketModalOpen(false);
     setCreatingTickets(true);
     try {
       const response = await fetch('/api/tickets/auto-over-estimate', {
@@ -271,7 +282,7 @@ const OverEstimateTaskNotificationPanel = ({
             {canCreateOverEstTickets && totalCount > 0 && (
               <button
                 type="button"
-                onClick={handleCreateOverEstTickets}
+                onClick={openCreateTicketModal}
                 disabled={creatingTickets}
                 className="flex items-center space-x-2 px-3 py-2 text-sm bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors disabled:opacity-50"
                 title="Create tickets for tasks over estimate"
@@ -450,6 +461,56 @@ const OverEstimateTaskNotificationPanel = ({
             </div>
           )}
         </div>
+
+        {/* Create tickets modal: template preview and confirm */}
+        {createTicketModalOpen && (
+          <div className="absolute inset-0 flex items-center justify-center z-[60] bg-black/40" onClick={(e) => e.target === e.currentTarget && setCreateTicketModalOpen(false)}>
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-lg mx-4 p-6" onClick={(e) => e.stopPropagation()}>
+              <h3 className="text-lg font-semibold text-gray-900 mb-3">Create tickets – template preview</h3>
+              <p className="text-sm text-gray-600 mb-4">
+                The following template will be used for the {totalCount} ticket(s). You can edit title and description below, then confirm to create.
+              </p>
+              <div className="space-y-3 mb-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
+                  <input
+                    type="text"
+                    value={templateTitle}
+                    onChange={(e) => setTemplateTitle(e.target.value)}
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                    placeholder="Ticket title"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                  <textarea
+                    value={templateDescription}
+                    onChange={(e) => setTemplateDescription(e.target.value)}
+                    rows={4}
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                    placeholder="Ticket description"
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setCreateTicketModalOpen(false)}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCreateOverEstTickets}
+                  className="px-4 py-2 text-sm font-medium text-white bg-amber-600 rounded-lg hover:bg-amber-700"
+                >
+                  Create tickets
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -430,6 +430,17 @@ const initializeDatabaseTables = async () => {
       )
     `);
 
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS department_restricted_days (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        department_id INT NOT NULL,
+        day_of_week TINYINT NOT NULL COMMENT '0=Sunday, 1=Monday, ... 6=Saturday',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_dept_day (department_id, day_of_week),
+        INDEX idx_department_restricted_days_dept (department_id)
+      )
+    `);
+
     // Leave requests: add columns for emergency/swap/acknowledge/important-date/policy (ignore if already exist)
     const leaveRequestNewColumns = [
       ['emergency_type', 'VARCHAR(100) NULL'],
@@ -11336,19 +11347,27 @@ app.post('/api/leaves/apply', async (req, res) => {
       deptId = dRows.length ? dRows[0].id : null;
     }
 
-    const departmentName = String(empRows[0].department || '').toLowerCase().trim();
-    const mondayRestrictedDepts = ['graphic designing', 'procurement', 'warehouse'];
-    const isMondayRestrictedDept = mondayRestrictedDepts.some((d) => departmentName === d || departmentName.includes(d));
-    if (isMondayRestrictedDept && start_date && end_date) {
-      const start = new Date(start_date);
-      const end = new Date(end_date);
-      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-        if (d.getDay() === 1) {
-          return res.status(200).json({
-            success: false,
-            monday_restricted: true,
-            message: 'Leave on Monday is not allowed for your department.'
-          });
+    // Department restricted days: leave not allowed on certain weekdays for this department (from admin-configured rules)
+    if (deptId != null && start_date && end_date) {
+      const [restrictedRows] = await connection.execute(
+        'SELECT day_of_week FROM department_restricted_days WHERE department_id = ?',
+        [deptId]
+      );
+      const restrictedDays = new Set((restrictedRows || []).map((r) => Number(r.day_of_week)));
+      if (restrictedDays.size > 0) {
+        const start = new Date(start_date);
+        const end = new Date(end_date);
+        const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+        for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+          const dayOfWeek = d.getDay();
+          if (restrictedDays.has(dayOfWeek)) {
+            const dayName = dayNames[dayOfWeek] || 'this day';
+            return res.status(200).json({
+              success: false,
+              monday_restricted: true,
+              message: `Leave on ${dayName} is not allowed for your department.`
+            });
+          }
         }
       }
     }
@@ -11747,11 +11766,13 @@ app.post('/api/leaves/blocked-dates', async (req, res) => {
 // Query params:
 //   type = important | holiday  (optional, default: both)
 //   department_id (only used for type=important; limits unmarking to that department)
+//   label (optional): when provided, only remove the block whose reason matches (exact or prefix)
 app.delete('/api/leaves/blocked-dates/:date', async (req, res) => {
   const userRole = (req.headers['x-user-role'] || req.headers['user-role'] || '').toLowerCase();
   if (userRole !== 'admin') return res.status(403).json({ error: 'Only admins can unmark dates.' });
   const { date } = req.params;
   const typeFilter = (req.query.type || '').toLowerCase();
+  const labelParam = (req.query.label || req.query.reason || '').toString().trim();
   let deptFilter = null;
   if (
     typeof req.query.department_id !== 'undefined' &&
@@ -11777,6 +11798,12 @@ app.delete('/api/leaves/blocked-dates/:date', async (req, res) => {
       condition += ` AND (reason LIKE 'IMPORTANT_EVENT%' OR reason LIKE 'HOLIDAY%')`;
     }
 
+    // When label/reason is provided, only remove the block matching that label
+    if (labelParam) {
+      condition += ` AND (reason = ? OR reason LIKE ?)`;
+      params.push(labelParam, `${labelParam}%`);
+    }
+
     // For important types, optionally restrict to a specific department
     if (typeFilter === 'important' && deptFilter !== null) {
       condition += ` AND department_id = ?`;
@@ -11790,6 +11817,108 @@ app.delete('/api/leaves/blocked-dates/:date', async (req, res) => {
     res.json({ success: true, date, deleted: result.affectedRows > 0 });
   } catch (err) {
     console.error('Error unmarking blocked date:', err);
+    res.status(500).json({ error: 'Database error' });
+  } finally {
+    if (connection) connection.release();
+  }
+});
+
+// Department restricted days: which day(s) of week leave is not allowed per department (admin only).
+// day_of_week: 0=Sunday, 1=Monday, ... 6=Saturday (JS getDay()).
+app.get('/api/leaves/department-restricted-days', async (req, res) => {
+  const userRole = (req.headers['x-user-role'] || req.headers['user-role'] || '').toLowerCase();
+  const { department_id } = req.query;
+  let connection;
+  try {
+    connection = await mysqlPool.getConnection();
+    let query = `
+      SELECT drd.id, drd.department_id, drd.day_of_week, d.name AS department_name
+      FROM department_restricted_days drd
+      LEFT JOIN departments d ON d.id = drd.department_id
+    `;
+    const params = [];
+    if (department_id !== undefined && department_id !== '' && department_id !== 'null') {
+      const n = Number(department_id);
+      if (Number.isFinite(n)) {
+        query += ' WHERE drd.department_id = ?';
+        params.push(n);
+      }
+    }
+    query += ' ORDER BY drd.department_id, drd.day_of_week';
+    const [rows] = await connection.execute(query, params);
+    res.json(rows);
+  } catch (err) {
+    console.error('Error fetching department restricted days:', err);
+    res.status(500).json({ error: 'Database error' });
+  } finally {
+    if (connection) connection.release();
+  }
+});
+
+app.post('/api/leaves/department-restricted-days', async (req, res) => {
+  const userRole = (req.headers['x-user-role'] || req.headers['user-role'] || '').toLowerCase();
+  if (userRole !== 'admin') return res.status(403).json({ error: 'Only admins can set department restricted days.' });
+  const { department_ids, day_of_week } = req.body || {};
+  const day = Number(day_of_week);
+  if (!Number.isFinite(day) || day < 0 || day > 6) {
+    return res.status(400).json({ error: 'day_of_week is required and must be 0-6 (0=Sunday, 1=Monday, ... 6=Saturday).' });
+  }
+  const ids = Array.isArray(department_ids) ? department_ids.map((id) => Number(id)).filter(Number.isFinite) : [];
+  if (ids.length === 0) return res.status(400).json({ error: 'department_ids must be a non-empty array of department ids.' });
+  let connection;
+  try {
+    connection = await mysqlPool.getConnection();
+    let inserted = 0;
+    for (const deptId of ids) {
+      try {
+        await connection.execute(
+          'INSERT INTO department_restricted_days (department_id, day_of_week) VALUES (?, ?)',
+          [deptId, day]
+        );
+        inserted++;
+      } catch (err) {
+        if (err.code === 'ER_DUP_ENTRY') continue;
+        throw err;
+      }
+    }
+    res.status(201).json({ success: true, day_of_week: day, inserted, department_ids: ids });
+  } catch (err) {
+    console.error('Error adding department restricted days:', err);
+    res.status(500).json({ error: 'Database error' });
+  } finally {
+    if (connection) connection.release();
+  }
+});
+
+app.delete('/api/leaves/department-restricted-days', async (req, res) => {
+  const userRole = (req.headers['x-user-role'] || req.headers['user-role'] || '').toLowerCase();
+  if (userRole !== 'admin') return res.status(403).json({ error: 'Only admins can remove department restricted days.' });
+  const { department_id, department_ids, day_of_week } = req.query;
+  const day = day_of_week !== undefined && day_of_week !== '' ? Number(day_of_week) : null;
+  const singleId = department_id !== undefined && department_id !== '' ? Number(department_id) : null;
+  const multipleIds = department_ids
+    ? (typeof department_ids === 'string' ? department_ids.split(',').map((s) => s.trim()) : [department_ids])
+        .map((id) => Number(id))
+        .filter(Number.isFinite)
+    : [];
+  const ids = singleId != null ? [singleId] : multipleIds;
+  if (ids.length === 0 || day === null || !Number.isFinite(day) || day < 0 || day > 6) {
+    return res.status(400).json({ error: 'department_id (or department_ids) and day_of_week (0-6) are required.' });
+  }
+  let connection;
+  try {
+    connection = await mysqlPool.getConnection();
+    let deleted = 0;
+    for (const deptId of ids) {
+      const [result] = await connection.execute(
+        'DELETE FROM department_restricted_days WHERE department_id = ? AND day_of_week = ?',
+        [deptId, day]
+      );
+      deleted += result.affectedRows;
+    }
+    res.json({ success: true, day_of_week: day, deleted, department_ids: ids });
+  } catch (err) {
+    console.error('Error removing department restricted days:', err);
     res.status(500).json({ error: 'Database error' });
   } finally {
     if (connection) connection.release();
@@ -12151,7 +12280,8 @@ app.delete('/api/leaves/:id', async (req, res) => {
 app.get('/api/leaves/acknowledged-history', async (req, res) => {
   const userRole = (req.headers['x-user-role'] || req.headers['user-role'] || '').toLowerCase();
   if (userRole !== 'admin') return res.status(403).json({ error: 'Access denied. Only admins can view acknowledge history.' });
-  const { department_id, start_date, end_date } = req.query;
+  const { department_id, start_date, end_date, employee_name, search } = req.query;
+  const nameSearch = (employee_name || search || '').toString().trim();
   let connection;
   try {
     connection = await mysqlPool.getConnection();
@@ -12177,6 +12307,10 @@ app.get('/api/leaves/acknowledged-history', async (req, res) => {
     if (end_date) {
       query += ' AND lr.start_date <= ?';
       params.push(end_date);
+    }
+    if (nameSearch) {
+      query += ' AND e.name LIKE ?';
+      params.push(`%${nameSearch.replace(/%/g, '\\%').replace(/_/g, '\\_')}%`);
     }
     query += ' ORDER BY lr.acknowledged_at DESC LIMIT 200';
     const [rows] = await connection.execute(query, params);
@@ -12847,8 +12981,9 @@ app.get('/api/leaves/report', async (req, res) => {
     );
 
     const [leavesCountRows] = await connection.execute(
-      `SELECT COUNT(*) AS cnt FROM leave_requests
-       WHERE employee_id = ? AND status = 'approved' AND start_date >= ? AND start_date <= ?`,
+      `SELECT COUNT(*) AS cnt FROM leave_requests lr
+       WHERE lr.employee_id = ? AND lr.status = 'approved' AND lr.start_date >= ? AND lr.start_date <= ?
+         AND (lr.is_uninformed = 0 OR lr.is_uninformed IS NULL)`,
       [employee_id, startDate, endDate]
     );
     const leaves_taken_this_month = Number(leavesCountRows[0]?.cnt || 0);

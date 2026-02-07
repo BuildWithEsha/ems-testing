@@ -20,10 +20,12 @@ const TABS = {
 // - 'markUninformed' → Mark uninformed leaves for employees
 export default function Leaves({ initialTab, initialManagerSection }) {
   const { user } = useAuth();
+  const isAdmin = user?.role === 'admin' || user?.role === 'Admin';
+  const effectiveSection = !initialManagerSection && isAdmin ? 'department' : initialManagerSection;
   const mode =
-    initialManagerSection === 'department'
+    effectiveSection === 'department'
       ? 'department'
-      : initialManagerSection === 'markUninformed'
+      : effectiveSection === 'markUninformed'
       ? 'markUninformed'
       : 'my';
 
@@ -34,7 +36,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
   const todayStr = () => new Date().toISOString().split('T')[0];
   // Tab state for Department view (acknowledge / ack_history only)
   const [departmentTab, setDepartmentTab] = useState(
-    initialTab && [TABS.ACKNOWLEDGE, TABS.ACK_HISTORY].includes(initialTab)
+    initialTab && [TABS.ACKNOWLEDGE, TABS.ACK_HISTORY, TABS.ALL_FUTURE, TABS.ALL_PAST].includes(initialTab)
       ? initialTab
       : TABS.ACKNOWLEDGE
   );
@@ -55,8 +57,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
   const [pendingActions, setPendingActions] = useState({ swapRequests: [], acknowledgeRequests: [] });
   const [pendingActionModal, setPendingActionModal] = useState(null); // { type: 'swap'|'ack', data }
   const EMERGENCY_OPTIONS = ['Medical', 'Family emergency', 'Bereavement', 'Other'];
-  // Departments that cannot take leave on Monday (must match server)
-  const MONDAY_RESTRICTED_DEPARTMENTS = ['graphic designing', 'procurement', 'warehouse'];
+  const [departmentRestrictedDays, setDepartmentRestrictedDays] = useState([]); // day_of_week 0-6 for current user's department (from admin-configured rules)
   const [policyForm, setPolicyForm] = useState({
     policy_reason_detail: '',
     expected_return_date: '',
@@ -86,8 +87,8 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     startDate: '',
     endDate: '',
     departmentId: '',
+    employeeName: '',
   });
-  const isAdmin = user?.role === 'admin' || user?.role === 'Admin';
   const isManagerOrAdmin = isAdmin || user?.is_manager;
 
   const employeeId = user?.id;
@@ -207,6 +208,26 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     }
   };
 
+  const loadDepartmentRestrictedDays = async () => {
+    if (!departmentId) {
+      setDepartmentRestrictedDays([]);
+      return;
+    }
+    try {
+      const res = await fetch(`/api/leaves/department-restricted-days?department_id=${departmentId}`);
+      if (res.ok) {
+        const rows = await res.json();
+        const days = (rows || []).map((r) => Number(r.day_of_week)).filter((d) => d >= 0 && d <= 6);
+        setDepartmentRestrictedDays([...new Set(days)]);
+      } else {
+        setDepartmentRestrictedDays([]);
+      }
+    } catch (err) {
+      console.error('Error loading department restricted days', err);
+      setDepartmentRestrictedDays([]);
+    }
+  };
+
   // Load a leave report for an arbitrary employee (used in Mark Uninformed view)
   const loadEmployeeReport = async (targetEmployeeId) => {
     if (!targetEmployeeId) return;
@@ -274,6 +295,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
       if (filters.departmentId) params.set('department_id', filters.departmentId);
       if (filters.startDate) params.set('start_date', filters.startDate);
       if (filters.endDate) params.set('end_date', filters.endDate);
+      if (filters.employeeName?.trim()) params.set('employee_name', filters.employeeName.trim());
       const qs = params.toString();
       const url = qs ? `/api/leaves/acknowledged-history?${qs}` : '/api/leaves/acknowledged-history';
       const res = await fetch(url, {
@@ -311,6 +333,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
       loadMyLeaves();
       loadPolicy();
       loadReport();
+      loadDepartmentRestrictedDays();
     }
 
     // Department view – managers/admins manage department/all employees
@@ -402,20 +425,21 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     setForm((prev) => ({ ...prev, [name]: value }));
   };
 
-  const dateRangeIncludesMonday = (startDateStr, endDateStr) => {
-    if (!startDateStr || !endDateStr) return false;
+  const dateRangeIncludesRestrictedDay = (startDateStr, endDateStr, restrictedDays) => {
+    if (!startDateStr || !endDateStr || !Array.isArray(restrictedDays) || restrictedDays.length === 0) return false;
     const start = new Date(startDateStr);
     const end = new Date(endDateStr);
     if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return false;
+    const set = new Set(restrictedDays.map(Number));
     for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-      if (d.getDay() === 1) return true; // 1 = Monday
+      if (set.has(d.getDay())) return true;
     }
     return false;
   };
 
-  const isMondayRestrictedDepartment = () => {
-    const dept = String(user?.department || '').toLowerCase().trim();
-    return MONDAY_RESTRICTED_DEPARTMENTS.some((d) => dept === d || dept.includes(d));
+  const restrictedDayNames = () => {
+    const names = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    return departmentRestrictedDays.map((d) => names[d]).filter(Boolean);
   };
 
   const computeDaysRequested = () => {
@@ -563,14 +587,13 @@ export default function Leaves({ initialTab, initialManagerSection }) {
       alert('Leave cannot be applied on this date due to an event.');
       return;
     }
-    // Monday restriction for specific departments
-    if (isMondayRestrictedDepartment() && dateRangeIncludesMonday(form.start_date, form.end_date)) {
-      alert('Leave on Monday is not allowed for your department.');
+    if (departmentRestrictedDays.length > 0 && dateRangeIncludesRestrictedDay(form.start_date, form.end_date, departmentRestrictedDays)) {
+      const daysStr = restrictedDayNames().join(', ');
+      alert(`Leave on ${daysStr} is not allowed for your department.`);
       return;
     }
     const daysRequested = computeDaysRequested();
-    const leavesTakenThisMonth = report?.leaves_taken_this_month ?? 0;
-    const policyApplies = leavesTakenThisMonth >= 2 || daysRequested > 2;
+    const policyApplies = form.leave_type === 'other';
     if (policyApplies && !policyForm.expected_return_date?.trim()) {
       alert('Please fill in when you will be back.');
       return;
@@ -628,7 +651,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
         return;
       }
       if (data.monday_restricted && !data.success) {
-        alert(data.message || 'Leave on Monday is not allowed for your department.');
+        alert(data.message || 'Leave on a restricted day is not allowed for your department.');
         setLoading(false);
         return;
       }
@@ -641,7 +664,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
       if (data.over_quota && !data.success) {
         const proceed = window.confirm(
           data.message ||
-            "You can only take 2 paid leaves per month. Please try leave type 'Other' or contact administration."
+            "You can only take 2 paid leaves per month. Please try leave type 'Regular' or contact administration."
         );
         if (!proceed) {
           setLoading(false);
@@ -701,18 +724,17 @@ export default function Leaves({ initialTab, initialManagerSection }) {
 
   const renderApplyForm = () => {
     const daysRequested = computeDaysRequested();
-    const leavesTakenThisMonth = report?.leaves_taken_this_month ?? 0;
-    const policyApplies = leavesTakenThisMonth >= 2 || daysRequested > 2;
+    const showPolicyForm = form.leave_type === 'other';
     const paidDisabled = (report?.remaining_paid ?? 1) <= 0;
     const isEventBlocked = dateAvailability?.blocked;
-    const isMondayBlocked = isMondayRestrictedDepartment() && dateRangeIncludesMonday(form.start_date, form.end_date);
-    const applyDisabled = isEventBlocked || isMondayBlocked;
+    const isDayRestricted = departmentRestrictedDays.length > 0 && dateRangeIncludesRestrictedDay(form.start_date, form.end_date, departmentRestrictedDays);
+    const applyDisabled = isEventBlocked || isDayRestricted;
 
     return (
-      <div className="bg-white border rounded p-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="bg-white border border-gray-200 rounded-lg shadow-sm p-6 space-y-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">Name</label>
             <input
               type="text"
               value={user?.name || ''}
@@ -721,16 +743,16 @@ export default function Leaves({ initialTab, initialManagerSection }) {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Department</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">Department</label>
             <input
               type="text"
               value={user?.department || ''}
               disabled
-              className="w-full border rounded px-3 py-2 bg-gray-100 text-gray-700"
+              className="w-full border border-gray-300 rounded-md px-3 py-2 bg-gray-50 text-gray-700"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Start date</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">Start date</label>
             <input
               type="date"
               name="start_date"
@@ -796,7 +818,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
               disabled={paidDisabled}
             >
               <option value="paid" disabled={paidDisabled}>Paid</option>
-              <option value="other">Other</option>
+              <option value="other">Regular</option>
             </select>
             {paidDisabled && (
               <p className="mt-1 text-xs text-amber-700">Paid leave not available; you have no paid leave remaining this month.</p>
@@ -810,9 +832,9 @@ export default function Leaves({ initialTab, initialManagerSection }) {
           </div>
         )}
 
-        {isMondayBlocked && form.start_date && form.end_date && (
+        {isDayRestricted && form.start_date && form.end_date && (
           <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded">
-            <p className="text-sm text-amber-800">Leave on Monday is not allowed for your department.</p>
+            <p className="text-sm text-amber-800">Leave on {restrictedDayNames().join(', ')} is not allowed for your department.</p>
           </div>
         )}
 
@@ -834,13 +856,17 @@ export default function Leaves({ initialTab, initialManagerSection }) {
           </div>
         )}
 
-        {policyApplies && (
+        {showPolicyForm && (
           <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded space-y-3">
             <p className="text-sm font-medium text-blue-900">
               According to leave policy this will be recorded as unpaid leave and must be acknowledged by admin before it applies.
             </p>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">When will you be back?</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">How many days?</label>
+              <p className="text-sm text-gray-600">{daysRequested} day(s)</p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">When will you be back? (required)</label>
               <input
                 type="date"
                 value={policyForm.expected_return_date}
@@ -874,15 +900,15 @@ export default function Leaves({ initialTab, initialManagerSection }) {
           />
         </div>
 
-        <div className="mt-4 flex items-center justify-between">
+        <div className="mt-6 pt-4 border-t border-gray-200 flex items-center justify-between gap-4">
           <div className="text-sm text-gray-600">
-            Days requested: <span className="font-semibold">{daysRequested}</span>
+            Days requested: <span className="font-semibold text-gray-900">{daysRequested}</span>
           </div>
           <button
             type="button"
             onClick={applyForLeave}
             disabled={loading || applyDisabled}
-            className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50"
+            className="inline-flex items-center px-5 py-2.5 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
           >
             {loading ? 'Submitting...' : 'Apply for Leave'}
           </button>
@@ -2438,7 +2464,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                         defaultValue="paid"
                       >
                         <option value="paid">Paid</option>
-                        <option value="other">Other</option>
+                        <option value="other">Regular</option>
                       </select>
                       <button
                         type="button"
@@ -2504,6 +2530,16 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                   ))}
                 </select>
               </div>
+              <div>
+                <label className="block mb-1 font-medium text-gray-700">Employee name</label>
+                <input
+                  type="text"
+                  value={ackHistoryFilters.employeeName}
+                  onChange={(e) => setAckHistoryFilters((f) => ({ ...f, employeeName: e.target.value }))}
+                  placeholder="Search by employee name"
+                  className="border rounded px-2 py-1.5 min-w-[160px]"
+                />
+              </div>
               <button
                 type="button"
                 onClick={() => loadAckHistory(ackHistoryFilters)}
@@ -2514,7 +2550,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
               <button
                 type="button"
                 onClick={() => {
-                  setAckHistoryFilters({ startDate: '', endDate: '', departmentId: '' });
+                  setAckHistoryFilters({ startDate: '', endDate: '', departmentId: '', employeeName: '' });
                   setTimeout(() => loadAckHistory({}), 0);
                 }}
                 className="text-sm text-indigo-600 underline"
@@ -2522,34 +2558,34 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                 Clear
               </button>
             </div>
-            <div className="bg-white border rounded p-4">
+            <div className="bg-white border border-gray-200 rounded-lg shadow-sm p-4">
               {ackHistoryRows.length === 0 ? (
-                <p className="text-sm text-gray-500">No acknowledged leaves.</p>
+                <p className="text-sm text-gray-500 py-4">No acknowledged leaves.</p>
               ) : (
                 <div className="overflow-x-auto">
                   <table className="min-w-full divide-y divide-gray-200 text-sm">
                     <thead className="bg-gray-50">
                       <tr>
-                        <th className="px-4 py-2 text-left font-medium text-gray-700">Employee</th>
-                        <th className="px-4 py-2 text-left font-medium text-gray-700">Dates</th>
-                        <th className="px-4 py-2 text-left font-medium text-gray-700">Emergency type</th>
-                        <th className="px-4 py-2 text-left font-medium text-gray-700">Status</th>
-                        <th className="px-4 py-2 text-left font-medium text-gray-700">Acknowledged by</th>
-                        <th className="px-4 py-2 text-left font-medium text-gray-700">Acknowledged at</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Employee</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Dates</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Emergency type</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Status</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Acknowledged by</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Acknowledged at</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-gray-200">
+                    <tbody className="divide-y divide-gray-200 bg-white">
                       {ackHistoryRows.map((row) => (
-                        <tr key={row.id}>
-                          <td className="px-4 py-2 text-gray-800">{row.employee_name}</td>
-                          <td className="px-4 py-2 text-gray-800">
+                        <tr key={row.id} className="hover:bg-gray-50">
+                          <td className="px-4 py-3 text-gray-800">{row.employee_name}</td>
+                          <td className="px-4 py-3 text-gray-800">
                             {formatDate(row.start_date)}
                             {row.start_date !== row.end_date ? ` – ${formatDate(row.end_date)}` : ''}
                           </td>
-                          <td className="px-4 py-2 text-gray-800">{row.emergency_type || '—'}</td>
-                          <td className="px-4 py-2 text-gray-800">{row.status}</td>
-                          <td className="px-4 py-2 text-gray-800">{row.acknowledged_by_name || '—'}</td>
-                          <td className="px-4 py-2 text-gray-800">
+                          <td className="px-4 py-3 text-gray-800">{row.emergency_type || '—'}</td>
+                          <td className="px-4 py-3 text-gray-800">{row.status}</td>
+                          <td className="px-4 py-3 text-gray-800">{row.acknowledged_by_name || '—'}</td>
+                          <td className="px-4 py-3 text-gray-800">
                             {row.acknowledged_at ? formatDateTime(row.acknowledged_at) : '—'}
                           </td>
                         </tr>
@@ -2832,7 +2868,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                     <span className="font-medium text-gray-500">Leave type to approve as</span>
                     <select id="ack-leave-type-dept" className="border rounded px-2 py-1.5 text-sm text-gray-900" defaultValue="paid">
                       <option value="paid">Paid</option>
-                      <option value="other">Other</option>
+                      <option value="other">Regular</option>
                     </select>
                   </div>
                 </div>
@@ -3283,7 +3319,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                   <span className="font-medium text-gray-500">Leave type to approve as</span>
                   <select id="ack-leave-type" className="border rounded px-2 py-1.5 text-sm text-gray-900" defaultValue="paid">
                     <option value="paid">Paid</option>
-                    <option value="other">Other</option>
+                    <option value="other">Regular</option>
                   </select>
                 </div>
               </div>
