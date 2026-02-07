@@ -352,16 +352,16 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     }
   }, [employeeId, departmentId, mode]);
 
-  // When report shows no paid leave remaining, sync leave type to Regular so policy form and submit use correct type
+  // When report shows no paid leave remaining (and user has taken leaves this month), sync leave type to Regular
   useEffect(() => {
     if (!report) return;
     const remaining = report.remaining_paid ?? null;
+    const leavesTakenThisMonth = Number(report.leaves_taken_this_month) ?? 0;
     const noQuota = remaining !== null && remaining <= 0;
-    const hasUsage = Number(report.paid_used) > 0 || Number(report.leaves_taken_this_month) > 0 || Number(report.next_month_deduction) > 0;
-    if (noQuota && hasUsage && form.leave_type === 'paid') {
+    if (noQuota && leavesTakenThisMonth > 0 && form.leave_type === 'paid') {
       setForm((prev) => ({ ...prev, leave_type: 'other' }));
     }
-  }, [report?.remaining_paid, report?.paid_used, report?.leaves_taken_this_month, report?.next_month_deduction]);
+  }, [report?.remaining_paid, report?.leaves_taken_this_month]);
 
   const loadDateAvailability = async (date) => {
     if (!date) {
@@ -742,12 +742,13 @@ export default function Leaves({ initialTab, initialManagerSection }) {
 
   const renderApplyForm = () => {
     const daysRequested = computeDaysRequested();
-    // Only disable paid when report exists and clearly shows no remaining quota (used or deduction); avoid disabling when user has taken 0 leaves and report might be wrong
+    // Use "Leaves taken (this month)" as source of truth: only disable paid when they have actually taken at least one leave this month AND report says 0 remaining (avoids disabling when balance is out of sync with actual count)
     const remaining = report?.remaining_paid ?? null;
+    const leavesTakenThisMonth = Number(report?.leaves_taken_this_month) ?? 0;
     const paidDisabled =
       report != null &&
       (remaining !== null && remaining <= 0) &&
-      (Number(report?.paid_used) > 0 || Number(report?.leaves_taken_this_month) > 0 || Number(report?.next_month_deduction) > 0);
+      leavesTakenThisMonth > 0;
     const effectiveLeaveType = paidDisabled ? 'other' : form.leave_type;
     const showPolicyForm = effectiveLeaveType === 'other';
     const isEventBlocked = dateAvailability?.blocked;
