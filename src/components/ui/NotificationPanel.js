@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Bell, X, AlertTriangle, Calendar, Building, User, Briefcase, CheckCircle, Filter, Search, Download, ChevronDown, ChevronRight } from 'lucide-react';
 import MultiSelect from './MultiSelect';
+import { useDraggableModal } from '../../hooks/useDraggableModal';
 
 const NotificationPanel = ({ isOpen, onClose, notifications, selectedDate, onDateChange, onRefresh }) => {
   // Filter states
@@ -27,6 +28,7 @@ const NotificationPanel = ({ isOpen, onClose, notifications, selectedDate, onDat
   const [selectedTasks, setSelectedTasks] = useState(new Set());
   const [selectAll, setSelectAll] = useState(false);
   const [expandedDepartments, setExpandedDepartments] = useState(new Set());
+  const { modalRef, modalStyle, dragHandleProps } = useDraggableModal();
 
   // Helper function for ordinal suffixes (1st, 2nd, 3rd, etc.)
   const getOrdinalSuffix = (day) => {
@@ -195,9 +197,9 @@ const NotificationPanel = ({ isOpen, onClose, notifications, selectedDate, onDat
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[80vh] flex flex-col overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-gray-200 bg-gray-50">
+      <div ref={modalRef} style={modalStyle} className="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[80vh] flex flex-col overflow-hidden">
+        {/* Header - drag to move */}
+        <div className="flex items-center justify-between p-6 border-b border-gray-200 bg-gray-50" {...dragHandleProps}>
           <div className="flex items-center space-x-3">
             <Bell className="w-6 h-6 text-red-500" />
             <h2 className="text-xl font-semibold text-gray-900">

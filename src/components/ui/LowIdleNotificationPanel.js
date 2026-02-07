@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, User, Settings, Download, Clock, Building, Search, ChevronDown, ChevronRight, RefreshCw } from 'lucide-react';
+import { useDraggableModal } from '../../hooks/useDraggableModal';
 
 const LowIdleNotificationPanel = ({
   isOpen,
@@ -124,10 +125,12 @@ const LowIdleNotificationPanel = ({
 
   if (!isOpen) return null;
 
+  const { modalRef, modalStyle, dragHandleProps } = useDraggableModal(isOpen);
+
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden">
-        <div className="flex items-center justify-between p-6 border-b border-gray-200">
+      <div ref={modalRef} style={modalStyle} className="bg-white rounded-lg shadow-xl w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden">
+        <div className="flex items-center justify-between p-6 border-b border-gray-200 cursor-move" {...dragHandleProps}>
           <div className="flex items-center space-x-3">
             <Clock className="w-6 h-6 text-teal-500" />
             <div>

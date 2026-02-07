@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Bell, X, Clock, User, Building, Filter, Search, Download, ChevronDown, ChevronRight, Settings, Calendar, Ticket } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import { useDraggableModal } from '../../hooks/useDraggableModal';
 
 const LowHoursNotificationPanel = ({ 
   isOpen, 
@@ -180,11 +181,13 @@ const LowHoursNotificationPanel = ({
 
   if (!isOpen) return null;
 
+  const { modalRef, modalStyle, dragHandleProps } = useDraggableModal(isOpen);
+
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-gray-200">
+      <div ref={modalRef} style={modalStyle} className="bg-white rounded-lg shadow-xl w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden">
+        {/* Header - drag to move */}
+        <div className="flex items-center justify-between p-6 border-b border-gray-200 cursor-move" {...dragHandleProps}>
           <div className="flex items-center space-x-3">
             <Clock className="w-6 h-6 text-orange-500" />
             <div>

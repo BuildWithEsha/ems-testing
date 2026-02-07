@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { X, AlertTriangle, Building, User, Briefcase, Filter, Search, Download, ChevronDown, ChevronRight } from 'lucide-react';
+import { useDraggableModal } from '../../hooks/useDraggableModal';
 
 const CLETNotificationPanel = ({ isOpen, onClose, cletNotifications }) => {
   // Filter states
@@ -120,11 +121,13 @@ const CLETNotificationPanel = ({ isOpen, onClose, cletNotifications }) => {
 
   if (!isOpen) return null;
 
+  const { modalRef, modalStyle, dragHandleProps } = useDraggableModal(isOpen);
+
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[80vh] flex flex-col overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-gray-200 bg-gray-50">
+      <div ref={modalRef} style={modalStyle} className="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[80vh] flex flex-col overflow-hidden">
+        {/* Header - drag to move */}
+        <div className="flex items-center justify-between p-6 border-b border-gray-200 bg-gray-50 cursor-move" {...dragHandleProps}>
           <div className="flex items-center space-x-3">
             <AlertTriangle className="w-6 h-6 text-purple-500" />
             <h2 className="text-xl font-semibold text-gray-900">
