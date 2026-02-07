@@ -1231,6 +1231,44 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
     return () => window.removeEventListener('app:stop-timers-for-clockout', handler);
   }, [updateTimerState, user]);
 
+  // When tab/browser is actually closed (page unload): stop timers via sendBeacon.
+  // We do NOT stop on tab switch or window minimize — only on pagehide (tab close, browser close, navigate away).
+  useEffect(() => {
+    const TAB_CLOSE_MEMO = 'Timer auto-stopped: browser/tab closed';
+
+    const onPageHide = () => {
+      const active = { ...activeTimersRef.current };
+      const taskIds = Object.keys(active);
+      if (taskIds.length === 0) return;
+
+      const nowMs = Date.now();
+      const tasks = tasksRef.current || [];
+      const u = userRef.current;
+
+      taskIds.forEach((taskId) => {
+        const { startTime } = active[taskId];
+        const startTimeMs = typeof startTime === 'number' ? startTime : new Date(startTime).getTime();
+        const loggedSeconds = Math.floor((nowMs - startTimeMs) / 1000);
+        const task = tasks.find((t) => t.id === Number(taskId));
+        const currentLogged = task?.logged_seconds || 0;
+
+        const body = JSON.stringify({
+          loggedSeconds,
+          startTimeMs,
+          endTimeMs: nowMs,
+          user_name: u?.name || 'Admin',
+          user_id: u?.id || 1,
+          memo: TAB_CLOSE_MEMO,
+        });
+        const url = `${window.location.origin}/api/tasks/${taskId}/stop-timer`;
+        navigator.sendBeacon(url, new Blob([body], { type: 'application/json' }));
+      });
+    };
+
+    window.addEventListener('pagehide', onPageHide);
+    return () => window.removeEventListener('pagehide', onPageHide);
+  }, []);
+
   // Load more tasks function for pagination
   const loadMoreTasks = async () => {
     if (loadingMore || !hasMoreTasks || user?.role === 'admin' || user?.role === 'Admin') return;
@@ -1295,43 +1333,85 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
   useEffect(() => { tasksRef.current = tasks; }, [tasks]);
   useEffect(() => { userRef.current = user; }, [user]);
 
+  // Stale timer threshold: if timer was started more than this ago, treat as left running (PC off / browser closed) and auto-stop
+  const STALE_TIMER_THRESHOLD_MS = 4 * 60 * 60 * 1000; // 4 hours
+
   // Restore activeTimers state from database when tasks are loaded (optimized)
   // Skip restoring timers for tasks that have a pending offline stop (not yet synced)
+  // Auto-stop timers that were left running too long (e.g. overnight when PC was off)
   useEffect(() => {
-    if (tasks.length > 0) {
-      let pendingTaskIds = new Set();
-      try {
-        const raw = localStorage.getItem('pendingStopTimers');
-        if (raw) {
-          const pending = JSON.parse(raw);
-          if (Array.isArray(pending)) pending.forEach((p) => pendingTaskIds.add(Number(p.taskId)));
-        }
-      } catch (e) { /* ignore */ }
+    if (tasks.length === 0) return;
 
-      const restoredIntervals = {};
-      (tasks || []).forEach(task => {
-        if (!task.timer_started_at) return;
-        if (pendingTaskIds.has(task.id)) return; // Don't restore — we have a pending stop for this task
-        if (timerIntervals[task.id]) return;
-
-        const interval = setInterval(() => {
-          updateTimerState(prev => ({ ...prev, tick: Date.now() }));
-        }, 1000);
-        restoredIntervals[task.id] = interval;
-        activeTimersRef.current[task.id] = {
-          startTime: new Date(task.timer_started_at).getTime(),
-          intervalId: interval
-        };
-      });
-
-      if (Object.keys(restoredIntervals).length > 0) {
-        updateTimerState(prev => ({
-          ...prev,
-          intervals: { ...prev.intervals, ...restoredIntervals }
-        }));
+    let pendingTaskIds = new Set();
+    try {
+      const raw = localStorage.getItem('pendingStopTimers');
+      if (raw) {
+        const pending = JSON.parse(raw);
+        if (Array.isArray(pending)) pending.forEach((p) => pendingTaskIds.add(Number(p.taskId)));
       }
+    } catch (e) { /* ignore */ }
+
+    const nowMs = Date.now();
+    const restoredIntervals = {};
+
+    (tasks || []).forEach((task) => {
+      if (!task.timer_started_at) return;
+      if (pendingTaskIds.has(task.id)) return;
+      if (timerIntervals[task.id]) return;
+
+      const startMs = new Date(task.timer_started_at).getTime();
+      const elapsedMs = nowMs - startMs;
+      if (elapsedMs > STALE_TIMER_THRESHOLD_MS) {
+        // Timer was left running (e.g. PC off / browser closed) — stop it and don't restore
+        const loggedSeconds = Math.floor(elapsedMs / 1000);
+        const currentLogged = task.logged_seconds || 0;
+        const newLoggedSeconds = currentLogged + loggedSeconds;
+        fetch(`/api/tasks/${task.id}/stop-timer`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            loggedSeconds,
+            startTimeMs: startMs,
+            endTimeMs: nowMs,
+            user_name: user?.name || 'Admin',
+            user_id: user?.id || 1,
+            memo: 'Timer auto-stopped: session ended (browser/system was closed)',
+          }),
+        })
+          .then((res) => res.ok && res.json())
+          .then((data) => {
+            const serverLogged = data?.logged_seconds;
+            updateDataState((prev) => ({
+              ...prev,
+              tasks: prev.tasks.map((t) =>
+                t.id === task.id
+                  ? { ...t, timer_started_at: null, logged_seconds: serverLogged != null ? serverLogged : newLoggedSeconds }
+                  : t
+              ),
+            }));
+            updateTimerState((prev) => ({ ...prev, tick: Date.now() }));
+          })
+          .catch((err) => console.error('Failed to auto-stop stale timer for task', task.id, err));
+        return;
+      }
+
+      const interval = setInterval(() => {
+        updateTimerState((prev) => ({ ...prev, tick: Date.now() }));
+      }, 1000);
+      restoredIntervals[task.id] = interval;
+      activeTimersRef.current[task.id] = {
+        startTime: startMs,
+        intervalId: interval,
+      };
+    });
+
+    if (Object.keys(restoredIntervals).length > 0) {
+      updateTimerState((prev) => ({
+        ...prev,
+        intervals: { ...prev.intervals, ...restoredIntervals },
+      }));
     }
-  }, [tasks, timerIntervals]);
+  }, [tasks, timerIntervals, user]);
 
   // Cleanup intervals on unmount
   useEffect(() => {
