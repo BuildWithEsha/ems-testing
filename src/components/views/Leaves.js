@@ -1480,16 +1480,87 @@ export default function Leaves({ initialTab, initialManagerSection }) {
   };
 
   const renderPolicy = () => (
-    <div className="bg-white border rounded p-6 text-gray-700 space-y-2">
-      <h2 className="text-lg font-semibold text-gray-900 mb-2">Leave Policy</h2>
-      <p>
-        Monthly paid leave quota:{' '}
-        <span className="font-semibold">{policy?.monthly_paid_quota ?? 2}</span> days.
-      </p>
-      <p>
-        {policy?.uninformed_penalty_text ||
-          'If you take uninformed leaves, paid leave quotas in future months will be reduced until all uninformed days have been deducted. No leaves this month will be paid out in money.'}
-      </p>
+    <div className="bg-white border rounded-lg p-6 text-gray-700 shadow-sm">
+      <h2 className="text-xl font-semibold text-gray-900 mb-4 border-b border-gray-200 pb-2">Leave Policy</h2>
+
+      <div className="space-y-6 text-sm">
+        {/* Bereavement Leave */}
+        <section>
+          <h3 className="text-base font-semibold text-gray-900 mb-2">Bereavement Leave</h3>
+          <p className="mb-3 text-gray-700">
+            In the event of the death of a family member, as a gesture of support and compassion during such circumstances, the company provides the following <strong>paid</strong> leave entitlements:
+          </p>
+          <ul className="list-disc list-inside space-y-1.5 ml-2 text-gray-700">
+            <li><strong>10 days</strong> — For the loss of an immediate family member: Mother, Father, Spouse (Husband or Wife), or Children.</li>
+            <li><strong>7 days</strong> — For the loss of a Brother or Sister.</li>
+            <li><strong>1 day</strong> — For the loss of other extended family members.</li>
+          </ul>
+          <p className="mt-2 text-gray-600">These leaves are paid.</p>
+        </section>
+
+        {/* Monthly Paid Leave */}
+        <section>
+          <h3 className="text-base font-semibold text-gray-900 mb-2">Monthly Paid Leave</h3>
+          <p className="mb-2 text-gray-700">
+            Employees are entitled to <strong>{policy?.monthly_paid_quota ?? 2} paid leaves per month</strong>. These leaves must be planned and applied for in advance.
+          </p>
+          <p className="text-gray-700">
+            If an employee does not utilize their monthly leave allowance, the unused days will be compensated with a monetary payout at the end of the month.
+          </p>
+        </section>
+
+        {/* Paid Leave After Probation */}
+        <section>
+          <h3 className="text-base font-semibold text-gray-900 mb-2">Paid Leave After Probation</h3>
+          <p className="text-gray-700">
+            There will be no paid leave during the probation period. Employees will become eligible for paid leave only after they are confirmed as permanent employees.
+          </p>
+        </section>
+
+        {/* Advance Submission */}
+        <section>
+          <h3 className="text-base font-semibold text-gray-900 mb-2">Advance Submission Required</h3>
+          <p className="text-gray-700">
+            Leave requests must be submitted in advance. Any request submitted after the leave has already been taken will not be accepted.
+          </p>
+        </section>
+
+        {/* More Than 2 Approved Leaves */}
+        <section>
+          <h3 className="text-base font-semibold text-gray-900 mb-2">More Than 2 Approved Leaves</h3>
+          <p className="text-gray-700">
+            Our policy entitles each employee to 2 paid leaves per month. In exceptional cases, if more than 2 leaves are approved due to valid or unavoidable reasons, any leave beyond the monthly entitlement will be considered <strong>unpaid</strong>, even if approved.
+          </p>
+        </section>
+
+        {/* Absence Before or After Company Leave */}
+        <section>
+          <h3 className="text-base font-semibold text-gray-900 mb-2">Absence Before or After Consecutive Paid Leave</h3>
+          <p className="mb-2 text-gray-700">
+            If an employee is absent before or after consecutive paid (company) leaves, their absence will be considered as 2 days of leave.
+          </p>
+          <p className="text-gray-700">
+            In cases where the absence is due to a medical condition, the employee should provide documentation (such as a medical report). The company may make reasonable accommodations in such cases.
+          </p>
+        </section>
+
+        {/* Less Than 2 Hours Logged */}
+        <section>
+          <h3 className="text-base font-semibold text-gray-900 mb-2">Minimum Working Hours</h3>
+          <p className="text-gray-700">
+            Any working day with less than 2 hours logged will be counted as an absence for that day.
+          </p>
+        </section>
+
+        {/* Uninformed Leave / Deductions */}
+        <section className="pt-2 border-t border-gray-200">
+          <h3 className="text-base font-semibold text-gray-900 mb-2">Uninformed Leave &amp; Deductions</h3>
+          <p className="text-gray-700">
+            {policy?.uninformed_penalty_text ||
+              'If you take uninformed leaves, paid leave quotas in future months will be reduced until all uninformed days have been deducted. Deductions apply until fully recovered.'}
+          </p>
+        </section>
+      </div>
     </div>
   );
 
