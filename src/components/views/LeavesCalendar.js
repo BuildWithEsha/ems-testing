@@ -224,7 +224,6 @@ export default function LeavesCalendar() {
       (blockedDates || []).filter((b) => b.type === 'holiday').map((b) => toDateStr(b.date)).filter(Boolean)
     )
   );
-  const isSunday = (dateStr) => new Date(dateStr + 'T12:00:00').getDay() === 0;
   const isDateImportantForEmployee = (dateStr, emp) =>
     allImportantEntries.some(
       (b) => toDateStr(b.date) === dateStr && (b.department_id == null || Number(b.department_id) === Number(emp.department_id))
@@ -605,7 +604,6 @@ export default function LeavesCalendar() {
             <span className="text-sm text-gray-700">2nd-half</span>
           </div>
         </div>
-        <p className="text-xs text-gray-500 mt-2">Sundays are always treated as holidays.</p>
       </div>
 
       {isAdmin && (
@@ -779,11 +777,10 @@ export default function LeavesCalendar() {
               </th>
               {days.map((d) => {
                 const isImportant = importantSet.has(d);
-                const isHoliday = holidaySet.has(d) || isSunday(d);
+                const isHoliday = holidaySet.has(d);
                 const headerLabels = isImportant ? getImportantLabelsForDate(d) : [];
-                // Header should not change color when marking Important; only holidays/Sundays are colored.
                 const headerBg = isHoliday ? 'bg-sky-200 text-gray-800' : 'text-gray-700';
-                const isMarked = isImportant || holidaySet.has(d);
+                const isMarked = isImportant || isHoliday;
                 const headerTitle = isImportant
                   ? headerLabels.length
                     ? `Important (no leave): ${headerLabels.join(', ')}`
@@ -851,7 +848,7 @@ export default function LeavesCalendar() {
                       ? getImportantLabelsForEmployeeOnDate(dateStr, emp)
                       : [];
                     const holidayLabels = getHolidayLabelsForDate(dateStr);
-                    const isHolidayCell = holidaySet.has(dateStr) || isSunday(dateStr);
+                    const isHolidayCell = holidaySet.has(dateStr);
                     if (!style) {
                       if (importantForEmp) style = getDeptImportantColor(emp.department_id);
                       else if (isHolidayCell) style = CELL_COLORS.holiday;

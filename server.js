@@ -11577,10 +11577,12 @@ app.post('/api/leaves/apply', async (req, res) => {
   }
 });
 
-// Date availability for a single date (red/green): blocked or booked
+// Date availability for a single date or range (red/green): blocked or booked in range
 app.get('/api/leaves/date-availability', async (req, res) => {
-  const { date, employee_id } = req.query;
-  if (!date) return res.status(400).json({ error: 'date is required (YYYY-MM-DD)' });
+  const { date, end_date, employee_id } = req.query;
+  const startDate = date || req.query.start_date;
+  if (!startDate) return res.status(400).json({ error: 'date or start_date is required (YYYY-MM-DD)' });
+  const endDate = end_date || req.query.end_date || startDate;
   let connection;
   try {
     connection = await mysqlPool.getConnection();
@@ -11596,6 +11598,7 @@ app.get('/api/leaves/date-availability', async (req, res) => {
         deptId = dRows.length ? dRows[0].id : null;
       }
     }
+    // Range overlap: blocked/booking overlaps [startDate, endDate] when block.start_date <= endDate AND block.end_date >= startDate
     const [blocked] = await connection.execute(
       `SELECT id FROM leave_requests WHERE employee_id = 0
        AND start_date <= ? AND end_date >= ?
@@ -11603,21 +11606,26 @@ app.get('/api/leaves/date-availability', async (req, res) => {
          (reason LIKE 'HOLIDAY%' AND department_id IS NULL)
          OR (reason LIKE 'IMPORTANT_EVENT%' AND (department_id IS NULL OR department_id = ?))
        ) LIMIT 1`,
-      [date, date, deptId]
+      [endDate, startDate, deptId]
     );
     const [booked] = await connection.execute(
       `SELECT lr.id, lr.employee_id, e.name AS employee_name FROM leave_requests lr
        JOIN employees e ON e.id = lr.employee_id
        WHERE lr.employee_id != 0 AND lr.status IN ('pending','approved')
        AND lr.start_date <= ? AND lr.end_date >= ?`,
-      [date, date]
+      [endDate, startDate]
     );
+    const bookedUnique = booked.reduce((acc, r) => {
+      if (!acc.some((x) => x.leave_id === r.id)) acc.push({ leave_id: r.id, employee_id: r.employee_id, employee_name: r.employee_name });
+      return acc;
+    }, []);
     res.json({
-      date,
+      date: startDate,
+      end_date: endDate !== startDate ? endDate : undefined,
       blocked: blocked.length > 0,
       available: blocked.length === 0 && booked.length === 0,
-      bookedBy: booked.map((r) => ({ leave_id: r.id, employee_id: r.employee_id, employee_name: r.employee_name })),
-      bookedByCount: booked.length
+      bookedBy: bookedUnique,
+      bookedByCount: bookedUnique.length
     });
   } catch (err) {
     console.error('Error checking date availability:', err);
@@ -12221,22 +12229,31 @@ app.patch('/api/leaves/:id', async (req, res) => {
     for (const B of pendingSwap) {
       const overlap = B.start_date <= end_date && B.end_date >= start_date;
       if (!overlap) {
-        const { year, month } = getYearMonthFromDate(B.start_date);
-        const balance = await getOrCreateLeaveBalance(connection, B.employee_id, year, month);
-        const used = balance.paid_used || 0;
-        const deduction = balance.next_month_deduction || 0;
-        const effectiveQuota = Math.max(0, (balance.paid_quota || 2) - deduction);
-        const reqDays = Number(B.days_requested) || 1;
-        const willExceedPaid = used + reqDays > effectiveQuota;
-        const newUsed = willExceedPaid ? used : used + reqDays;
+        // Clear swap link so this leave is no longer tied to the moved leave
         await connection.execute(
-          'UPDATE leave_balances SET paid_used = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-          [newUsed, balance.id]
+          `UPDATE leave_requests SET requested_swap_with_leave_id = NULL WHERE id = ?`,
+          [B.id]
         );
-        await connection.execute(
-          `UPDATE leave_requests SET status = 'approved', decision_at = NOW(), requested_swap_with_leave_id = NULL, is_paid = ? WHERE id = ?`,
-          [willExceedPaid ? 0 : (B.is_paid || 0), B.id]
-        );
+        // Paid leave: auto-approve after successful swap. Regular: leave pending for admin acknowledgement.
+        if (B.is_paid) {
+          const { year, month } = getYearMonthFromDate(B.start_date);
+          const balance = await getOrCreateLeaveBalance(connection, B.employee_id, year, month);
+          const used = balance.paid_used || 0;
+          const deduction = balance.next_month_deduction || 0;
+          const effectiveQuota = Math.max(0, (balance.paid_quota || 2) - deduction);
+          const reqDays = Number(B.days_requested) || 1;
+          const willExceedPaid = used + reqDays > effectiveQuota;
+          const newUsed = willExceedPaid ? used : used + reqDays;
+          await connection.execute(
+            'UPDATE leave_balances SET paid_used = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+            [newUsed, balance.id]
+          );
+          await connection.execute(
+            `UPDATE leave_requests SET status = 'approved', decision_at = NOW(), is_paid = ? WHERE id = ?`,
+            [willExceedPaid ? 0 : 1, B.id]
+          );
+        }
+        // Regular leave remains status = 'pending' for admin to acknowledge
       }
     }
     await connection.commit();

@@ -363,13 +363,17 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     }
   }, [report?.remaining_paid, report?.leaves_taken_this_month]);
 
-  const loadDateAvailability = async (date) => {
-    if (!date) {
+  const loadDateAvailability = async (startDate, endDate) => {
+    if (!startDate) {
       setDateAvailability(null);
       return;
     }
+    const end = endDate && endDate !== startDate ? endDate : startDate;
     try {
-      const res = await fetch(`/api/leaves/date-availability?date=${encodeURIComponent(date)}${employeeId ? `&employee_id=${employeeId}` : ''}`);
+      let url = `/api/leaves/date-availability?date=${encodeURIComponent(startDate)}`;
+      if (end !== startDate) url += `&end_date=${encodeURIComponent(end)}`;
+      if (employeeId) url += `&employee_id=${employeeId}`;
+      const res = await fetch(url);
       if (res.ok) {
         const data = await res.json();
         setDateAvailability(data);
@@ -407,9 +411,9 @@ export default function Leaves({ initialTab, initialManagerSection }) {
   };
 
   useEffect(() => {
-    if (form.start_date) loadDateAvailability(form.start_date);
+    if (form.start_date) loadDateAvailability(form.start_date, form.end_date);
     else setDateAvailability(null);
-  }, [form.start_date]);
+  }, [form.start_date, form.end_date]);
 
   useEffect(() => {
     if (mode === 'department' && isAdmin) {
