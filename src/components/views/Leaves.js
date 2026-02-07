@@ -1499,6 +1499,103 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     });
   };
 
+  const renderLeaveDetailsModal = () => {
+    if (!selectedLeaveForDetails) return null;
+    const L = selectedLeaveForDetails;
+    const status = (L.status || 'pending').toLowerCase();
+    const statusBg =
+      status === 'approved' ? 'bg-emerald-500/90' : status === 'rejected' ? 'bg-red-500/90' : 'bg-amber-500/90';
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" aria-modal="true" role="dialog">
+        <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full overflow-hidden">
+          <div className="px-6 py-4 bg-indigo-600 text-white flex items-center justify-between">
+            <div>
+              <h2 className="text-lg font-bold tracking-tight">Leave details</h2>
+              {L.employee_name && <p className="text-sm text-indigo-100 mt-0.5">{L.employee_name}</p>}
+            </div>
+            <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold capitalize ${statusBg} text-white`}>
+              {L.status || 'Pending'}
+            </span>
+          </div>
+          <div className="px-6 py-4 bg-white">
+            <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 text-sm">
+              <div>
+                <dt className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-0.5">Dates</dt>
+                <dd className="text-gray-900 font-medium">
+                  {formatDate(L.start_date)}
+                  {L.start_date !== L.end_date ? ` – ${formatDate(L.end_date)}` : ''}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-0.5">Days</dt>
+                <dd className="text-gray-900 font-medium">{Number(L.days_requested).toFixed(2)}</dd>
+              </div>
+              <div>
+                <dt className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-0.5">Absent</dt>
+                <dd className="text-gray-900">{L.is_uninformed ? 'Yes' : 'No'}</dd>
+              </div>
+              {L.reason && (
+                <div className="sm:col-span-2">
+                  <dt className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-0.5">Reason</dt>
+                  <dd className="text-gray-900">{L.reason}</dd>
+                </div>
+              )}
+              {L.start_segment && (
+                <div>
+                  <dt className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-0.5">Segments</dt>
+                  <dd className="text-gray-900 font-mono text-xs">{L.start_segment} → {L.end_segment}</dd>
+                </div>
+              )}
+              <div>
+                <dt className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-0.5">Paid</dt>
+                <dd className="text-gray-900">{L.is_paid ? 'Yes' : 'No'}</dd>
+              </div>
+              {(L.department_name || L.department) && (
+                <div>
+                  <dt className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-0.5">Department</dt>
+                  <dd className="text-gray-900">{L.department_name || L.department}</dd>
+                </div>
+              )}
+              {L.created_at && (
+                <div>
+                  <dt className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-0.5">Applied at</dt>
+                  <dd className="text-gray-900">{formatDateTime(L.created_at)}</dd>
+                </div>
+              )}
+              {status !== 'pending' && L.decision_by_name && (
+                <div>
+                  <dt className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-0.5">Decided by</dt>
+                  <dd className="text-gray-900">{L.decision_by_name}</dd>
+                </div>
+              )}
+              {L.decision_reason && (
+                <div className="sm:col-span-2">
+                  <dt className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-0.5">Decision notes</dt>
+                  <dd className="text-gray-900">{L.decision_reason}</dd>
+                </div>
+              )}
+              {L.decision_at && (
+                <div>
+                  <dt className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-0.5">Decided at</dt>
+                  <dd className="text-gray-900">{formatDateTime(L.decision_at)}</dd>
+                </div>
+              )}
+            </dl>
+          </div>
+          <div className="border-t border-gray-200 px-6 py-3 flex justify-end bg-gray-50">
+            <button
+              type="button"
+              onClick={() => setSelectedLeaveForDetails(null)}
+              className="px-4 py-2 text-sm font-medium rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const renderPolicy = () => (
     <div className="bg-white border rounded-lg p-6 text-gray-700 shadow-sm">
       <h2 className="text-xl font-semibold text-gray-900 mb-4 border-b border-gray-200 pb-2">Leave Policy</h2>
@@ -2899,85 +2996,6 @@ export default function Leaves({ initialTab, initialManagerSection }) {
             </div>
           </div>
         )}
-        {selectedLeaveForDetails && (
-          <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40">
-            <div className="bg-white rounded-2xl shadow-2xl max-w-xl w-full mx-4 overflow-hidden">
-              <div className="px-6 py-4 bg-gradient-to-r from-indigo-600 to-indigo-500 text-white flex items-center justify-between">
-                <div>
-                  <h2 className="text-lg font-semibold">Leave details</h2>
-                  {selectedLeaveForDetails.employee_name && (
-                    <p className="text-xs text-indigo-100 mt-0.5">{selectedLeaveForDetails.employee_name}</p>
-                  )}
-                </div>
-                <span className="inline-flex items-center rounded-full bg-white/10 px-3 py-1 text-xs font-medium">
-                  {selectedLeaveForDetails.status || 'pending'}
-                </span>
-              </div>
-              <div className="px-6 py-4 space-y-3 text-sm text-gray-700 bg-gray-50">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2">
-                  <div>
-                    <span className="font-semibold">Dates:</span>{' '}
-                    {formatDate(selectedLeaveForDetails.start_date)}
-                    {selectedLeaveForDetails.start_date !== selectedLeaveForDetails.end_date ? ` – ${formatDate(selectedLeaveForDetails.end_date)}` : ''}
-                  </div>
-                  {selectedLeaveForDetails.start_segment && (
-                    <div>
-                      <span className="font-semibold">Segments:</span>{' '}
-                      {selectedLeaveForDetails.start_segment} → {selectedLeaveForDetails.end_segment}
-                    </div>
-                  )}
-                  <div>
-                    <span className="font-semibold">Days:</span>{' '}
-                    {Number(selectedLeaveForDetails.days_requested).toFixed(2)}
-                  </div>
-                  <div>
-                    <span className="font-semibold">Paid:</span>{' '}
-                    {selectedLeaveForDetails.is_paid ? 'Yes' : 'No'}
-                  </div>
-                  <div>
-                    <span className="font-semibold">Absent:</span>{' '}
-                    {selectedLeaveForDetails.is_uninformed ? 'Yes' : 'No'}
-                  </div>
-                  {(selectedLeaveForDetails.department_name || selectedLeaveForDetails.department) && (
-                    <div>
-                      <span className="font-semibold">Department:</span>{' '}
-                      {selectedLeaveForDetails.department_name || selectedLeaveForDetails.department}
-                    </div>
-                  )}
-                  {selectedLeaveForDetails.reason && (
-                    <div>
-                      <span className="font-semibold">Reason:</span> {selectedLeaveForDetails.reason}
-                    </div>
-                  )}
-                  {selectedLeaveForDetails.decision_reason && (
-                    <div>
-                      <span className="font-semibold">Decision notes:</span> {selectedLeaveForDetails.decision_reason}
-                    </div>
-                  )}
-                  {selectedLeaveForDetails.created_at && (
-                    <div>
-                      <span className="font-semibold">Applied at:</span> {formatDateTime(selectedLeaveForDetails.created_at)}
-                    </div>
-                  )}
-                  {selectedLeaveForDetails.decision_at && (
-                    <div>
-                      <span className="font-semibold">Decided at:</span> {formatDateTime(selectedLeaveForDetails.decision_at)}
-                    </div>
-                  )}
-                </div>
-              </div>
-              <div className="border-t border-gray-200 px-6 py-3 flex justify-end bg-white">
-                <button
-                  type="button"
-                  onClick={() => setSelectedLeaveForDetails(null)}
-                  className="px-4 py-2 text-sm rounded-md bg-gray-100 text-gray-800 hover:bg-gray-200"
-                >
-                  Close
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
       <div className="p-6">
         <h1 className="text-2xl font-semibold text-gray-900 mb-4">Department Leaves</h1>
         <div className="mb-4 border-b border-gray-200">
@@ -3019,88 +3037,6 @@ export default function Leaves({ initialTab, initialManagerSection }) {
           <h1 className="text-2xl font-semibold text-gray-900 mb-4">Absentees</h1>
           {renderMarkUninformedContent()}
         </div>
-        {selectedLeaveForDetails && (
-          <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40">
-            <div className="bg-white rounded-2xl shadow-2xl max-w-xl w-full mx-4 overflow-hidden">
-              <div className="px-6 py-4 bg-gradient-to-r from-indigo-600 to-indigo-500 text-white flex items-center justify-between">
-                <div>
-                  <h2 className="text-lg font-semibold">Leave details</h2>
-                  {selectedLeaveForDetails.employee_name && (
-                    <p className="text-xs text-indigo-100 mt-0.5">
-                      {selectedLeaveForDetails.employee_name}
-                    </p>
-                  )}
-                </div>
-                <span className="inline-flex items-center rounded-full bg-white/10 px-3 py-1 text-xs font-medium">
-                  {selectedLeaveForDetails.status || 'pending'}
-                </span>
-              </div>
-              <div className="px-6 py-4 space-y-3 text-sm text-gray-700 bg-gray-50">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2">
-                  <div>
-                    <span className="font-semibold">Dates:</span>{' '}
-                    {formatDate(selectedLeaveForDetails.start_date)}
-                    {selectedLeaveForDetails.start_date !== selectedLeaveForDetails.end_date
-                      ? ` – ${formatDate(selectedLeaveForDetails.end_date)}`
-                      : ''}
-                  </div>
-                  {selectedLeaveForDetails.start_segment && (
-                    <div>
-                      <span className="font-semibold">Segments:</span>{' '}
-                      {selectedLeaveForDetails.start_segment} →{' '}
-                      {selectedLeaveForDetails.end_segment}
-                    </div>
-                  )}
-                  <div>
-                    <span className="font-semibold">Days:</span>{' '}
-                    {Number(selectedLeaveForDetails.days_requested).toFixed(2)}
-                  </div>
-                  <div>
-                    <span className="font-semibold">Paid:</span>{' '}
-                    {selectedLeaveForDetails.is_paid ? 'Yes' : 'No'}
-                  </div>
-              <div>
-                <span className="font-semibold">Absent:</span>{' '}
-                {selectedLeaveForDetails.is_uninformed ? 'Yes' : 'No'}
-              </div>
-                  {selectedLeaveForDetails.reason && (
-                    <div>
-                      <span className="font-semibold">Reason:</span>{' '}
-                      {selectedLeaveForDetails.reason}
-                    </div>
-                  )}
-                  {selectedLeaveForDetails.decision_reason && (
-                    <div>
-                      <span className="font-semibold">Decision notes:</span>{' '}
-                      {selectedLeaveForDetails.decision_reason}
-                    </div>
-                  )}
-                  {selectedLeaveForDetails.created_at && (
-                    <div>
-                      <span className="font-semibold">Applied at:</span>{' '}
-                      {formatDateTime(selectedLeaveForDetails.created_at)}
-                    </div>
-                  )}
-                  {selectedLeaveForDetails.decision_at && (
-                    <div>
-                      <span className="font-semibold">Decided at:</span>{' '}
-                      {formatDateTime(selectedLeaveForDetails.decision_at)}
-                    </div>
-                  )}
-                </div>
-              </div>
-              <div className="border-t border-gray-200 px-6 py-3 flex justify-end bg-white">
-                <button
-                  type="button"
-                  onClick={() => setSelectedLeaveForDetails(null)}
-                  className="px-4 py-2 text-sm rounded-md bg-gray-100 text-gray-800 hover:bg-gray-200"
-                >
-                  Close
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
       </>
     );
   }
@@ -3264,6 +3200,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
           </div>
         </div>
       )}
+      {selectedLeaveForDetails && renderLeaveDetailsModal()}
       {editingLeave && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full mx-4 p-6">
@@ -3396,96 +3333,6 @@ export default function Leaves({ initialTab, initialManagerSection }) {
         </div>
         {renderMyLeavesContent()}
       </div>
-      {selectedLeaveForDetails && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-xl w-full mx-4 overflow-hidden">
-            <div className="px-6 py-4 bg-gradient-to-r from-indigo-600 to-indigo-500 text-white flex items-center justify-between">
-              <div>
-                <h2 className="text-lg font-semibold">Leave details</h2>
-                {selectedLeaveForDetails.employee_name && (
-                  <p className="text-xs text-indigo-100 mt-0.5">
-                    {selectedLeaveForDetails.employee_name}
-                  </p>
-                )}
-              </div>
-              <span className="inline-flex items-center rounded-full bg-white/10 px-3 py-1 text-xs font-medium">
-                {selectedLeaveForDetails.status || 'pending'}
-              </span>
-            </div>
-            <div className="px-6 py-4 space-y-3 text-sm text-gray-700 bg-gray-50">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2">
-                <div>
-                  <span className="font-semibold">Dates:</span>{' '}
-                  {formatDate(selectedLeaveForDetails.start_date)}
-                  {selectedLeaveForDetails.start_date !== selectedLeaveForDetails.end_date
-                    ? ` – ${formatDate(selectedLeaveForDetails.end_date)}`
-                    : ''}
-                </div>
-                {selectedLeaveForDetails.start_segment && (
-                  <div>
-                    <span className="font-semibold">Segments:</span>{' '}
-                    {selectedLeaveForDetails.start_segment} →{' '}
-                    {selectedLeaveForDetails.end_segment}
-                  </div>
-                )}
-                <div>
-                  <span className="font-semibold">Days:</span>{' '}
-                  {Number(selectedLeaveForDetails.days_requested).toFixed(2)}
-                </div>
-                {selectedLeaveForDetails.status &&
-                  selectedLeaveForDetails.status !== 'pending' &&
-                  selectedLeaveForDetails.decision_by_name && (
-                    <div>
-                      <span className="font-semibold">Decided by:</span>{' '}
-                      {selectedLeaveForDetails.decision_by_name}
-                    </div>
-                  )}
-                <div>
-                  <span className="font-semibold">Paid:</span>{' '}
-                  {selectedLeaveForDetails.is_paid ? 'Yes' : 'No'}
-                </div>
-                <div>
-                  <span className="font-semibold">Absent:</span>{' '}
-                  {selectedLeaveForDetails.is_uninformed ? 'Yes' : 'No'}
-                </div>
-                {selectedLeaveForDetails.reason && (
-                  <div>
-                    <span className="font-semibold">Reason:</span>{' '}
-                    {selectedLeaveForDetails.reason}
-                  </div>
-                )}
-                {selectedLeaveForDetails.decision_reason && (
-                  <div>
-                    <span className="font-semibold">Decision notes:</span>{' '}
-                    {selectedLeaveForDetails.decision_reason}
-                  </div>
-                )}
-                {selectedLeaveForDetails.created_at && (
-                  <div>
-                    <span className="font-semibold">Applied at:</span>{' '}
-                    {formatDateTime(selectedLeaveForDetails.created_at)}
-                  </div>
-                )}
-                {selectedLeaveForDetails.decision_at && (
-                  <div>
-                    <span className="font-semibold">Decided at:</span>{' '}
-                    {formatDateTime(selectedLeaveForDetails.decision_at)}
-                  </div>
-                )}
-              </div>
-            </div>
-            <div className="border-t border-gray-200 px-6 py-3 flex justify-end bg-white">
-              <button
-                type="button"
-                onClick={() => setSelectedLeaveForDetails(null)}
-                className="px-4 py-2 text-sm rounded-md bg-gray-100 text-gray-800 hover:bg-gray-200"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </>
   );
 }

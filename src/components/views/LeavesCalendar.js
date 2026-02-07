@@ -255,7 +255,7 @@ export default function LeavesCalendar() {
     return Array.from(new Set([...fromHoliday, ...fromBlocked]));
   };
 
-  const markDate = async (date, type = 'important') => {
+  const markDateAsBlocked = async (date, type = 'important') => {
     if (!isAdmin) return;
     try {
       const body = { date, type };
@@ -275,7 +275,7 @@ export default function LeavesCalendar() {
     }
   };
 
-  const unmarkDate = async (date, type, label) => {
+  const unmarkDateBlocked = async (date, type, label) => {
     if (!isAdmin) return;
     try {
       let url = type ? `/api/leaves/blocked-dates/${date}?type=${type}` : `/api/leaves/blocked-dates/${date}`;
@@ -751,7 +751,7 @@ export default function LeavesCalendar() {
                           {isMarked ? (
                             <button
                               type="button"
-                              onClick={() => unmarkDate(d, isImportant ? 'important' : 'holiday')}
+                              onClick={() => unmarkDateBlocked(d, isImportant ? 'important' : 'holiday')}
                               className="p-0.5 rounded hover:bg-black/10"
                               title="Unmark"
                             >
@@ -760,7 +760,7 @@ export default function LeavesCalendar() {
                           ) : (
                             <button
                               type="button"
-                              onClick={() => markDate(d, 'important')}
+                              onClick={() => markDateAsBlocked(d, 'important')}
                               className="p-0.5 rounded hover:bg-gray-200 text-gray-500"
                               title="Mark as important (no leave)"
                             >
