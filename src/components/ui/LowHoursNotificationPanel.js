@@ -133,9 +133,14 @@ const LowHoursNotificationPanel = ({
     window.URL.revokeObjectURL(url);
   };
 
+  // Same users who can view LHE can create less-hours tickets: admin, manager (role or designation), or permission
+  const isManagerByDesignation = user?.designation && String(user.designation).toLowerCase().includes('manager');
   const canCreateLessHoursTickets = !!user && (
     user.role === 'admin' ||
     user.role === 'Admin' ||
+    user?.is_manager ||
+    (user?.role && String(user.role).toLowerCase() === 'manager') ||
+    isManagerByDesignation ||
     user.permissions?.includes('all') ||
     user.permissions?.includes('tickets_auto_less_hours')
   );
@@ -151,7 +156,8 @@ const LowHoursNotificationPanel = ({
           'Content-Type': 'application/json',
           'user-role': user?.role || 'admin',
           'user-permissions': JSON.stringify(user?.permissions || ['all']),
-          'user-id': String(user?.id || '')
+          'user-id': String(user?.id || ''),
+          ...(user?.designation != null && user.designation !== '' ? { 'x-user-designation': String(user.designation) } : {})
         },
         body: JSON.stringify({
           date: selectedDate,

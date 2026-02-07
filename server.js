@@ -8996,7 +8996,9 @@ app.get('/api/wages/employee-time-summary', async (req, res) => {
     }
 
     const responseData = response.data;
-    const rows = Array.isArray(responseData) ? responseData : (responseData?.data || []);
+    const rows = Array.isArray(responseData)
+      ? responseData
+      : (Array.isArray(responseData?.data) ? responseData.data : []);
     const getIdleHours = (row) => {
       if (!row || typeof row !== 'object') return 0;
       const h = row.idleHours ?? row.idle_hours ?? row.IdleHours;
@@ -9179,8 +9181,10 @@ app.get('/api/notifications/low-idle-employees', async (req, res) => {
 
     const responseData = response.data;
     // Employee summary report returns idle time as idleHours (decimal hours) and/or inactiveSecondsCount (seconds)
-    // API may return camelCase or other variants; coerce strings to number
-    const rows = Array.isArray(responseData) ? responseData : (responseData?.data || []);
+    // API may return array, or { data: array }; ensure we always have an array to avoid .filter/.map throwing
+    const rows = Array.isArray(responseData)
+      ? responseData
+      : (Array.isArray(responseData?.data) ? responseData.data : []);
     const getIdleHours = (row) => {
       if (!row || typeof row !== 'object') return 0;
       const h = row.idleHours ?? row.idle_hours ?? row.IdleHours;
@@ -9340,7 +9344,9 @@ app.get('/api/notifications/currently-idle-employees', async (req, res) => {
     }
 
     const responseData = response.data;
-    const rows = Array.isArray(responseData) ? responseData : (responseData?.data || []);
+    const rows = Array.isArray(responseData)
+      ? responseData
+      : (Array.isArray(responseData?.data) ? responseData.data : []);
     const getIdleHours = (row) => {
       if (!row || typeof row !== 'object') return 0;
       const h = row.idleHours ?? row.idle_hours ?? row.IdleHours;
@@ -10066,8 +10072,9 @@ async function createLessHoursTicketsForDate(targetDate, thresholdHours = 6, cre
 
 // Admin-only endpoint to auto-create less-hours tickets for a given date/threshold
 app.post('/api/tickets/auto-less-hours', async (req, res) => {
-  const userRole = req.headers['user-role'] || req.headers['x-user-role'] || 'employee';
+  const userRole = (req.headers['user-role'] || req.headers['x-user-role'] || 'employee').toString();
   const userPermissionsHeader = req.headers['user-permissions'] || req.headers['x-user-permissions'] || '[]';
+  const userDesignation = (req.headers['x-user-designation'] || req.headers['user-designation'] || '').toString().trim().toLowerCase();
 
   let userPermissions = [];
   try {
@@ -10078,9 +10085,11 @@ app.post('/api/tickets/auto-less-hours', async (req, res) => {
     return res.status(400).json({ error: 'Invalid permissions format' });
   }
 
+  const isManagerByRole = userRole === 'admin' || userRole === 'Admin' || userRole === 'manager' || userRole === 'Manager';
+  const isManagerByDesignation = userDesignation !== '' && userDesignation.includes('manager');
   const canRun =
-    userRole === 'admin' ||
-    userRole === 'Admin' ||
+    isManagerByRole ||
+    isManagerByDesignation ||
     userPermissions.includes('all') ||
     userPermissions.includes('tickets_auto_less_hours');
 
