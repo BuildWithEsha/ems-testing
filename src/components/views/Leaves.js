@@ -200,7 +200,10 @@ export default function Leaves({ initialTab, initialManagerSection }) {
   const loadReport = async () => {
     if (!employeeId) return;
     try {
-      const res = await fetch(`/api/leaves/report?employee_id=${employeeId}`);
+      const now = new Date();
+      const y = now.getFullYear();
+      const m = now.getMonth() + 1;
+      const res = await fetch(`/api/leaves/report?employee_id=${employeeId}&year=${y}&month=${m}`);
       if (res.ok) {
         setReport(await res.json());
       }
@@ -348,6 +351,17 @@ export default function Leaves({ initialTab, initialManagerSection }) {
       loadMarkUninformedEmployees();
     }
   }, [employeeId, departmentId, mode]);
+
+  // When report shows no paid leave remaining, sync leave type to Regular so policy form and submit use correct type
+  useEffect(() => {
+    if (!report) return;
+    const remaining = report.remaining_paid ?? null;
+    const noQuota = remaining !== null && remaining <= 0;
+    const hasUsage = Number(report.paid_used) > 0 || Number(report.leaves_taken_this_month) > 0 || Number(report.next_month_deduction) > 0;
+    if (noQuota && hasUsage && form.leave_type === 'paid') {
+      setForm((prev) => ({ ...prev, leave_type: 'other' }));
+    }
+  }, [report?.remaining_paid, report?.paid_used, report?.leaves_taken_this_month, report?.next_month_deduction]);
 
   const loadDateAvailability = async (date) => {
     if (!date) {
@@ -728,8 +742,14 @@ export default function Leaves({ initialTab, initialManagerSection }) {
 
   const renderApplyForm = () => {
     const daysRequested = computeDaysRequested();
-    const showPolicyForm = form.leave_type === 'other';
-    const paidDisabled = (report?.remaining_paid ?? 1) <= 0;
+    // Only disable paid when report exists and clearly shows no remaining quota (used or deduction); avoid disabling when user has taken 0 leaves and report might be wrong
+    const remaining = report?.remaining_paid ?? null;
+    const paidDisabled =
+      report != null &&
+      (remaining !== null && remaining <= 0) &&
+      (Number(report?.paid_used) > 0 || Number(report?.leaves_taken_this_month) > 0 || Number(report?.next_month_deduction) > 0);
+    const effectiveLeaveType = paidDisabled ? 'other' : form.leave_type;
+    const showPolicyForm = effectiveLeaveType === 'other';
     const isEventBlocked = dateAvailability?.blocked;
     const isDayRestricted = departmentRestrictedDays.length > 0 && dateRangeIncludesRestrictedDay(form.start_date, form.end_date, departmentRestrictedDays);
     const applyDisabled = isEventBlocked || isDayRestricted;

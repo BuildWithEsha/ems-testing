@@ -87,20 +87,20 @@ export default function LeavesCalendar() {
   const [data, setData] = useState({ employees: [], leaves: [], blockedDates: [], importantDates: [], holidayDates: [] });
   const [loading, setLoading] = useState(true);
   const [departments, setDepartments] = useState([]);
-  // Mark: single date, optional day-of-week, multi department, type, label
+  // Mark: single date, optional day-of-week (mark all that day in current month), single department, type, label
   const [markDate, setMarkDate] = useState('');
-  const [markDayOfWeek, setMarkDayOfWeek] = useState(''); // '' or '0'-'6' for day restriction
+  const [markDayOfWeek, setMarkDayOfWeek] = useState(''); // '' or '0'-'6'
   const [markType, setMarkType] = useState('important');
   const [markLabel, setMarkLabel] = useState('');
   const [markSubmitting, setMarkSubmitting] = useState(false);
-  const [importantDepartmentIds, setImportantDepartmentIds] = useState([]); // multi-select (empty = all for date mark)
-  // Unmark: optional date, optional day-of-week, multi department, type, label
+  const [markDepartmentId, setMarkDepartmentId] = useState(''); // '' = all departments
+  // Unmark: optional date, optional day-of-week, single department, type, label
   const [unmarkDate, setUnmarkDate] = useState('');
   const [unmarkDayOfWeek, setUnmarkDayOfWeek] = useState('');
   const [unmarkLabel, setUnmarkLabel] = useState('');
   const [unmarkType, setUnmarkType] = useState('important');
   const [unmarkSubmitting, setUnmarkSubmitting] = useState(false);
-  const [unmarkDepartmentIds, setUnmarkDepartmentIds] = useState([]);
+  const [unmarkDepartmentId, setUnmarkDepartmentId] = useState('');
   const [filterEmployeeName, setFilterEmployeeName] = useState('');
   const [filterDepartmentId, setFilterDepartmentId] = useState('');
   const [filterDesignation, setFilterDesignation] = useState('');
@@ -259,7 +259,7 @@ export default function LeavesCalendar() {
     if (!isAdmin) return;
     try {
       const body = { date, type };
-      if (type === 'important' && importantDepartmentIds.length > 0) body.department_id = Number(importantDepartmentIds[0]) || null;
+      if (type === 'important' && markDepartmentId) body.department_id = Number(markDepartmentId) || null;
       const res = await fetch('/api/leaves/blocked-dates', {
         method: 'POST',
         headers: {
@@ -291,25 +291,42 @@ export default function LeavesCalendar() {
     }
   };
 
-  // Mark: either day restriction (day dropdown set) or date mark (date set). One action per submit.
+  // Get all dates in current calendar month that fall on a given day of week (0-6).
+  const getDatesInMonthForDayOfWeek = (dayOfWeek) => {
+    const dayNum = Number(dayOfWeek);
+    if (!Number.isFinite(dayNum) || dayNum < 0 || dayNum > 6) return [];
+    const first = new Date(year, month - 1, 1);
+    const last = new Date(year, month, 0);
+    const dates = [];
+    for (let d = new Date(first); d <= last; d.setDate(d.getDate() + 1)) {
+      if (d.getDay() === dayNum) dates.push(d.toISOString().slice(0, 10));
+    }
+    return dates;
+  };
+
+  // Mark: (1) If only Day is set: mark all dates in current month that fall on that day. (2) If Date is set: mark that date.
   const handleMark = async () => {
     if (!isAdmin) return;
     const dayNum = markDayOfWeek !== '' && markDayOfWeek !== undefined ? Number(markDayOfWeek) : null;
-    const isDayRestriction = Number.isFinite(dayNum) && dayNum >= 0 && dayNum <= 6;
-    if (isDayRestriction) {
-      const deptIds = importantDepartmentIds.length > 0 ? importantDepartmentIds.map(Number) : [];
-      if (deptIds.length === 0) return;
+    const hasDayOnly = Number.isFinite(dayNum) && dayNum >= 0 && dayNum <= 6 && (!markDate || !String(markDate).match(/^\d{4}-\d{2}-\d{2}$/));
+    const hasDate = markDate && String(markDate).match(/^\d{4}-\d{2}-\d{2}$/);
+
+    if (hasDayOnly) {
+      const dates = getDatesInMonthForDayOfWeek(dayNum);
+      if (dates.length === 0) return;
       setMarkSubmitting(true);
       try {
-        const res = await fetch('/api/leaves/department-restricted-days', {
+        const body = { dates, type: markType, label: markLabel || undefined };
+        if (markType === 'important') body.department_id = markDepartmentId ? Number(markDepartmentId) : null;
+        const res = await fetch('/api/leaves/blocked-dates', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-user-role': user?.role || 'admin' },
-          body: JSON.stringify({ department_ids: deptIds, day_of_week: dayNum }),
+          headers: { 'Content-Type': 'application/json', 'x-user-role': user?.role || 'employee' },
+          body: JSON.stringify(body),
         });
-        const data = await res.json().catch(() => ({}));
-        if (res.ok && data.success) {
+        const result = await res.json().catch(() => ({}));
+        if (res.ok && result.success) {
           setMarkDayOfWeek('');
-          setImportantDepartmentIds([]);
+          setMarkLabel('');
           loadCalendar();
         }
       } catch (e) {
@@ -319,14 +336,11 @@ export default function LeavesCalendar() {
       }
       return;
     }
-    if (!markDate || !String(markDate).match(/^\d{4}-\d{2}-\d{2}$/)) return;
+    if (!hasDate) return;
     setMarkSubmitting(true);
     try {
       const body = { date: markDate, dates: [markDate], type: markType, label: markLabel || undefined };
-      if (markType === 'important') {
-        if (importantDepartmentIds.length > 0) body.department_ids = importantDepartmentIds.map(Number);
-        else body.department_id = null;
-      }
+      if (markType === 'important') body.department_id = markDepartmentId ? Number(markDepartmentId) : null;
       const res = await fetch('/api/leaves/blocked-dates', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-user-role': user?.role || 'employee' },
@@ -345,22 +359,30 @@ export default function LeavesCalendar() {
     }
   };
 
-  // Unmark: either day restriction removal or date unmark.
+  // Unmark: (1) If only Day is set: unmark all dates in current month that fall on that day. (2) If Date is set: unmark that date.
   const handleUnmark = async () => {
     if (!isAdmin) return;
     const dayNum = unmarkDayOfWeek !== '' && unmarkDayOfWeek !== undefined ? Number(unmarkDayOfWeek) : null;
-    const isDayUnmark = Number.isFinite(dayNum) && dayNum >= 0 && dayNum <= 6;
-    if (isDayUnmark && unmarkDepartmentIds.length > 0) {
+    const hasDayOnly = Number.isFinite(dayNum) && dayNum >= 0 && dayNum <= 6 && (!unmarkDate || !String(unmarkDate).match(/^\d{4}-\d{2}-\d{2}$/));
+    const hasDate = unmarkDate && String(unmarkDate).match(/^\d{4}-\d{2}-\d{2}$/);
+
+    if (hasDayOnly) {
+      const dates = getDatesInMonthForDayOfWeek(dayNum);
+      if (dates.length === 0) return;
       setUnmarkSubmitting(true);
       try {
-        const res = await fetch(
-          `/api/leaves/department-restricted-days?day_of_week=${encodeURIComponent(dayNum)}&department_ids=${encodeURIComponent(unmarkDepartmentIds.join(','))}`,
-          { method: 'DELETE', headers: { 'x-user-role': user?.role || 'admin' } }
-        );
-        const data = await res.json().catch(() => ({}));
-        if (res.ok && data.success !== false) {
+        let anySuccess = false;
+        for (const date of dates) {
+          let url = `/api/leaves/blocked-dates/${date}?type=${unmarkType}`;
+          if (unmarkType === 'important' && unmarkDepartmentId) url += `&department_id=${encodeURIComponent(unmarkDepartmentId)}`;
+          if (unmarkLabel && String(unmarkLabel).trim()) url += `&label=${encodeURIComponent(String(unmarkLabel).trim())}`;
+          const res = await fetch(url, { method: 'DELETE', headers: { 'x-user-role': user?.role || 'admin' } });
+          const result = await res.json().catch(() => ({}));
+          if (res.ok && result.success) anySuccess = true;
+        }
+        if (anySuccess) {
           setUnmarkDayOfWeek('');
-          setUnmarkDepartmentIds([]);
+          setUnmarkLabel('');
           loadCalendar();
         }
       } catch (e) {
@@ -370,23 +392,17 @@ export default function LeavesCalendar() {
       }
       return;
     }
-    if (!unmarkDate || !String(unmarkDate).match(/^\d{4}-\d{2}-\d{2}$/)) return;
+    if (!hasDate) return;
     setUnmarkSubmitting(true);
     try {
-      const deptIds = unmarkType === 'important' && unmarkDepartmentIds.length > 0 ? unmarkDepartmentIds : [null];
-      let anySuccess = false;
-      for (const deptId of deptIds) {
-        let url = `/api/leaves/blocked-dates/${unmarkDate}?type=${unmarkType}`;
-        if (unmarkType === 'important' && deptId != null) url += `&department_id=${encodeURIComponent(deptId)}`;
-        if (unmarkLabel && String(unmarkLabel).trim()) url += `&label=${encodeURIComponent(String(unmarkLabel).trim())}`;
-        const res = await fetch(url, { method: 'DELETE', headers: { 'x-user-role': user?.role || 'admin' } });
-        const result = await res.json().catch(() => ({}));
-        if (res.ok && result.success) anySuccess = true;
-      }
-      if (anySuccess) {
+      let url = `/api/leaves/blocked-dates/${unmarkDate}?type=${unmarkType}`;
+      if (unmarkType === 'important' && unmarkDepartmentId) url += `&department_id=${encodeURIComponent(unmarkDepartmentId)}`;
+      if (unmarkLabel && String(unmarkLabel).trim()) url += `&label=${encodeURIComponent(String(unmarkLabel).trim())}`;
+      const res = await fetch(url, { method: 'DELETE', headers: { 'x-user-role': user?.role || 'admin' } });
+      const result = await res.json().catch(() => ({}));
+      if (res.ok && result.success) {
         setUnmarkDate('');
         setUnmarkLabel('');
-        setUnmarkDepartmentIds([]);
         loadCalendar();
       }
     } catch (e) {
@@ -394,18 +410,6 @@ export default function LeavesCalendar() {
     } finally {
       setUnmarkSubmitting(false);
     }
-  };
-
-  const handleMarkDepartmentMulti = (e) => {
-    const opts = e.target.selectedOptions;
-    const ids = Array.from(opts).map((o) => o.value).filter((v) => v !== '');
-    setImportantDepartmentIds(ids.map(Number));
-  };
-
-  const handleUnmarkDepartmentMulti = (e) => {
-    const opts = e.target.selectedOptions;
-    const ids = Array.from(opts).map((o) => o.value).filter((v) => v !== '');
-    setUnmarkDepartmentIds(ids.map(Number));
   };
 
   const prevMonth = () => {
@@ -574,7 +578,7 @@ export default function LeavesCalendar() {
       {isAdmin && (
         <div className="mb-4 p-5 bg-white border rounded-lg shadow-sm space-y-6">
           <h2 className="text-base font-semibold text-gray-800 mb-1">Mark (admin)</h2>
-          <p className="text-xs text-gray-500 mb-3">Set a date or a day of week, department(s), and mark as Important or Holiday. For day restriction, select at least one department.</p>
+          <p className="text-xs text-gray-500 mb-3">Set a date to mark one day, or set a day (e.g. Sunday) to mark all that weekday in the current month. Optional: department and label.</p>
           <div className="flex flex-wrap items-end gap-4">
             <div>
               <label className="block text-xs text-gray-500 mb-0.5">Date</label>
@@ -599,18 +603,17 @@ export default function LeavesCalendar() {
               </select>
             </div>
             <div>
-              <label className="block text-xs text-gray-500 mb-0.5">Department(s)</label>
+              <label className="block text-xs text-gray-500 mb-0.5">Department</label>
               <select
-                multiple
-                value={importantDepartmentIds.map(String)}
-                onChange={handleMarkDepartmentMulti}
-                className="border rounded px-2 py-1.5 text-sm min-w-[160px] max-h-24"
+                value={markDepartmentId}
+                onChange={(e) => setMarkDepartmentId(e.target.value)}
+                className="border rounded px-2 py-1.5 text-sm min-w-[160px]"
               >
+                <option value="">All departments</option>
                 {departments.map((dept) => (
                   <option key={dept.id} value={dept.id}>{dept.name}</option>
                 ))}
               </select>
-              <span className="text-xs text-gray-500">Leave none selected = all. Ctrl+click for multiple.</span>
             </div>
             <div>
               <label className="block text-xs text-gray-500 mb-0.5">Mark as</label>
@@ -636,7 +639,7 @@ export default function LeavesCalendar() {
             <button
               type="button"
               onClick={handleMark}
-              disabled={markSubmitting || (!markDate && (markDayOfWeek === '' || markDayOfWeek === undefined)) || (markDayOfWeek !== '' && importantDepartmentIds.length === 0)}
+              disabled={markSubmitting || (!markDate && (markDayOfWeek === '' || markDayOfWeek === undefined))}
               className="px-3 py-1.5 bg-indigo-600 text-white rounded text-sm hover:bg-indigo-700 disabled:opacity-50"
             >
               {markSubmitting ? 'Applying...' : 'Apply'}
@@ -645,7 +648,7 @@ export default function LeavesCalendar() {
 
           <div className="pt-5 border-t border-gray-200">
             <h3 className="text-base font-semibold text-gray-800 mb-1">Unmark (admin)</h3>
-            <p className="text-xs text-gray-500 mb-3">Remove a date or a day-of-week restriction. For day, select at least one department.</p>
+            <p className="text-xs text-gray-500 mb-3">Remove by date (one day) or by day (all that weekday in the current month). Optional: department and label.</p>
             <div className="flex flex-wrap items-end gap-4">
               <div>
                 <label className="block text-xs text-gray-500 mb-0.5">Date</label>
@@ -670,18 +673,17 @@ export default function LeavesCalendar() {
                 </select>
               </div>
               <div>
-                <label className="block text-xs text-gray-500 mb-0.5">Department(s)</label>
+                <label className="block text-xs text-gray-500 mb-0.5">Department</label>
                 <select
-                  multiple
-                  value={unmarkDepartmentIds.map(String)}
-                  onChange={handleUnmarkDepartmentMulti}
-                  className="border rounded px-2 py-1.5 text-sm min-w-[160px] max-h-24"
+                  value={unmarkDepartmentId}
+                  onChange={(e) => setUnmarkDepartmentId(e.target.value)}
+                  className="border rounded px-2 py-1.5 text-sm min-w-[160px]"
                 >
+                  <option value="">All departments</option>
                   {departments.map((dept) => (
                     <option key={dept.id} value={dept.id}>{dept.name}</option>
                   ))}
                 </select>
-                <span className="text-xs text-gray-500">Leave none selected = all. Ctrl+click for multiple.</span>
               </div>
               <div>
                 <label className="block text-xs text-gray-500 mb-0.5">Unmark as</label>
@@ -707,7 +709,7 @@ export default function LeavesCalendar() {
               <button
                 type="button"
                 onClick={handleUnmark}
-                disabled={unmarkSubmitting || (!unmarkDate && (unmarkDayOfWeek === '' || unmarkDayOfWeek === undefined)) || (unmarkDayOfWeek !== '' && unmarkDepartmentIds.length === 0)}
+                disabled={unmarkSubmitting || (!unmarkDate && (unmarkDayOfWeek === '' || unmarkDayOfWeek === undefined))}
                 className="px-3 py-1.5 bg-amber-600 text-white rounded text-sm hover:bg-amber-700 disabled:opacity-50"
               >
                 {unmarkSubmitting ? 'Unmarking...' : 'Unmark'}
