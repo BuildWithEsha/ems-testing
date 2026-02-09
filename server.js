@@ -11440,33 +11440,30 @@ app.post('/api/leaves/apply', async (req, res) => {
       ? days_requested
       : 1;
 
-    // Count approved leave requests this month (for policy and paid grey-out)
-    const monthStart = `${year}-${String(month).padStart(2, '0')}-01`;
-    const monthEnd = `${year}-${String(month).padStart(2, '0')}-31`;
-    const [countRows] = await connection.execute(
-      `SELECT COUNT(*) AS cnt FROM leave_requests
-       WHERE employee_id = ? AND status = 'approved' AND start_date >= ? AND start_date <= ?`,
-      [employee_id, monthStart, monthEnd]
-    );
-    const leavesTakenThisMonth = Number(countRows[0]?.cnt || 0);
-
     const isPaidLeaveType = (leave_type || 'paid') === 'paid';
-    const willExceedPaid = used + requested > effectiveQuota;
-    if (isPaidLeaveType && willExceedPaid && !confirm_exceed) {
+    const remainingPaid = Math.max(0, effectiveQuota - used);
+
+    // If they ask for more paid days than they have remaining, do not allow a paid leave.
+    if (isPaidLeaveType && requested > remainingPaid) {
       return res.status(200).json({
         success: false,
-        over_quota: true,
-        message:
-          "You can only take 2 paid leaves per month. Please try leave type 'Other' or contact administration."
+        paid_not_available: true,
+        message: `You only have ${remainingPaid} paid leave day(s) remaining. Please select Regular leave or reduce the requested range.`
       });
     }
 
-    // Policy flow: >2 leaves already this month OR >2 days requested => unpaid, pending, admin must acknowledge
-    const policyApplies = leavesTakenThisMonth >= 2 || requested > 2;
     const importantOverride = is_important_date_override ? 1 : 0;
-    let initialStatus = (existingLeaveId ? 'pending' : 'approved');
-    let isPaid = isPaidLeaveType && !willExceedPaid ? 1 : 0;
-    if (policyApplies) {
+
+    // Determine initial status and paid flag purely from leave type and whether
+    // the date is booked (swap flow). Regular leaves always require admin
+    // acknowledgement; paid leaves on free dates are auto-approved.
+    let initialStatus;
+    let isPaid;
+    if (isPaidLeaveType) {
+      initialStatus = existingLeaveId ? 'pending' : 'approved';
+      isPaid = 1;
+    } else {
+      // Regular / other leave types always start as pending for admin
       initialStatus = 'pending';
       isPaid = 0;
     }
@@ -11510,7 +11507,7 @@ app.post('/api/leaves/apply', async (req, res) => {
       expected_return_date || null
     ]);
 
-    if (initialStatus === 'approved') {
+    if (initialStatus === 'approved' && isPaid) {
       const { year, month } = getYearMonthFromDate(start_date);
       const balance = await getOrCreateLeaveBalance(connection, employee_id, year, month);
       const used = balance.paid_used || 0;
