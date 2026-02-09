@@ -55,7 +55,8 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     leave_type: 'paid', // paid | other
     emergency_type: '', // only when applying on red date
   });
-  const [dateAvailability, setDateAvailability] = useState(null); // { blocked, available, bookedBy }
+  const [dateAvailability, setDateAvailability] = useState(null); // { blocked, available, bookedBy } for apply form
+  const [editDateAvailability, setEditDateAvailability] = useState(null); // availability for edit-dates modal
   const [pendingActions, setPendingActions] = useState({ swapRequests: [], acknowledgeRequests: [] });
   const [pendingActionModal, setPendingActionModal] = useState(null); // { type: 'swap'|'ack', data }
   const EMERGENCY_OPTIONS = ['Medical', 'Family emergency', 'Bereavement', 'Other'];
@@ -387,6 +388,28 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     }
   };
 
+  const loadEditDateAvailability = async (startDate, endDate) => {
+    if (!startDate) {
+      setEditDateAvailability(null);
+      return;
+    }
+    const end = endDate && endDate !== startDate ? endDate : startDate;
+    try {
+      let url = `/api/leaves/date-availability?date=${encodeURIComponent(startDate)}`;
+      if (end !== startDate) url += `&end_date=${encodeURIComponent(end)}`;
+      if (employeeId) url += `&employee_id=${employeeId}`;
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = await res.json();
+        setEditDateAvailability(data);
+      } else {
+        setEditDateAvailability(null);
+      }
+    } catch {
+      setEditDateAvailability(null);
+    }
+  };
+
   const loadPendingActions = async () => {
     if (!employeeId) return;
     try {
@@ -420,6 +443,15 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     if (form.start_date) loadDateAvailability(form.start_date, form.end_date);
     else setDateAvailability(null);
   }, [form.start_date, form.end_date]);
+
+  // Keep edit-dates modal in sync with availability (events / existing bookings)
+  useEffect(() => {
+    if (editingLeave && editLeaveForm.start_date) {
+      loadEditDateAvailability(editLeaveForm.start_date, editLeaveForm.end_date);
+    } else {
+      setEditDateAvailability(null);
+    }
+  }, [editingLeave, editLeaveForm.start_date, editLeaveForm.end_date]);
 
   useEffect(() => {
     if (mode === 'department' && isAdmin) {
@@ -2184,16 +2216,15 @@ export default function Leaves({ initialTab, initialManagerSection }) {
         return renderApplyForm();
       case TABS.FUTURE: {
         const today = todayStr();
+        // Only show approved future leaves here. Pending leaves that need acknowledgment
+        // are surfaced via the admin acknowledge flow and shown under "Acknowledged"
+        // once a decision is made.
         const futureApproved = (myLeaves.recent_approved || []).filter((r) => r.end_date >= today);
-        const pendingNotNeedingAck = (myLeaves.pending || []).filter((p) => !p.needs_acknowledgment);
-        const futureRows = filterByCommonCriteria(
-          [...pendingNotNeedingAck, ...futureApproved],
-          myFilters
-        );
+        const futureRows = filterByCommonCriteria(futureApproved, myFilters);
         return (
           <div className="space-y-4">
             <h2 className="text-lg font-semibold text-gray-900">Future leaves</h2>
-            <p className="text-sm text-gray-600">Upcoming applied and approved leaves (pending awaiting ack appear under Acknowledged once submitted).</p>
+            <p className="text-sm text-gray-600">Upcoming approved leaves with end date on or after today.</p>
             <div className="flex flex-wrap gap-3 text-xs text-gray-700 bg-white border rounded px-4 py-3">
               <div>
                 <label className="block mb-1 font-medium">From</label>
@@ -2342,6 +2373,13 @@ export default function Leaves({ initialTab, initialManagerSection }) {
       case TABS.MY_ACK: {
         const ackRows = (myLeaves.acknowledged || []).filter((r) => r.acknowledged_by != null);
         const filteredAck = filterByCommonCriteria(ackRows, myFilters);
+        const classifyAck = (row) => {
+          const badges = [];
+          if (row.is_important_date_override) badges.push('Important date');
+          if (row.policy_reason_detail || row.expected_return_date) badges.push('Policy');
+          if (row.requested_swap_with_leave_id) badges.push('Swap');
+          return badges;
+        };
         return (
           <div className="space-y-4">
             <h2 className="text-lg font-semibold text-gray-900">Acknowledged leaves</h2>
@@ -2412,7 +2450,57 @@ export default function Leaves({ initialTab, initialManagerSection }) {
             {filteredAck.length === 0 ? (
               <div className="bg-white border rounded p-6 text-gray-500">No acknowledged leaves match the filters.</div>
             ) : (
-              renderLeaveTable(filteredAck)
+              <div className="bg-white border rounded-lg shadow-sm overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200 text-sm">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-4 py-2 text-left font-medium text-gray-700">Dates</th>
+                      <th className="px-4 py-2 text-left font-medium text-gray-700">Days</th>
+                      <th className="px-4 py-2 text-left font-medium text-gray-700">Type</th>
+                      <th className="px-4 py-2 text-left font-medium text-gray-700">Acknowledged as</th>
+                      <th className="px-4 py-2 text-left font-medium text-gray-700">Badges</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200">
+                    {filteredAck.map((row) => {
+                      const badges = classifyAck(row);
+                      const status = (row.status || '').toLowerCase();
+                      const acknowledgedAs = row.is_paid ? 'Paid' : 'Regular';
+                      return (
+                        <tr key={row.id}>
+                          <td className="px-4 py-2 text-gray-800">
+                            {formatDate(row.start_date)}{' '}
+                            {row.start_date !== row.end_date ? `→ ${formatDate(row.end_date)}` : ''}
+                          </td>
+                          <td className="px-4 py-2 text-gray-800">{row.days_requested}</td>
+                          <td className="px-4 py-2 text-gray-800">
+                            {row.is_uninformed ? 'Uninformed' : row.is_paid ? 'Paid' : 'Regular'}
+                          </td>
+                          <td className="px-4 py-2 text-gray-800 capitalize">
+                            {status || 'acknowledged'} ({acknowledgedAs})
+                          </td>
+                          <td className="px-4 py-2 text-gray-800">
+                            {badges.length === 0 ? (
+                              <span className="text-xs text-gray-400">—</span>
+                            ) : (
+                              <div className="flex flex-wrap gap-1">
+                                {badges.map((b) => (
+                                  <span
+                                    key={b}
+                                    className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-indigo-50 text-indigo-700"
+                                  >
+                                    {b}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             )}
           </div>
         );
@@ -3283,6 +3371,16 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                 />
               </div>
             </div>
+            {editDateAvailability?.blocked && (
+              <div className="mt-3 p-3 rounded-md bg-red-50 border border-red-200 text-sm text-red-800">
+                Leave cannot be moved to this date range due to an event (holiday or important date).
+              </div>
+            )}
+            {editDateAvailability && !editDateAvailability.blocked && !editDateAvailability.available && (
+              <div className="mt-3 p-3 rounded-md bg-amber-50 border border-amber-200 text-sm text-amber-800">
+                This date range is already booked by another employee. Please choose different dates.
+              </div>
+            )}
             <div className="mt-4 flex gap-2 justify-end">
               <button
                 type="button"

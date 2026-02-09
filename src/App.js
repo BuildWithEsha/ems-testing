@@ -252,6 +252,37 @@ const AuthenticatedApp = () => {
     fetchData();
   }, [user]);
 
+  // Global check for pending leave actions (swap / acknowledge) so that a modal
+  // is surfaced as soon as the user logs in, regardless of the current view.
+  useEffect(() => {
+    const checkPendingLeaves = async () => {
+      if (!user?.id) return;
+      try {
+        const res = await fetch(`/api/leaves/pending-actions?employee_id=${user.id}`, {
+          headers: {
+            'x-user-role': user.role || 'employee',
+            'x-user-id': String(user.id),
+          },
+        });
+        if (!res.ok) return;
+        const data = await res.json().catch(() => ({}));
+        const swap = (data.swapRequests || [])[0] || null;
+        const ack = (data.acknowledgeRequests || [])[0] || null;
+        if (ack && (user.role === 'admin' || user.role === 'Admin')) {
+          setLeavePendingModal({ type: 'ack', data: ack });
+        } else if (swap) {
+          setLeavePendingModal({ type: 'swap', data: swap });
+        } else {
+          setLeavePendingModal(null);
+        }
+      } catch {
+        // ignore failures here; user can still navigate to Leaves manually
+      }
+    };
+
+    checkPendingLeaves();
+  }, [user]);
+
   // Listen to department open events
   useEffect(() => {
     const handler = (e) => {
@@ -272,6 +303,9 @@ const AuthenticatedApp = () => {
 
   // Destructure modal state
   const { isOpen: isModalOpen, type: modalType, editingItem } = modalState;
+
+  // Global leave pending modal (swap / acknowledge) – shown regardless of current view
+  const [leavePendingModal, setLeavePendingModal] = useState(null); // { type: 'swap'|'ack', data }
 
   // Filter states
   const [filters, setFilters] = useState({});
@@ -656,7 +690,7 @@ const AuthenticatedApp = () => {
         </main>
       </div>
 
-      {/* Modal */}
+      {/* Generic CRUD Modal */}
       <Modal
         isOpen={isModalOpen}
         onClose={closeModal}
@@ -677,6 +711,98 @@ const AuthenticatedApp = () => {
           </div>
         </div>
       </Modal>
+      {/* Global leave swap / acknowledge modal – shown regardless of current view */}
+      {leavePendingModal && leavePendingModal.type === 'swap' && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" aria-modal="true" role="dialog">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-gray-200/80">
+            <div className="px-6 py-5 bg-amber-50 border-b border-amber-100">
+              <h3 className="text-lg font-semibold text-gray-900">Leave swap request</h3>
+              <p className="text-sm text-amber-800 mt-1">A colleague has requested leave on dates you currently have booked.</p>
+            </div>
+            <div className="px-6 py-4 space-y-3 text-sm">
+              <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                <div className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Your booked leave</div>
+                <div className="font-medium text-gray-900">
+                  {leavePendingModal.data.my_start_date}
+                  {leavePendingModal.data.my_end_date && String(leavePendingModal.data.my_end_date) !== String(leavePendingModal.data.my_start_date)
+                    ? ` – ${leavePendingModal.data.my_end_date}`
+                    : ''}
+                </div>
+              </div>
+              <div className="rounded-lg border border-amber-200 bg-amber-50/70 p-3">
+                <div className="text-xs font-medium text-amber-800 uppercase tracking-wide mb-1">Requested period</div>
+                <div className="font-medium text-gray-900">
+                  {leavePendingModal.data.start_date}
+                  {leavePendingModal.data.end_date && String(leavePendingModal.data.end_date) !== String(leavePendingModal.data.start_date)
+                    ? ` – ${leavePendingModal.data.end_date}`
+                    : ''}
+                </div>
+                {leavePendingModal.data.emergency_type && (
+                  <div className="mt-1 text-xs text-amber-800">
+                    Reason: {leavePendingModal.data.emergency_type}
+                  </div>
+                )}
+              </div>
+              <p className="text-xs text-gray-600">
+                To respond, open the <span className="font-semibold">Leaves</span> screen and use the swap popup there.
+              </p>
+            </div>
+            <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setLeavePendingModal(null)}
+                className="px-4 py-2 text-sm font-medium rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {leavePendingModal && leavePendingModal.type === 'ack' && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" aria-modal="true" role="dialog">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-gray-200/80">
+            <div className="px-6 py-5 bg-gradient-to-b from-amber-50 to-amber-50/80 border-b border-amber-100">
+              <h3 className="text-lg font-semibold text-gray-900">Leave requires acknowledgment</h3>
+              <p className="text-sm text-amber-800 mt-1">An employee has a leave request on an important or booked date.</p>
+            </div>
+            <div className="px-6 py-4 space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="font-medium text-gray-500">Employee</span>
+                <span className="text-gray-900">{leavePendingModal.data.employee_name || '—'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="font-medium text-gray-500">Dates</span>
+                <span className="text-gray-900">
+                  {leavePendingModal.data.start_date}
+                  {leavePendingModal.data.end_date && String(leavePendingModal.data.end_date) !== String(leavePendingModal.data.start_date)
+                    ? ` – ${leavePendingModal.data.end_date}`
+                    : ''}
+                </span>
+              </div>
+              {leavePendingModal.data.emergency_type && (
+                <div className="flex justify-between">
+                  <span className="font-medium text-gray-500">Reason</span>
+                  <span className="text-gray-900">{leavePendingModal.data.emergency_type}</span>
+                </div>
+              )}
+              <p className="text-xs text-gray-600 mt-2">
+                Open the <span className="font-semibold">Department → Acknowledge</span> section to approve as paid/regular or reject.
+              </p>
+            </div>
+            <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setLeavePendingModal(null)}
+                className="px-4 py-2 text-sm font-medium rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

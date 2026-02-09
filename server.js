@@ -12059,6 +12059,7 @@ app.get('/api/leaves/pending-actions', async (req, res) => {
       const [ackRows] = await connection.execute(
         `SELECT lr.id, lr.employee_id, lr.start_date, lr.end_date, lr.emergency_type, lr.reason,
                 lr.is_important_date_override, lr.requested_swap_with_leave_id, lr.swap_responded_at, lr.swap_accepted,
+                lr.policy_reason_detail, lr.expected_return_date,
                 e.name AS employee_name
          FROM leave_requests lr
          JOIN employees e ON e.id = lr.employee_id
@@ -12066,6 +12067,7 @@ app.get('/api/leaves/pending-actions', async (req, res) => {
            AND (
              (lr.is_important_date_override = 1)
              OR (lr.requested_swap_with_leave_id IS NOT NULL AND lr.swap_responded_at IS NOT NULL AND lr.swap_accepted = 0)
+             OR (lr.policy_reason_detail IS NOT NULL OR lr.expected_return_date IS NOT NULL)
            )
          ORDER BY lr.created_at DESC LIMIT 50`
       );
@@ -12441,9 +12443,9 @@ app.get('/api/leaves/all', async (req, res) => {
       query += ' AND lr.is_uninformed = 1';
     }
     if (filter === 'future') {
-      // Exclude pending leaves that need admin acknowledgment (they appear in Acknowledge section only)
-      query += " AND lr.end_date >= CURDATE() AND lr.status IN ('pending','approved') AND (lr.is_uninformed = 0 OR lr.is_uninformed IS NULL)";
-      query += " AND NOT (lr.status = 'pending' AND (lr.is_important_date_override = 1 OR (lr.requested_swap_with_leave_id IS NOT NULL AND lr.swap_responded_at IS NOT NULL AND lr.swap_accepted = 0)))";
+      // Future view for admin should show only approved (non-uninformed) leaves.
+      // Pending leaves that need acknowledgment are surfaced via /api/leaves/pending-actions instead.
+      query += " AND lr.end_date >= CURDATE() AND lr.status = 'approved' AND (lr.is_uninformed = 0 OR lr.is_uninformed IS NULL)";
     } else if (filter === 'past') {
       query += " AND (lr.end_date < CURDATE() OR lr.status = 'rejected')";
     } else {
@@ -12493,7 +12495,17 @@ app.get('/api/leaves/my', async (req, res) => {
         acknowledged.push(row);
       }
       if (row.status === 'pending') {
-        const needsAck = !!(row.is_important_date_override === 1 || (row.requested_swap_with_leave_id != null && row.swap_responded_at != null && row.swap_accepted === 0));
+        // A leave needs explicit admin acknowledgment when:
+        // - It is an important-date override, OR
+        // - It is a swap request that the booker has rejected / not fulfilled, OR
+        // - It is a policy/unpaid leave where the policy form was filled
+        //   (policy_reason_detail or expected_return_date set).
+        const needsAck = !!(
+          row.is_important_date_override === 1 ||
+          (row.requested_swap_with_leave_id != null && row.swap_responded_at != null && row.swap_accepted === 0) ||
+          row.policy_reason_detail != null ||
+          row.expected_return_date != null
+        );
         pending.push({ ...row, needs_acknowledgment: needsAck });
       } else if (row.status === 'approved') {
         // Do not show absentees (uninformed) in standard approved lists
