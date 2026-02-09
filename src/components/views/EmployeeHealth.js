@@ -411,7 +411,10 @@ const EmployeeHealth = ({ employeeId }) => {
               <li>• High Priority Errors: -{healthSettings?.error_high_deduction?.value || 5} points each</li>
               <li>• Medium Priority Errors: -{healthSettings?.error_medium_deduction?.value || 3} points each</li>
               <li>• Low Priority Errors: -{healthSettings?.error_low_deduction?.value || 1} point each</li>
-              <li>• Attendance: -{healthSettings?.attendance_deduction?.value || 5} points per month (>{healthSettings?.max_absences_per_month?.value || 2} absences)</li>
+              <li>
+                • Attendance: -{healthSettings?.attendance_deduction?.value || 5} points per month (
+                &gt;{healthSettings?.max_absences_per_month?.value || 2} absences)
+              </li>
               <li>• Warning Letters: -{healthSettings?.warning_letters_severity_high_deduction?.value || 20} (High), -{healthSettings?.warning_letters_severity_medium_deduction?.value || 15} (Medium), -{healthSettings?.warning_letters_severity_low_deduction?.value || 10} (Low)</li>
             </ul>
           </div>

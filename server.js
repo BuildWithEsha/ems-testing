@@ -12132,6 +12132,19 @@ app.get('/api/leaves/pending-actions', async (req, res) => {
       end_date: fmtDate(r.end_date)
     }));
 
+    // Rejected leave notifications for employee (requester): my leaves that were rejected (so they see a notification)
+    const [rejectedLeaveRows] = await connection.execute(
+      `SELECT id, start_date, end_date, decision_at FROM leave_requests
+       WHERE employee_id = ? AND status = 'rejected' AND decision_at IS NOT NULL
+       ORDER BY decision_at DESC LIMIT 10`,
+      [currentUserId]
+    );
+    const rejected_leave_notifications = (rejectedLeaveRows || []).map((r) => ({
+      leave_id: r.id,
+      start_date: fmtDate(r.start_date),
+      end_date: fmtDate(r.end_date)
+    }));
+
     let acknowledgeRequests = [];
     if (isAdmin) {
       const [ackRows] = await connection.execute(
@@ -12192,7 +12205,7 @@ app.get('/api/leaves/pending-actions', async (req, res) => {
       acknowledgeRequests = ackWithBookerSwapped;
     }
 
-    res.json({ swapRequests, acknowledgeRequests, acceptedSwapTargets, rejected_swap_notifications });
+    res.json({ swapRequests, acknowledgeRequests, acceptedSwapTargets, rejected_swap_notifications, rejected_leave_notifications });
   } catch (err) {
     console.error('Error fetching pending actions:', err);
     res.status(500).json({ error: 'Database error' });
@@ -12230,7 +12243,7 @@ app.get('/api/leaves/swap-requests', async (req, res) => {
       const created = r.req_created ? new Date(r.req_created) : null;
       const isOld = created && (Date.now() - created.getTime() > oneDayMs);
       let status = 'pending';
-      if (r.req_status === 'approved' && r.approved_via_swap) status = 'swapped';
+      if (r.req_status === 'approved' && (r.approved_via_swap === 1 || r.approved_via_swap === true)) status = 'swapped';
       else if (r.swap_responded_at != null) {
         if (r.swap_accepted) status = 'accepted_waiting_move';
         else status = 'rejected_by_me';
@@ -12261,7 +12274,7 @@ app.get('/api/leaves/swap-requests', async (req, res) => {
       const created = r.created_at ? new Date(r.created_at) : null;
       const isOld = created && (Date.now() - created.getTime() > oneDayMs);
       let status = 'waiting_for_booker';
-      if (r.status === 'approved' && r.approved_via_swap) status = 'swapped';
+      if (r.status === 'approved' && (r.approved_via_swap === 1 || r.approved_via_swap === true)) status = 'swapped';
       else if (r.swap_responded_at != null) {
         if (r.swap_accepted) status = 'booker_accepted';
         else status = 'rejected_by_booker';
@@ -13335,6 +13348,26 @@ app.get('/api/leaves/report', async (req, res) => {
     );
     const leaves_taken_this_month = Number(leavesCountRows[0]?.cnt || 0);
 
+    // Paid leave deductions this month: approved paid leaves (not uninformed, not cancelled) that utilized quota
+    const [paidDeductionRows] = await connection.execute(
+      `SELECT lr.id, lr.start_date, lr.end_date, lr.days_requested, lr.reason, lr.emergency_type
+       FROM leave_requests lr
+       WHERE lr.employee_id = ? AND lr.status = 'approved' AND lr.is_paid = 1
+         AND (lr.is_uninformed = 0 OR lr.is_uninformed IS NULL)
+         AND lr.start_date <= ? AND lr.end_date >= ?
+       ORDER BY lr.start_date ASC`,
+      [employee_id, endDate, startDate]
+    );
+    const fmtReportDate = (d) => (d && typeof d.toISOString === 'function' ? d.toISOString().slice(0, 10) : (d && typeof d === 'string' ? d.slice(0, 10) : (d ? String(d).slice(0, 10) : '')));
+    const paid_leave_deductions = (paidDeductionRows || []).map((r) => ({
+      id: r.id,
+      start_date: fmtReportDate(r.start_date),
+      end_date: fmtReportDate(r.end_date),
+      days_requested: r.days_requested,
+      reason: r.reason || '',
+      emergency_type: r.emergency_type || null
+    }));
+
     const uninformedCount = Math.max(Number(balance.uninformed_leaves) || 0, uninformedRows.length);
 
     res.json({
@@ -13350,7 +13383,8 @@ app.get('/api/leaves/report', async (req, res) => {
       uninformed_details: uninformedRows,
       future_deductions: futureBalances,
       total_future_deduction: totalFutureDeduction,
-      leaves_taken_this_month
+      leaves_taken_this_month,
+      paid_leave_deductions
     });
   } catch (err) {
     console.error('Error fetching leave report:', err);

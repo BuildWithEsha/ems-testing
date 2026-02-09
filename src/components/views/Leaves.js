@@ -103,9 +103,11 @@ export default function Leaves({ initialTab, initialManagerSection }) {
   const lastPendingIdsRef = useRef(null); // for ack result popups
   const [ackResultModal, setAckResultModal] = useState(null); // { type: 'approved' | 'rejected', leave: row }
   const [emergencySubmitModal, setEmergencySubmitModal] = useState(false); // show "please wait" after emergency leave submit
-  const [notificationPopup, setNotificationPopup] = useState({ show: false, title: '', message: '', isError: false });
-  const showNotification = (title, message, isError = false) =>
-    setNotificationPopup({ show: true, title, message, isError });
+  const [notificationPopup, setNotificationPopup] = useState({ show: false, title: '', message: '', isError: false, onClose: null });
+  const showNotification = (title, message, isError = false, onClose = null) =>
+    setNotificationPopup({ show: true, title, message, isError, onClose });
+  const [dismissedRejectedSwapIds, setDismissedRejectedSwapIds] = useState([]);
+  const [dismissedRejectedLeaveIds, setDismissedRejectedLeaveIds] = useState([]);
   const [swapRequestsData, setSwapRequestsData] = useState({ asBooker: [], asRequester: [] });
   const [myLeaves, setMyLeaves] = useState({ pending: [], recent_approved: [], recent_rejected: [], acknowledged: [] });
   const [policy, setPolicy] = useState(null);
@@ -212,8 +214,20 @@ export default function Leaves({ initialTab, initialManagerSection }) {
           if (inApproved) approvedLeave = inApproved;
           if (inRejected) rejectedLeave = inRejected;
         }
-        if (rejectedLeave) setAckResultModal({ type: 'rejected', leave: rejectedLeave });
-        else if (approvedLeave) setAckResultModal({ type: 'approved', leave: approvedLeave });
+        if (rejectedLeave) {
+          setAckResultModal({ type: 'rejected', leave: rejectedLeave });
+          showNotification(
+            'Leave rejected',
+            'Your pending leave request has been rejected. Please review the dates and policy with your manager.',
+            true
+          );
+        } else if (approvedLeave) {
+          setAckResultModal({ type: 'approved', leave: approvedLeave });
+          showNotification(
+            'Leave approved',
+            'Your pending leave request has been approved and recorded in the system.'
+          );
+        }
 
         setMyLeaves({
           pending,
@@ -413,6 +427,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
       loadReport();
       loadLeaveTypes();
       loadDepartmentRestrictedDays();
+      loadSwapRequests();
     }
 
     // Department view – managers/admins manage department/all employees
@@ -499,6 +514,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
           acknowledgeRequests: data.acknowledgeRequests || [],
           acceptedSwapTargets: data.acceptedSwapTargets || [],
           rejected_swap_notifications: data.rejected_swap_notifications || [],
+          rejected_leave_notifications: data.rejected_leave_notifications || [],
         });
         const swap = (data.swapRequests || [])[0];
         const ack = (data.acknowledgeRequests || [])[0];
@@ -508,6 +524,18 @@ export default function Leaves({ initialTab, initialManagerSection }) {
           else if (ack) setPendingActionModal({ type: 'ack', data: ack });
         }
         if ((data.rejected_swap_notifications || []).length > 0) setRejectedSwapModalDismissed(false);
+        // Booker / employee: show one notification per load using same popup (booker first, then requester)
+        const rejectedSwap = data.rejected_swap_notifications || [];
+        const toShowSwap = rejectedSwap.filter((n) => !dismissedRejectedSwapIds.includes(n.rejected_leave_id));
+        const rejectedLeaves = data.rejected_leave_notifications || [];
+        const toShowRejected = rejectedLeaves.filter((n) => !dismissedRejectedLeaveIds.includes(n.leave_id));
+        if (!isAdmin && toShowSwap.length > 0) {
+          const msg = toShowSwap.map((n) => `Request for ${formatDate(n.start_date)}${n.end_date && n.end_date !== n.start_date ? ` – ${formatDate(n.end_date)}` : ''} was rejected.`).join('\n');
+          showNotification('Request rejected', `The following leave request(s) that asked to swap with your leave have been rejected. You can set your date back if you had moved it.\n\n${msg}`, false, () => setDismissedRejectedSwapIds((prev) => [...prev, ...toShowSwap.map((n) => n.rejected_leave_id)]));
+        } else if (!isAdmin && toShowRejected.length > 0) {
+          const msg = toShowRejected.map((n) => `Leave for ${formatDate(n.start_date)}${n.end_date && n.end_date !== n.start_date ? ` – ${formatDate(n.end_date)}` : ''} was rejected.`).join('\n');
+          showNotification('Leave rejected', `Your leave request(s) have been rejected.\n\n${msg}`, true, () => setDismissedRejectedLeaveIds((prev) => [...prev, ...toShowRejected.map((n) => n.leave_id)]));
+        }
       }
     } catch {
       // ignore
@@ -2056,6 +2084,44 @@ export default function Leaves({ initialTab, initialManagerSection }) {
             )}
           </div>
         </div>
+
+        {/* Paid quota deductions: which leaves used the paid quota this month (not absentees, not cancelled) */}
+        <div className="border rounded-lg p-4 bg-white shadow-sm mt-4">
+          <div className="text-xs font-semibold uppercase tracking-wide text-indigo-600 mb-2">
+            Paid quota used this month (applied paid leaves utilized)
+          </div>
+          <p className="text-xs text-gray-600 mb-2">
+            Leaves below consumed your paid quota for this month. Excludes absentees and cancelled leaves.
+          </p>
+          {Array.isArray(report.paid_leave_deductions) && report.paid_leave_deductions.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm text-left">
+                <thead>
+                  <tr className="text-gray-500 border-b border-gray-200">
+                    <th className="pr-2 py-1.5 font-medium">Dates</th>
+                    <th className="pr-2 py-1.5 font-medium">Days</th>
+                    <th className="py-1.5 font-medium">Reason</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {report.paid_leave_deductions.map((row) => (
+                    <tr key={row.id} className="border-b border-gray-100">
+                      <td className="pr-2 py-1.5 text-gray-800">
+                        {formatDate(row.start_date)}
+                        {row.end_date && row.end_date !== row.start_date ? ` – ${formatDate(row.end_date)}` : ''}
+                      </td>
+                      <td className="pr-2 py-1.5 text-gray-800">{row.days_requested ?? 1}</td>
+                      <td className="py-1.5 text-gray-700">{row.emergency_type || row.reason || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="text-xs text-gray-500 py-1">No paid leaves utilized this month.</div>
+          )}
+        </div>
+
         <div>
           <div className="flex items-center justify-between mb-2">
             <h3 className="text-sm font-semibold text-gray-900">Absentee details</h3>
@@ -3614,7 +3680,10 @@ export default function Leaves({ initialTab, initialManagerSection }) {
             <div className="px-6 py-4 flex justify-end bg-gray-50 border-t border-gray-200">
               <button
                 type="button"
-                onClick={() => setNotificationPopup((p) => ({ ...p, show: false }))}
+                onClick={() => {
+                notificationPopup.onClose?.();
+                setNotificationPopup((p) => ({ ...p, show: false, onClose: null }));
+              }}
                 className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 font-medium"
               >
                 OK
@@ -4077,7 +4146,10 @@ export default function Leaves({ initialTab, initialManagerSection }) {
             <div className="px-6 py-4 flex justify-end bg-gray-50 border-t border-gray-200">
               <button
                 type="button"
-                onClick={() => setNotificationPopup((p) => ({ ...p, show: false }))}
+                onClick={() => {
+                notificationPopup.onClose?.();
+                setNotificationPopup((p) => ({ ...p, show: false, onClose: null }));
+              }}
                 className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 font-medium"
               >
                 OK
