@@ -82,16 +82,15 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     start_segment: 'full_day',
     end_segment: 'full_day',
     reason: '',
-    leave_type: 'paid', // paid | other (used when leave_types not loaded)
-    leave_type_id: '',  // id from leave_types table when using DB types
-    emergency_type: '', // only when applying on red date
+    leave_type: 'paid', // paid | other — drives rulebook and quota only
+    emergency_type: '', // when date is booked: reason from leave_types (e.g. Sick Leave, Maternity)
   });
-  const [leaveTypes, setLeaveTypes] = useState([]);
+  const [leaveTypes, setLeaveTypes] = useState([]); // used only for emergency reason dropdown
+  const EMERGENCY_OPTIONS_FALLBACK = ['Medical', 'Family emergency', 'Bereavement', 'Other'];
   const [dateAvailability, setDateAvailability] = useState(null); // { blocked, available, bookedBy } for apply form
   const [editDateAvailability, setEditDateAvailability] = useState(null); // availability for edit-dates modal
   const [pendingActions, setPendingActions] = useState({ swapRequests: [], acknowledgeRequests: [] });
   const [pendingActionModal, setPendingActionModal] = useState(null); // { type: 'swap'|'ack', data }
-  const EMERGENCY_OPTIONS = ['Medical', 'Family emergency', 'Bereavement', 'Other'];
   const [departmentRestrictedDays, setDepartmentRestrictedDays] = useState([]); // day_of_week 0-6 for current user's department (from admin-configured rules)
   const [policyForm, setPolicyForm] = useState({
     policy_reason_detail: '',
@@ -403,20 +402,16 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     }
   }, [employeeId, departmentId, mode]);
 
-  // When report shows no paid leave remaining (and user has taken leaves this month), sync leave type to Regular
+  // When report shows no paid leave remaining (and user has taken leaves this month), switch to Regular
   useEffect(() => {
     if (!report) return;
     const remaining = report.remaining_paid ?? null;
     const leavesTakenThisMonth = Number(report.leaves_taken_this_month) ?? 0;
     const noQuota = remaining !== null && remaining <= 0;
-    if (noQuota && leavesTakenThisMonth > 0) {
-      const hadPaidSelected = form.leave_type === 'paid' ||
-        (leaveTypes.length > 0 && form.leave_type_id && leaveTypes.find((t) => String(t.id) === String(form.leave_type_id))?.is_paid);
-      if (hadPaidSelected) {
-        setForm((prev) => ({ ...prev, leave_type: 'other', leave_type_id: '' }));
-      }
+    if (noQuota && leavesTakenThisMonth > 0 && form.leave_type === 'paid') {
+      setForm((prev) => ({ ...prev, leave_type: 'other' }));
     }
-  }, [report?.remaining_paid, report?.leaves_taken_this_month, leaveTypes, form.leave_type, form.leave_type_id]);
+  }, [report?.remaining_paid, report?.leaves_taken_this_month, form.leave_type]);
 
   const loadDateAvailability = async (startDate, endDate) => {
     if (!startDate) {
@@ -681,16 +676,13 @@ export default function Leaves({ initialTab, initialManagerSection }) {
       alert('User is not available for leave application');
       return;
     }
-    const hasLeaveType = leaveTypes.length > 0
-      ? (form.leave_type_id !== '' && form.leave_type_id != null)
-      : form.leave_type;
     if (
       !form.start_date ||
       !form.end_date ||
       !form.start_segment ||
       !form.end_segment ||
       !form.reason.trim() ||
-      !hasLeaveType
+      !form.leave_type
     ) {
       alert('Please complete all fields, including leave type, before applying for leave.');
       return;
@@ -701,18 +693,16 @@ export default function Leaves({ initialTab, initialManagerSection }) {
       return;
     }
     const daysRequested = computeDaysRequested();
-    const selectedLeaveType = leaveTypes.length > 0 && form.leave_type_id
-      ? leaveTypes.find((t) => String(t.id) === String(form.leave_type_id))
-      : null;
-    const policyApplies = selectedLeaveType
-      ? selectedLeaveType.is_paid === 0 || selectedLeaveType.is_paid === false
-      : form.leave_type === 'other';
+    const policyApplies = form.leave_type === 'other';
     if (policyApplies && !policyForm.expected_return_date?.trim()) {
       alert('Please fill in when you will be back.');
       return;
     }
     const isRedDate = dateAvailability && (!dateAvailability.available || dateAvailability.bookedByCount > 0);
-    if (isRedDate && !form.emergency_type) {
+    const isPaidType = form.leave_type === 'paid';
+    // Rulebook/UI: For booked dates, emergency reason is required only for Paid.
+    // For Regular (unpaid) booked dates, the policy form handles admin approval instead.
+    if (isRedDate && isPaidType && !form.emergency_type) {
       alert('This date is already booked. Please select an emergency reason to request leave.');
       return;
     }
@@ -727,14 +717,11 @@ export default function Leaves({ initialTab, initialManagerSection }) {
         start_segment: form.start_segment,
         end_segment: form.end_segment,
         days_requested: daysRequested,
+        leave_type: policyApplies ? 'other' : (form.leave_type || 'paid'), // Paid vs Regular only — rulebook & quota
       };
-      if (leaveTypes.length > 0 && form.leave_type_id !== '' && form.leave_type_id != null) {
-        payload.leave_type_id = Number(form.leave_type_id);
-      } else {
-        payload.leave_type = policyApplies ? 'other' : (form.leave_type || 'paid');
-      }
       if (policyApplies) {
-        payload.policy_reason_detail = form.reason || '';
+        // Prefer structured reason from the Regular (unpaid) form; fall back to free-text reason.
+        payload.policy_reason_detail = policyForm.policy_reason_detail || form.reason || '';
         payload.expected_return_date = policyForm.expected_return_date || '';
         payload.policy_duration_explanation = policyForm.policy_duration_explanation || '';
       }
@@ -843,7 +830,6 @@ export default function Leaves({ initialTab, initialManagerSection }) {
         end_segment: 'full_day',
         reason: '',
         leave_type: 'paid',
-        leave_type_id: '',
         emergency_type: '',
       });
       setPolicyForm({ policy_reason_detail: '', expected_return_date: '', policy_duration_explanation: '' });
@@ -868,12 +854,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
       report != null &&
       (remaining !== null && remaining <= 0) &&
       leavesTakenThisMonth > 0;
-    const selectedTypeForForm = leaveTypes.length > 0 && form.leave_type_id
-      ? leaveTypes.find((t) => String(t.id) === String(form.leave_type_id))
-      : null;
-    const effectiveLeaveType = selectedTypeForForm
-      ? (selectedTypeForForm.is_paid === 0 || selectedTypeForForm.is_paid === false ? 'other' : 'paid')
-      : (paidDisabled ? 'other' : form.leave_type);
+    const effectiveLeaveType = paidDisabled ? 'other' : form.leave_type;
     const showPolicyForm = effectiveLeaveType === 'other';
     const isEventBlocked = dateAvailability?.blocked;
     const applyDisabled = isEventBlocked;
@@ -958,46 +939,17 @@ export default function Leaves({ initialTab, initialManagerSection }) {
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Leave type</label>
-            {leaveTypes.length > 0 ? (
-              <select
-                name="leave_type_id"
-                value={form.leave_type_id}
-                onChange={handleFormChange}
-                className="w-full border rounded px-3 py-2"
-              >
-                <option value="">Select leave type</option>
-                {leaveTypes.map((t) => {
-                  const isPaidType = t.is_paid === 1 || t.is_paid === true;
-                  const disablePaid = paidDisabled && isPaidType;
-                  return (
-                    <option
-                      key={t.id}
-                      value={t.id}
-                      disabled={disablePaid}
-                    >
-                      {t.name}
-                      {t.description ? ` — ${t.description}` : ''}
-                      {disablePaid ? ' (no paid quota left)' : ''}
-                    </option>
-                  );
-                })}
-              </select>
-            ) : (
-              <select
-                name="leave_type"
-                value={paidDisabled ? 'other' : form.leave_type}
-                onChange={handleFormChange}
-                className={`w-full border rounded px-3 py-2 ${paidDisabled ? 'bg-gray-100 text-gray-500' : ''}`}
-                disabled={paidDisabled}
-              >
-                <option value="paid" disabled={paidDisabled}>Paid</option>
-                <option value="other">Regular</option>
-              </select>
-            )}
-            {paidDisabled && leaveTypes.length > 0 && (
-              <p className="mt-1 text-xs text-amber-700">Paid leave types are disabled; you have no paid leave remaining this month.</p>
-            )}
-            {paidDisabled && leaveTypes.length === 0 && (
+            <select
+              name="leave_type"
+              value={paidDisabled ? 'other' : form.leave_type}
+              onChange={handleFormChange}
+              className={`w-full border rounded px-3 py-2 ${paidDisabled ? 'bg-gray-100 text-gray-500' : ''}`}
+              disabled={paidDisabled}
+            >
+              <option value="paid" disabled={paidDisabled}>Paid</option>
+              <option value="other">Regular</option>
+            </select>
+            {paidDisabled && (
               <p className="mt-1 text-xs text-amber-700">Paid leave not available; you have no paid leave remaining this month.</p>
             )}
           </div>
@@ -1009,7 +961,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
           </div>
         )}
 
-        {dateAvailability && !dateAvailability.available && !dateAvailability.blocked && form.start_date && (
+        {dateAvailability && !dateAvailability.available && !dateAvailability.blocked && form.start_date && form.leave_type === 'paid' && (
           <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded">
             <p className="text-sm text-amber-800 mb-2">This date is already booked. Select an emergency reason below to request leave.</p>
             <label className="block text-sm font-medium text-gray-700 mb-1">Emergency reason</label>
@@ -1020,7 +972,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
               className="w-full border rounded px-3 py-2"
             >
               <option value="">Select reason</option>
-              {EMERGENCY_OPTIONS.map((opt) => (
+              {(leaveTypes.length > 0 ? leaveTypes.map((t) => t.name) : EMERGENCY_OPTIONS_FALLBACK).map((opt) => (
                 <option key={opt} value={opt}>{opt}</option>
               ))}
             </select>
@@ -1032,6 +984,19 @@ export default function Leaves({ initialTab, initialManagerSection }) {
             <p className="text-sm font-medium text-blue-900">
               According to leave policy this will be recorded as unpaid leave and must be acknowledged by admin before it applies.
             </p>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Leave reason (type)</label>
+              <select
+                value={policyForm.policy_reason_detail}
+                onChange={(e) => setPolicyForm((p) => ({ ...p, policy_reason_detail: e.target.value }))}
+                className="w-full border rounded px-3 py-2"
+              >
+                <option value="">Select reason</option>
+                {(leaveTypes.length > 0 ? leaveTypes.map((t) => t.name) : EMERGENCY_OPTIONS_FALLBACK).map((opt) => (
+                  <option key={opt} value={opt}>{opt}</option>
+                ))}
+              </select>
+            </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">How many days?</label>
               <p className="text-sm text-gray-600">{daysRequested} day(s)</p>
