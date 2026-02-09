@@ -102,6 +102,9 @@ export default function Leaves({ initialTab, initialManagerSection }) {
   const lastPendingIdsRef = useRef(null); // for ack result popups
   const [ackResultModal, setAckResultModal] = useState(null); // { type: 'approved' | 'rejected', leave: row }
   const [emergencySubmitModal, setEmergencySubmitModal] = useState(false); // show "please wait" after emergency leave submit
+  const [notificationPopup, setNotificationPopup] = useState({ show: false, title: '', message: '', isError: false });
+  const showNotification = (title, message, isError = false) =>
+    setNotificationPopup({ show: true, title, message, isError });
   const [myLeaves, setMyLeaves] = useState({ pending: [], recent_approved: [], recent_rejected: [], acknowledged: [] });
   const [policy, setPolicy] = useState(null);
   const [report, setReport] = useState(null);
@@ -678,7 +681,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
 
   const applyForLeave = async () => {
     if (!employeeId) {
-      alert('User is not available for leave application');
+      showNotification('Cannot apply', 'User is not available for leave application.', true);
       return;
     }
     if (
@@ -689,18 +692,18 @@ export default function Leaves({ initialTab, initialManagerSection }) {
       !form.reason.trim() ||
       !form.leave_type
     ) {
-      alert('Please complete all fields, including leave type, before applying for leave.');
+      showNotification('Missing fields', 'Please complete all fields, including leave type, before applying for leave.', true);
       return;
     }
     // Event dates: no leave at all (backend also blocks)
     if (dateAvailability?.blocked) {
-      alert('Leave cannot be applied on this date due to an event.');
+      showNotification('Date not allowed', 'Leave cannot be applied on this date due to an event.', true);
       return;
     }
     const daysRequested = computeDaysRequested();
     const policyApplies = form.leave_type === 'other';
     if (policyApplies && !policyForm.expected_return_date?.trim()) {
-      alert('Please fill in when you will be back.');
+      showNotification('Missing information', 'Please fill in when you will be back.', true);
       return;
     }
     const isRedDate = dateAvailability && (!dateAvailability.available || dateAvailability.bookedByCount > 0);
@@ -708,7 +711,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     // Rulebook/UI: For booked dates, emergency reason is required only for Paid.
     // For Regular (unpaid) booked dates, the policy form handles admin approval instead.
     if (isRedDate && isPaidType && !form.emergency_type) {
-      alert('This date is already booked. Please select an emergency reason to request leave.');
+      showNotification('Booked date', 'This date is already booked. Please select an emergency reason to request leave.', true);
       return;
     }
     setLoading(true);
@@ -750,17 +753,17 @@ export default function Leaves({ initialTab, initialManagerSection }) {
       let data = await res.json().catch(() => ({}));
 
       if (data.date_blocked && !data.success) {
-        alert(data.message || 'Leave cannot be applied on this date due to an event.');
+        showNotification('Date not allowed', data.message || 'Leave cannot be applied on this date due to an event.', true);
         setLoading(false);
         return;
       }
       if (data.paid_not_available && !data.success) {
-        alert(data.message || 'Paid leave not available; you have already taken 2 leaves this month.');
+        showNotification('Paid leave not available', data.message || 'You have already used your paid leaves this month.', true);
         setLoading(false);
         return;
       }
       if (data.date_booked && !data.success) {
-        alert(data.message || 'This date is already booked. Select an emergency reason and try again.');
+        showNotification('Date booked', data.message || 'This date is already booked. Select an emergency reason and try again.', true);
         setLoading(false);
         return;
       }
@@ -785,8 +788,10 @@ export default function Leaves({ initialTab, initialManagerSection }) {
 
       if (data.conflict && !data.success) {
         const name = data.existing_employee_name || 'Someone else';
-        alert(
-          `${name} from your department is already on leave for these dates. Please contact administration.`
+        showNotification(
+          'Department conflict',
+          `${name} from your department is already on leave for these dates. Please contact administration.`,
+          true
         );
         setLoading(false);
         return;
@@ -794,7 +799,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
 
       const success = res.ok && (res.status === 201 || data.success === true);
       if (!success) {
-        alert(data.error || data.message || 'Failed to apply for leave');
+        showNotification('Application failed', data.error || data.message || 'Failed to apply for leave.', true);
         setLoading(false);
         return;
       }
@@ -803,9 +808,9 @@ export default function Leaves({ initialTab, initialManagerSection }) {
       if (wasEmergencyRequest) {
         setEmergencySubmitModal(true);
       } else if (data.status === 'pending') {
-        alert('Your leave has been submitted. Admin has yet to acknowledge your leave.');
+        showNotification('Submitted', 'Your leave has been submitted. Admin will acknowledge it.');
       } else {
-        alert('Leave application submitted successfully');
+        showNotification('Success', 'Leave application submitted successfully.');
       }
       // Optimistic update: add auto-approved (paid available) leave so it shows immediately in Future
       if (data.status === 'approved' && data.id) {
@@ -844,7 +849,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
       await loadPendingActions();
     } catch (err) {
       console.error('Error applying for leave', err);
-      alert('Error applying for leave');
+      showNotification('Error', 'Error applying for leave.', true);
     } finally {
       setLoading(false);
     }
@@ -1107,13 +1112,13 @@ export default function Leaves({ initialTab, initialManagerSection }) {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        alert(data.error || 'Failed to cancel leave');
+        showNotification('Error', data.error || 'Failed to cancel leave.', true);
         return;
       }
       await loadMyLeaves();
       await loadPendingActions();
     } catch (e) {
-      alert('Failed to cancel leave');
+      showNotification('Error', 'Failed to cancel leave.', true);
     }
   };
 
@@ -1239,11 +1244,11 @@ export default function Leaves({ initialTab, initialManagerSection }) {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        if (data.date_blocked || data.date_booked) {
-          alert(data.error || 'Cannot move leave to these dates.');
-        } else {
-          alert(data.error || 'Failed to update leave');
-        }
+        showNotification(
+          'Update failed',
+          data.date_blocked || data.date_booked ? (data.error || 'Cannot move leave to these dates.') : (data.error || 'Failed to update leave.'),
+          true
+        );
         return;
       }
       const origStart = (editingLeave.start_date && new Date(editingLeave.start_date).toISOString) ? new Date(editingLeave.start_date).toISOString().split('T')[0] : (editingLeave.start_date || '').slice(0, 10);
@@ -1261,7 +1266,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
       await loadPendingActions();
     } catch (err) {
       console.error('Error updating leave', err);
-      alert('Failed to update leave');
+      showNotification('Error', 'Failed to update leave.', true);
     }
   };
 
@@ -3497,6 +3502,27 @@ export default function Leaves({ initialTab, initialManagerSection }) {
         </div>
         {renderDepartmentContent()}
       </div>
+      {notificationPopup.show && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" aria-modal="true" role="dialog">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-gray-200/80">
+            <div className={`px-6 py-5 border-b ${notificationPopup.isError ? 'bg-red-50 border-red-100' : 'bg-indigo-50 border-indigo-100'}`}>
+              <h3 className={`text-lg font-semibold ${notificationPopup.isError ? 'text-red-900' : 'text-gray-900'}`}>
+                {notificationPopup.title || (notificationPopup.isError ? 'Error' : 'Notice')}
+              </h3>
+            </div>
+            <div className="px-6 py-4 text-sm text-gray-700">{notificationPopup.message}</div>
+            <div className="px-6 py-4 flex justify-end bg-gray-50 border-t border-gray-200">
+              <button
+                type="button"
+                onClick={() => setNotificationPopup((p) => ({ ...p, show: false }))}
+                className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 font-medium"
+              >
+                OK
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       </>
     );
   }
@@ -3525,7 +3551,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        alert(data.error || 'Failed to respond');
+        showNotification('Error', data.error || 'Failed to respond.', true);
         return;
       }
       setPendingActionModal(null);
@@ -3533,11 +3559,14 @@ export default function Leaves({ initialTab, initialManagerSection }) {
       await loadMyLeaves();
       if (accept) {
         setActiveTab(TABS.FUTURE);
-        alert('You accepted. Please edit your leave date in Future leaves so the other person can take leave on that day.');
+        showNotification(
+          'Swap accepted',
+          'Please edit your leave date in Future leaves so the other person can take leave on that day.'
+        );
       }
     } catch (err) {
       console.error('Error responding to swap', err);
-      alert('Failed to respond');
+      showNotification('Error', 'Failed to respond.', true);
     }
   }
 
@@ -3554,17 +3583,20 @@ export default function Leaves({ initialTab, initialManagerSection }) {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        alert(data.error || 'Failed to acknowledge');
+        showNotification('Error', data.error || 'Failed to acknowledge.', true);
         return;
       }
       setPendingActionModal(null);
       await loadPendingActions();
       await loadDepartmentLeaves();
       await loadMyLeaves();
-      alert(approved ? 'Leave acknowledged and approved.' : 'Leave has been rejected. Please contact administration.');
+      showNotification(
+        approved ? 'Acknowledged' : 'Rejected',
+        approved ? 'Leave acknowledged and approved.' : 'Leave has been rejected. The employee can be notified from their view.'
+      );
     } catch (err) {
       console.error('Error acknowledging', err);
-      alert('Failed to acknowledge');
+      showNotification('Error', 'Failed to acknowledge.', true);
     }
   }
 
@@ -3776,14 +3808,14 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                     });
                     const data = await res.json().catch(() => ({}));
                     if (!res.ok) {
-                      alert(data.error || 'Failed to reject swap');
+                      showNotification('Error', data.error || 'Failed to reject swap.', true);
                       return;
                     }
                     setNoChangeModal(null);
                     await loadPendingActions();
                     await loadMyLeaves();
                   } catch (e) {
-                    alert('Failed to reject swap');
+                    showNotification('Error', 'Failed to reject swap.', true);
                   }
                 }}
                 className="px-5 py-2.5 border border-gray-300 rounded-xl text-gray-700 bg-white hover:bg-gray-50 font-medium transition-colors"
@@ -3926,6 +3958,27 @@ export default function Leaves({ initialTab, initialManagerSection }) {
         </div>
         {renderMyLeavesContent()}
       </div>
+      {notificationPopup.show && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" aria-modal="true" role="dialog">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-gray-200/80">
+            <div className={`px-6 py-5 border-b ${notificationPopup.isError ? 'bg-red-50 border-red-100' : 'bg-indigo-50 border-indigo-100'}`}>
+              <h3 className={`text-lg font-semibold ${notificationPopup.isError ? 'text-red-900' : 'text-gray-900'}`}>
+                {notificationPopup.title || (notificationPopup.isError ? 'Error' : 'Notice')}
+              </h3>
+            </div>
+            <div className="px-6 py-4 text-sm text-gray-700">{notificationPopup.message}</div>
+            <div className="px-6 py-4 flex justify-end bg-gray-50 border-t border-gray-200">
+              <button
+                type="button"
+                onClick={() => setNotificationPopup((p) => ({ ...p, show: false }))}
+                className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 font-medium"
+              >
+                OK
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

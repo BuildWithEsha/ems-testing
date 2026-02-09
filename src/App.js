@@ -42,22 +42,27 @@ const EarnTrackWages = lazy(() => import('./components/views/EarnTrackWages'));
 import Modal from './components/ui/Modal';
 import Button from './components/ui/Button';
 
+// Date formatting helpers (module-level so always in scope in production build)
+const formatShortDate = (value) => {
+  if (!value) return '';
+  const str = String(value);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+  const datePart = str.split('T')[0];
+  if (/^\d{4}-\d{2}-\d{2}$/.test(datePart)) return datePart;
+  const d = new Date(str);
+  if (Number.isNaN(d.getTime())) return str;
+  return d.toISOString().slice(0, 10);
+};
+const formatPrettyDate = (value) => {
+  const ymd = formatShortDate(value);
+  if (!ymd) return '';
+  const [y, m, d] = ymd.split('-');
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  return `${Number(d)} ${months[Number(m) - 1]} ${y}`;
+};
+
 // Main App Component with Authentication
 const AppContent = () => {
-  const formatShortDate = (value) => {
-    if (!value) return '';
-    const str = String(value);
-    // If already YYYY-MM-DD just show as is
-    if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
-    // Strip time part from ISO-like strings
-    const datePart = str.split('T')[0];
-    if (/^\d{4}-\d{2}-\d{2}$/.test(datePart)) return datePart;
-    // Fallback to locale date
-    const d = new Date(str);
-    // Guard against invalid dates
-    if (Number.isNaN(d.getTime())) return str;
-    return d.toISOString().slice(0, 10);
-  };
   const { isAuthenticated, isLoading, login } = useAuth();
 
   // Show loading spinner while checking authentication
@@ -282,6 +287,8 @@ const AuthenticatedApp = () => {
         const data = await res.json().catch(() => ({}));
         const swap = (data.swapRequests || [])[0] || null;
         const ack = (data.acknowledgeRequests || [])[0] || null;
+        const rejected = data.rejected_swap_notifications || [];
+        setLeaveRejectedSwapNotifications(rejected);
         if (ack && (user.role === 'admin' || user.role === 'Admin')) {
           setLeavePendingModal({ type: 'ack', data: ack });
         } else if (swap) {
@@ -320,6 +327,7 @@ const AuthenticatedApp = () => {
 
   // Global leave pending modal (swap / acknowledge) – shown regardless of current view
   const [leavePendingModal, setLeavePendingModal] = useState(null); // { type: 'swap'|'ack', data }
+  const [leaveRejectedSwapNotifications, setLeaveRejectedSwapNotifications] = useState([]); // booker: "you can set date back"
 
   // Filter states
   const [filters, setFilters] = useState({});
@@ -737,18 +745,18 @@ const AuthenticatedApp = () => {
               <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
                 <div className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Your booked leave</div>
                 <div className="font-medium text-gray-900">
-                  {leavePendingModal.data.my_start_date}
-                  {leavePendingModal.data.my_end_date && String(leavePendingModal.data.my_end_date) !== String(leavePendingModal.data.my_start_date)
-                    ? ` – ${leavePendingModal.data.my_end_date}`
+                  {formatPrettyDate(leavePendingModal.data.my_start_date)}
+                  {leavePendingModal.data.my_end_date && String(formatShortDate(leavePendingModal.data.my_end_date)) !== String(formatShortDate(leavePendingModal.data.my_start_date))
+                    ? ` – ${formatPrettyDate(leavePendingModal.data.my_end_date)}`
                     : ''}
                 </div>
               </div>
               <div className="rounded-lg border border-amber-200 bg-amber-50/70 p-3">
                 <div className="text-xs font-medium text-amber-800 uppercase tracking-wide mb-1">Requested period</div>
                 <div className="font-medium text-gray-900">
-                  {leavePendingModal.data.start_date}
-                  {leavePendingModal.data.end_date && String(leavePendingModal.data.end_date) !== String(leavePendingModal.data.start_date)
-                    ? ` – ${leavePendingModal.data.end_date}`
+                  {formatPrettyDate(leavePendingModal.data.start_date)}
+                  {leavePendingModal.data.end_date && String(formatShortDate(leavePendingModal.data.end_date)) !== String(formatShortDate(leavePendingModal.data.start_date))
+                    ? ` – ${formatPrettyDate(leavePendingModal.data.end_date)}`
                     : ''}
                 </div>
                 {leavePendingModal.data.emergency_type && (
@@ -789,16 +797,24 @@ const AuthenticatedApp = () => {
               <div className="flex justify-between">
                 <span className="font-medium text-gray-500">Dates</span>
                 <span className="text-gray-900">
-                  {formatShortDate(leavePendingModal.data.start_date)}
-                  {leavePendingModal.data.end_date && String(leavePendingModal.data.end_date) !== String(leavePendingModal.data.start_date)
-                    ? ` – ${formatShortDate(leavePendingModal.data.end_date)}`
+                  {formatPrettyDate(leavePendingModal.data.start_date)}
+                  {leavePendingModal.data.end_date && String(formatShortDate(leavePendingModal.data.end_date)) !== String(formatShortDate(leavePendingModal.data.start_date))
+                    ? ` – ${formatPrettyDate(leavePendingModal.data.end_date)}`
                     : ''}
                 </span>
               </div>
-              {leavePendingModal.data.emergency_type && (
+              {(leavePendingModal.data.emergency_type || leavePendingModal.data.reason) && (
                 <div className="flex justify-between">
                   <span className="font-medium text-gray-500">Reason</span>
-                  <span className="text-gray-900">{leavePendingModal.data.emergency_type}</span>
+                  <span className="text-gray-900">{leavePendingModal.data.emergency_type || leavePendingModal.data.reason}</span>
+                </div>
+              )}
+              {leavePendingModal.data.requested_swap_with_leave_id != null && (
+                <div className="flex justify-between">
+                  <span className="font-medium text-gray-500">Booker has swapped</span>
+                  <span className="text-gray-900 font-medium">
+                    {leavePendingModal.data.booker_has_swapped === true ? 'Yes' : leavePendingModal.data.booker_has_swapped === false ? 'No' : '—'}
+                  </span>
                 </div>
               )}
               <p className="text-xs text-gray-600 mt-2">
@@ -812,6 +828,39 @@ const AuthenticatedApp = () => {
                 className="px-4 py-2 text-sm font-medium rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
               >
                 Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Booker: leave request that asked to swap with your leave was rejected – you can set your date back */}
+      {leaveRejectedSwapNotifications.length > 0 && (user?.role !== 'admin' && user?.role !== 'Admin') && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" aria-modal="true" role="dialog">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-gray-200/80">
+            <div className="px-6 py-5 border-b border-gray-100">
+              <h3 className="text-lg font-semibold text-gray-900">Request rejected</h3>
+              <p className="text-sm text-gray-600 mt-1">
+                The following leave request(s) that asked to swap with your leave have been rejected. You can set your date back if you had moved it.
+              </p>
+            </div>
+            <div className="px-6 py-4">
+              <ul className="text-sm text-gray-700 space-y-1">
+                {leaveRejectedSwapNotifications.map((n) => (
+                  <li key={n.rejected_leave_id}>
+                    Request for {formatPrettyDate(n.start_date)}
+                    {n.end_date && formatShortDate(n.end_date) !== formatShortDate(n.start_date) ? ` – ${formatPrettyDate(n.end_date)}` : ''} was rejected.
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div className="px-6 py-4 flex justify-end bg-gray-50/80 border-t border-gray-200">
+              <button
+                type="button"
+                onClick={() => setLeaveRejectedSwapNotifications([])}
+                className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 font-medium"
+              >
+                OK
               </button>
             </div>
           </div>

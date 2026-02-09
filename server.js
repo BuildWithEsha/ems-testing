@@ -12145,7 +12145,10 @@ app.get('/api/leaves/pending-actions', async (req, res) => {
            AND (
              (lr.is_important_date_override = 1)
              OR (lr.requested_swap_with_leave_id IS NOT NULL AND lr.swap_responded_at IS NOT NULL)
-             OR (lr.policy_reason_detail IS NOT NULL OR lr.expected_return_date IS NOT NULL)
+             OR (
+               (lr.requested_swap_with_leave_id IS NULL OR lr.swap_responded_at IS NOT NULL)
+               AND (lr.policy_reason_detail IS NOT NULL OR lr.expected_return_date IS NOT NULL)
+             )
            )
          ORDER BY lr.created_at DESC LIMIT 50`
       );
