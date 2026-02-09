@@ -271,6 +271,12 @@ const AuthenticatedApp = () => {
     fetchData();
   }, [user]);
 
+  // Global leave pending modal state – must be declared before the useEffect that uses it
+  const [leavePendingModal, setLeavePendingModal] = useState(null); // { type: 'swap'|'ack', data }
+  const [leaveRejectedSwapNotifications, setLeaveRejectedSwapNotifications] = useState([]); // booker: "you can set date back"
+  const [dismissedRejectedSwapIds, setDismissedRejectedSwapIds] = useState([]); // booker dismissed these; don't show again until new ones
+  const [pendingLeavesRefresh, setPendingLeavesRefresh] = useState(0); // bump when user opens Leaves so we refetch immediately
+
   // Global check for pending leave actions (swap / acknowledge / rejected-swap for booker)
   // so that modals are shown regardless of the current view. Poll frequently so the booker
   // sees "you can set your date back" soon after admin rejects.
@@ -341,12 +347,6 @@ const AuthenticatedApp = () => {
 
   // Destructure modal state
   const { isOpen: isModalOpen, type: modalType, editingItem } = modalState;
-
-  // Global leave pending modal (swap / acknowledge) – shown regardless of current view
-  const [leavePendingModal, setLeavePendingModal] = useState(null); // { type: 'swap'|'ack', data }
-  const [leaveRejectedSwapNotifications, setLeaveRejectedSwapNotifications] = useState([]); // booker: "you can set date back"
-  const [dismissedRejectedSwapIds, setDismissedRejectedSwapIds] = useState([]); // booker dismissed these; don't show again until new ones
-  const [pendingLeavesRefresh, setPendingLeavesRefresh] = useState(0); // bump when user opens Leaves so we refetch immediately
 
   // Filter states
   const [filters, setFilters] = useState({});
