@@ -271,8 +271,9 @@ const AuthenticatedApp = () => {
     fetchData();
   }, [user]);
 
-  // Global check for pending leave actions (swap / acknowledge) so that a modal
-  // is surfaced as soon as the user logs in, regardless of the current view.
+  // Global check for pending leave actions (swap / acknowledge / rejected-swap for booker)
+  // so that modals are shown regardless of the current view. Poll so the booker
+  // sees "you can set your date back" soon after admin rejects.
   useEffect(() => {
     const checkPendingLeaves = async () => {
       if (!user?.id) return;
@@ -302,6 +303,8 @@ const AuthenticatedApp = () => {
     };
 
     checkPendingLeaves();
+    const interval = setInterval(checkPendingLeaves, 90 * 1000); // poll every 90s so booker gets "revert date" popup after admin rejects
+    return () => clearInterval(interval);
   }, [user]);
 
   // Listen to department open events
