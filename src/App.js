@@ -1,4 +1,4 @@
-import React, { useState, useEffect, Suspense, lazy, startTransition } from 'react';
+import React, { useState, useEffect, useRef, Suspense, lazy, startTransition } from 'react';
 import { initialData } from './data/initialData';
 import { generateId, validateFormData } from './utils/dataHandlers';
 
@@ -275,6 +275,8 @@ const AuthenticatedApp = () => {
   // so that modals are shown regardless of the current view. Poll so the booker
   // sees "you can set your date back" soon after admin rejects.
   useEffect(() => {
+    // Track last pending ids so we don't reopen the same modal on every poll / reload
+    const lastPendingKeys = { swap: '', ack: '' };
     const checkPendingLeaves = async () => {
       if (!user?.id) return;
       try {
@@ -286,16 +288,29 @@ const AuthenticatedApp = () => {
         });
         if (!res.ok) return;
         const data = await res.json().catch(() => ({}));
-        const swap = (data.swapRequests || [])[0] || null;
-        const ack = (data.acknowledgeRequests || [])[0] || null;
+        const swapList = Array.isArray(data.swapRequests) ? data.swapRequests : [];
+        const ackList = Array.isArray(data.acknowledgeRequests) ? data.acknowledgeRequests : [];
         const rejected = data.rejected_swap_notifications || [];
         setLeaveRejectedSwapNotifications(rejected);
-        if (ack && (user.role === 'admin' || user.role === 'Admin')) {
-          setLeavePendingModal({ type: 'ack', data: ack });
-        } else if (swap) {
-          setLeavePendingModal({ type: 'swap', data: swap });
+
+        const isAdminUser = user.role === 'admin' || user.role === 'Admin';
+        const swapIds = swapList.map((s) => s.requesting_leave_id || s.my_leave_id || s.leave_id || s.id).sort().join(',');
+        const ackIds = ackList.map((a) => a.leave_id || a.id).sort().join(',');
+
+        if (isAdminUser && ackList.length > 0) {
+          if (ackIds && ackIds !== lastPendingKeys.ack) {
+            lastPendingKeys.ack = ackIds;
+            setLeavePendingModal({ type: 'ack', data: ackList });
+          }
+        } else if (swapList.length > 0) {
+          if (swapIds && swapIds !== lastPendingKeys.swap) {
+            lastPendingKeys.swap = swapIds;
+            setLeavePendingModal({ type: 'swap', data: swapList });
+          }
         } else {
           setLeavePendingModal(null);
+          lastPendingKeys.swap = '';
+          lastPendingKeys.ack = '';
         }
       } catch {
         // ignore failures here; user can still navigate to Leaves manually
@@ -742,38 +757,44 @@ const AuthenticatedApp = () => {
           </div>
         </div>
       </Modal>
-      {/* Global leave swap / acknowledge modal – shown regardless of current view */}
-      {leavePendingModal && leavePendingModal.type === 'swap' && (
+      {/* Global leave swap / acknowledge modal – shown regardless of current view.
+          If there are multiple items, show them all in a single popup. */}
+      {leavePendingModal && leavePendingModal.type === 'swap' && Array.isArray(leavePendingModal.data) && leavePendingModal.data.length > 0 && (
         <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" aria-modal="true" role="dialog">
           <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-gray-200/80">
             <div className="px-6 py-5 bg-amber-50 border-b border-amber-100">
               <h3 className="text-lg font-semibold text-gray-900">Leave swap request</h3>
               <p className="text-sm text-amber-800 mt-1">A colleague has requested leave on dates you currently have booked.</p>
             </div>
-            <div className="px-6 py-4 space-y-3 text-sm">
-              <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
-                <div className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Your booked leave</div>
-                <div className="font-medium text-gray-900">
-                  {formatPrettyDate(leavePendingModal.data.my_start_date)}
-                  {leavePendingModal.data.my_end_date && String(formatShortDate(leavePendingModal.data.my_end_date)) !== String(formatShortDate(leavePendingModal.data.my_start_date))
-                    ? ` – ${formatPrettyDate(leavePendingModal.data.my_end_date)}`
-                    : ''}
-                </div>
-              </div>
-              <div className="rounded-lg border border-amber-200 bg-amber-50/70 p-3">
-                <div className="text-xs font-medium text-amber-800 uppercase tracking-wide mb-1">Requested period</div>
-                <div className="font-medium text-gray-900">
-                  {formatPrettyDate(leavePendingModal.data.start_date)}
-                  {leavePendingModal.data.end_date && String(formatShortDate(leavePendingModal.data.end_date)) !== String(formatShortDate(leavePendingModal.data.start_date))
-                    ? ` – ${formatPrettyDate(leavePendingModal.data.end_date)}`
-                    : ''}
-                </div>
-                {leavePendingModal.data.emergency_type && (
-                  <div className="mt-1 text-xs text-amber-800">
-                    Reason: {leavePendingModal.data.emergency_type}
+            <div className="px-6 py-4 space-y-3 text-sm max-h-[60vh] overflow-y-auto">
+              {leavePendingModal.data.map((item) => (
+                <div key={item.requesting_leave_id || item.my_leave_id} className="space-y-3">
+                  <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                    <div className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Your booked leave</div>
+                    <div className="font-medium text-gray-900">
+                      {formatPrettyDate(item.my_start_date)}
+                      {item.my_end_date && String(formatShortDate(item.my_end_date)) !== String(formatShortDate(item.my_start_date))
+                        ? ` – ${formatPrettyDate(item.my_end_date)}`
+                        : ''}
+                    </div>
                   </div>
-                )}
-              </div>
+                  <div className="rounded-lg border border-amber-200 bg-amber-50/70 p-3">
+                    <div className="text-xs font-medium text-amber-800 uppercase tracking-wide mb-1">Requested period</div>
+                    <div className="font-medium text-gray-900">
+                      {formatPrettyDate(item.start_date)}
+                      {item.end_date && String(formatShortDate(item.end_date)) !== String(formatShortDate(item.start_date))
+                        ? ` – ${formatPrettyDate(item.end_date)}`
+                        : ''}
+                    </div>
+                    {item.emergency_type && (
+                      <div className="mt-1 text-xs text-amber-800">
+                        Reason: {item.emergency_type}
+                      </div>
+                    )}
+                  </div>
+                  <hr className="my-2 border-dashed border-gray-200" />
+                </div>
+              ))}
               <p className="text-xs text-gray-600">
                 To respond, open the <span className="font-semibold">Leaves</span> screen and use the swap popup there.
               </p>
@@ -791,49 +812,54 @@ const AuthenticatedApp = () => {
         </div>
       )}
 
-      {leavePendingModal && leavePendingModal.type === 'ack' && (
+      {leavePendingModal && leavePendingModal.type === 'ack' && Array.isArray(leavePendingModal.data) && leavePendingModal.data.length > 0 && (
         <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" aria-modal="true" role="dialog">
           <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-gray-200/80">
             <div className="px-6 py-5 bg-gradient-to-b from-amber-50 to-amber-50/80 border-b border-amber-100">
               <h3 className="text-lg font-semibold text-gray-900">Leave requires acknowledgment</h3>
               <p className="text-sm text-amber-800 mt-1">An employee has a leave request on an important or booked date.</p>
             </div>
-            <div className="px-6 py-4 space-y-2 text-sm">
-              <div className="flex justify-between">
-                <span className="font-medium text-gray-500">Employee</span>
-                <span className="text-gray-900">{leavePendingModal.data.employee_name || '—'}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="font-medium text-gray-500">Dates</span>
-                <span className="text-gray-900">
-                  {formatPrettyDate(leavePendingModal.data.start_date)}
-                  {leavePendingModal.data.end_date && String(formatShortDate(leavePendingModal.data.end_date)) !== String(formatShortDate(leavePendingModal.data.start_date))
-                    ? ` – ${formatPrettyDate(leavePendingModal.data.end_date)}`
-                    : ''}
-                </span>
-              </div>
-              {(leavePendingModal.data.emergency_type || leavePendingModal.data.reason) && (
-                <div className="flex justify-between">
-                  <span className="font-medium text-gray-500">Reason</span>
-                  <span className="text-gray-900">{leavePendingModal.data.emergency_type || leavePendingModal.data.reason}</span>
+            <div className="px-6 py-4 space-y-3 text-sm max-h-[60vh] overflow-y-auto">
+              {leavePendingModal.data.map((item) => (
+                <div key={item.leave_id} className="space-y-2">
+                  <div className="flex justify-between">
+                    <span className="font-medium text-gray-500">Employee</span>
+                    <span className="text-gray-900">{item.employee_name || '—'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="font-medium text-gray-500">Dates</span>
+                    <span className="text-gray-900">
+                      {formatPrettyDate(item.start_date)}
+                      {item.end_date && String(formatShortDate(item.end_date)) !== String(formatShortDate(item.start_date))
+                        ? ` – ${formatPrettyDate(item.end_date)}`
+                        : ''}
+                    </span>
+                  </div>
+                  {(item.emergency_type || item.reason) && (
+                    <div className="flex justify-between">
+                      <span className="font-medium text-gray-500">Reason</span>
+                      <span className="text-gray-900">{item.emergency_type || item.reason}</span>
+                    </div>
+                  )}
+                  {item.requested_swap_with_leave_id != null && (
+                    <div className="flex justify-between">
+                      <span className="font-medium text-gray-500">Booker has swapped</span>
+                      <span className="text-gray-900 font-medium">
+                        {item.booker_has_swapped === true ? 'Yes' : item.booker_has_swapped === false ? 'No' : '—'}
+                      </span>
+                    </div>
+                  )}
+                  {item.booker_did_not_respond && (
+                    <div className="flex justify-between">
+                      <span className="font-medium text-gray-500">Swap status</span>
+                      <span className="text-amber-800 font-medium">Booker did not respond</span>
+                    </div>
+                  )}
+                  <hr className="my-2 border-dashed border-gray-200" />
                 </div>
-              )}
-              {leavePendingModal.data.requested_swap_with_leave_id != null && (
-                <div className="flex justify-between">
-                  <span className="font-medium text-gray-500">Booker has swapped</span>
-                  <span className="text-gray-900 font-medium">
-                    {leavePendingModal.data.booker_has_swapped === true ? 'Yes' : leavePendingModal.data.booker_has_swapped === false ? 'No' : '—'}
-                  </span>
-                </div>
-              )}
-              {leavePendingModal.data.booker_did_not_respond && (
-                <div className="flex justify-between">
-                  <span className="font-medium text-gray-500">Swap status</span>
-                  <span className="text-amber-800 font-medium">Booker did not respond</span>
-                </div>
-              )}
+              ))}
               <p className="text-xs text-gray-600 mt-2">
-                Open the <span className="font-semibold">Department → Acknowledge</span> section to review and either acknowledge or reject this leave.
+                Open the <span className="font-semibold">Department → Acknowledge</span> section to review and either acknowledge or reject these leaves.
               </p>
             </div>
             <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 flex justify-end">
@@ -852,7 +878,8 @@ const AuthenticatedApp = () => {
       {/* Booker: leave request that asked to swap with your leave was rejected – you can set your date back */}
       {(() => {
         const isAdminUser = user?.role && String(user.role).toLowerCase() === 'admin';
-        const toShow = (leaveRejectedSwapNotifications || []).filter((n) => !dismissedRejectedSwapIds.includes(n.rejected_leave_id));
+        const uniqueRejected = [...new Map((leaveRejectedSwapNotifications || []).map((n) => [n.rejected_leave_id, n])).values()];
+        const toShow = uniqueRejected.filter((n) => !dismissedRejectedSwapIds.includes(n.rejected_leave_id));
         if (toShow.length === 0 || isAdminUser) return null;
         return (
           <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" aria-modal="true" role="dialog">

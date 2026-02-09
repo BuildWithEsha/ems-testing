@@ -108,6 +108,8 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     setNotificationPopup({ show: true, title, message, isError, onClose });
   const [dismissedRejectedSwapIds, setDismissedRejectedSwapIds] = useState([]);
   const [dismissedRejectedLeaveIds, setDismissedRejectedLeaveIds] = useState([]);
+  const lastShownRejectedKeyRef = useRef('');
+  const lastShownSwapKeyRef = useRef('');
   const [swapRequestsData, setSwapRequestsData] = useState({ asBooker: [], asRequester: [] });
   const [myLeaves, setMyLeaves] = useState({ pending: [], recent_approved: [], recent_rejected: [], acknowledged: [] });
   const [policy, setPolicy] = useState(null);
@@ -524,17 +526,28 @@ export default function Leaves({ initialTab, initialManagerSection }) {
           else if (ack) setPendingActionModal({ type: 'ack', data: ack });
         }
         if ((data.rejected_swap_notifications || []).length > 0) setRejectedSwapModalDismissed(false);
-        // Booker / employee: show one notification per load using same popup (booker first, then requester)
+        // Booker / employee: one notification per type, deduped (booker first, then requester)
         const rejectedSwap = data.rejected_swap_notifications || [];
-        const toShowSwap = rejectedSwap.filter((n) => !dismissedRejectedSwapIds.includes(n.rejected_leave_id));
+        const uniqueRejectedSwap = [...new Map(rejectedSwap.map((n) => [n.rejected_leave_id, n])).values()];
+        const toShowSwap = uniqueRejectedSwap.filter((n) => !dismissedRejectedSwapIds.includes(n.rejected_leave_id));
         const rejectedLeaves = data.rejected_leave_notifications || [];
-        const toShowRejected = rejectedLeaves.filter((n) => !dismissedRejectedLeaveIds.includes(n.leave_id));
+        const uniqueRejectedLeaves = [...new Map(rejectedLeaves.map((n) => [n.leave_id, n])).values()];
+        const toShowRejected = uniqueRejectedLeaves.filter((n) => !dismissedRejectedLeaveIds.includes(n.leave_id));
+        // Only show notification when the set of ids has changed (avoid duplicate popups on re-run/poll)
         if (!isAdmin && toShowSwap.length > 0) {
-          const msg = toShowSwap.map((n) => `Request for ${formatDate(n.start_date)}${n.end_date && n.end_date !== n.start_date ? ` – ${formatDate(n.end_date)}` : ''} was rejected.`).join('\n');
-          showNotification('Request rejected', `The following leave request(s) that asked to swap with your leave have been rejected. You can set your date back if you had moved it.\n\n${msg}`, false, () => setDismissedRejectedSwapIds((prev) => [...prev, ...toShowSwap.map((n) => n.rejected_leave_id)]));
+          const key = toShowSwap.map((n) => n.rejected_leave_id).sort().join(',');
+          if (key !== lastShownSwapKeyRef.current) {
+            lastShownSwapKeyRef.current = key;
+            const msg = toShowSwap.map((n) => `Request for ${formatDate(n.start_date)}${n.end_date && n.end_date !== n.start_date ? ` – ${formatDate(n.end_date)}` : ''} was rejected.`).join('\n');
+            showNotification('Request rejected', `The following leave request(s) that asked to swap with your leave have been rejected. You can set your date back if you had moved it.\n\n${msg}`, false, () => setDismissedRejectedSwapIds((prev) => [...new Set([...prev, ...toShowSwap.map((n) => n.rejected_leave_id)])]));
+          }
         } else if (!isAdmin && toShowRejected.length > 0) {
-          const msg = toShowRejected.map((n) => `Leave for ${formatDate(n.start_date)}${n.end_date && n.end_date !== n.start_date ? ` – ${formatDate(n.end_date)}` : ''} was rejected.`).join('\n');
-          showNotification('Leave rejected', `Your leave request(s) have been rejected.\n\n${msg}`, true, () => setDismissedRejectedLeaveIds((prev) => [...prev, ...toShowRejected.map((n) => n.leave_id)]));
+          const key = toShowRejected.map((n) => n.leave_id).sort().join(',');
+          if (key !== lastShownRejectedKeyRef.current) {
+            lastShownRejectedKeyRef.current = key;
+            const msg = toShowRejected.map((n) => `Leave for ${formatDate(n.start_date)}${n.end_date && n.end_date !== n.start_date ? ` – ${formatDate(n.end_date)}` : ''} was rejected.`).join('\n');
+            showNotification('Leave rejected', `Your leave request(s) have been rejected.\n\n${msg}`, true, () => setDismissedRejectedLeaveIds((prev) => [...new Set([...prev, ...toShowRejected.map((n) => n.leave_id)])]));
+          }
         }
       }
     } catch {
