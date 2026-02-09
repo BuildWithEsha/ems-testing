@@ -271,32 +271,24 @@ const AuthenticatedApp = () => {
     fetchData();
   }, [user]);
 
-  // Global leave pending modal state – must be declared before the useEffect that uses it
-  const [leavePendingModal, setLeavePendingModal] = useState(null); // { type: 'swap'|'ack', data }
-  const [leaveRejectedSwapNotifications, setLeaveRejectedSwapNotifications] = useState([]); // booker: "you can set date back"
-  const [dismissedRejectedSwapIds, setDismissedRejectedSwapIds] = useState([]); // booker dismissed these; don't show again until new ones
-  const [pendingLeavesRefresh, setPendingLeavesRefresh] = useState(0); // bump when user opens Leaves so we refetch immediately
-
   // Global check for pending leave actions (swap / acknowledge / rejected-swap for booker)
-  // so that modals are shown regardless of the current view. Poll frequently so the booker
+  // so that modals are shown regardless of the current view. Poll so the booker
   // sees "you can set your date back" soon after admin rejects.
   useEffect(() => {
-    const employeeId = user?.employee_id != null ? user.employee_id : user?.id;
-    if (!employeeId) return;
-
     const checkPendingLeaves = async () => {
+      if (!user?.id) return;
       try {
-        const res = await fetch(`/api/leaves/pending-actions?employee_id=${employeeId}`, {
+        const res = await fetch(`/api/leaves/pending-actions?employee_id=${user.id}`, {
           headers: {
             'x-user-role': user.role || 'employee',
-            'x-user-id': String(employeeId),
+            'x-user-id': String(user.id),
           },
         });
         if (!res.ok) return;
         const data = await res.json().catch(() => ({}));
         const swap = (data.swapRequests || [])[0] || null;
         const ack = (data.acknowledgeRequests || [])[0] || null;
-        const rejected = Array.isArray(data.rejected_swap_notifications) ? data.rejected_swap_notifications : [];
+        const rejected = data.rejected_swap_notifications || [];
         setLeaveRejectedSwapNotifications(rejected);
         if (ack && (user.role === 'admin' || user.role === 'Admin')) {
           setLeavePendingModal({ type: 'ack', data: ack });
@@ -311,16 +303,14 @@ const AuthenticatedApp = () => {
     };
 
     checkPendingLeaves();
-    const earlyRefetch = setTimeout(checkPendingLeaves, 3000); // refetch after 3s in case reject happened just after load
-    const interval = setInterval(checkPendingLeaves, 30 * 1000); // poll every 30s so booker gets "revert date" popup after admin rejects
+    const interval = setInterval(checkPendingLeaves, 90 * 1000); // poll every 90s so booker gets "revert date" popup after admin rejects
     const onVisibility = () => { if (document.visibilityState === 'visible') checkPendingLeaves(); };
     document.addEventListener('visibilitychange', onVisibility);
     return () => {
-      clearTimeout(earlyRefetch);
       clearInterval(interval);
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, [user, pendingLeavesRefresh]);
+  }, [user]);
 
   // Listen to department open events
   useEffect(() => {
@@ -333,11 +323,6 @@ const AuthenticatedApp = () => {
     return () => window.removeEventListener('open-department-dashboard', handler);
   }, []);
 
-  // When user opens Leaves view, trigger a refetch so booker sees "revert date" popup immediately
-  useEffect(() => {
-    if (view === 'leaves') setPendingLeavesRefresh((p) => p + 1);
-  }, [view]);
-
   // Modal states
   const [modalState, setModalState] = useState({
     isOpen: false,
@@ -347,6 +332,11 @@ const AuthenticatedApp = () => {
 
   // Destructure modal state
   const { isOpen: isModalOpen, type: modalType, editingItem } = modalState;
+
+  // Global leave pending modal (swap / acknowledge) – shown regardless of current view
+  const [leavePendingModal, setLeavePendingModal] = useState(null); // { type: 'swap'|'ack', data }
+  const [leaveRejectedSwapNotifications, setLeaveRejectedSwapNotifications] = useState([]); // booker: "you can set date back"
+  const [dismissedRejectedSwapIds, setDismissedRejectedSwapIds] = useState([]); // booker dismissed these; don't show again until new ones
 
   // Filter states
   const [filters, setFilters] = useState({});
@@ -862,9 +852,7 @@ const AuthenticatedApp = () => {
       {/* Booker: leave request that asked to swap with your leave was rejected – you can set your date back */}
       {(() => {
         const isAdminUser = user?.role && String(user.role).toLowerCase() === 'admin';
-        const list = Array.isArray(leaveRejectedSwapNotifications) ? leaveRejectedSwapNotifications : [];
-        const dismissedSet = new Set((dismissedRejectedSwapIds || []).map((id) => Number(id)));
-        const toShow = list.filter((n) => !dismissedSet.has(Number(n.rejected_leave_id)));
+        const toShow = (leaveRejectedSwapNotifications || []).filter((n) => !dismissedRejectedSwapIds.includes(n.rejected_leave_id));
         if (toShow.length === 0 || isAdminUser) return null;
         return (
           <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" aria-modal="true" role="dialog">
@@ -888,7 +876,7 @@ const AuthenticatedApp = () => {
               <div className="px-6 py-4 flex justify-end bg-gray-50/80 border-t border-gray-200">
                 <button
                   type="button"
-                  onClick={() => setDismissedRejectedSwapIds((prev) => [...prev, ...toShow.map((n) => Number(n.rejected_leave_id))])}
+                  onClick={() => setDismissedRejectedSwapIds((prev) => [...prev, ...toShow.map((n) => n.rejected_leave_id)])}
                   className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 font-medium"
                 >
                   OK
