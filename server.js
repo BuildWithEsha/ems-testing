@@ -11397,7 +11397,10 @@ app.post('/api/leaves/apply', async (req, res) => {
       [employee_id, end_date, start_date]
     );
     const existingLeaveId = bookedRows.length > 0 ? bookedRows[0].id : null;
-    if (existingLeaveId && !emergency_type) {
+    // Emergency reason is required for booked dates only when applying for a Paid leave (swap flow).
+    // Regular (unpaid) leaves on booked dates go through the policy/acknowledge form without emergency.
+    const isPaidFromBody = (leave_type || 'paid') === 'paid';
+    if (existingLeaveId && isPaidFromBody && !emergency_type) {
       return res.status(200).json({
         success: false,
         date_booked: true,

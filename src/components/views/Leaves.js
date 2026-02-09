@@ -1702,6 +1702,40 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                 <dt className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-0.5">Paid</dt>
                 <dd className="text-gray-900">{L.is_paid ? 'Yes' : 'No'}</dd>
               </div>
+              {L.emergency_type && (
+                <div>
+                  <dt className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-0.5">Emergency reason</dt>
+                  <dd className="text-gray-900 font-medium">{L.emergency_type}</dd>
+                </div>
+              )}
+              {L.is_important_date_override ? (
+                <div>
+                  <dt className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-0.5">Important date override</dt>
+                  <dd className="text-gray-900">Yes</dd>
+                </div>
+              ) : null}
+              {(L.policy_reason_detail || L.expected_return_date) && (
+                <>
+                  {L.policy_reason_detail && (
+                    <div className="sm:col-span-2">
+                      <dt className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-0.5">
+                        Regular / policy leave reason
+                      </dt>
+                      <dd className="text-gray-900">{L.policy_reason_detail}</dd>
+                    </div>
+                  )}
+                  {L.expected_return_date && (
+                    <div>
+                      <dt className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-0.5">
+                        Confirmed return date
+                      </dt>
+                      <dd className="text-gray-900 font-medium">
+                        {formatDate(L.expected_return_date)}
+                      </dd>
+                    </div>
+                  )}
+                </>
+              )}
               {(L.department_name || L.department) && (
                 <div>
                   <dt className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-0.5">Department</dt>
