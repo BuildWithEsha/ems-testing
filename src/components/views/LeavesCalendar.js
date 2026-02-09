@@ -328,6 +328,20 @@ export default function LeavesCalendar() {
     return list;
   };
 
+  // Get all dates between from/to (inclusive) that fall on a given day-of-week.
+  const getDatesInRangeForDayOfWeek = (from, to, dayOfWeek) => {
+    const dayNum = Number(dayOfWeek);
+    if (!from || !to || !Number.isFinite(dayNum) || dayNum < 0 || dayNum > 6) return [];
+    const start = new Date(from);
+    const end = new Date(to);
+    if (start > end) return [];
+    const dates = [];
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      if (d.getDay() === dayNum) dates.push(toLocalDateStr(d));
+    }
+    return dates;
+  };
+
   // Mark: (1) If only Day is set: mark all dates in current month that fall on that day. (2) If From/To set: mark that range (or single day).
   const handleMark = async () => {
     if (!isAdmin) return;
@@ -335,6 +349,7 @@ export default function LeavesCalendar() {
     const dateRange = getDateRange(markFrom, markTo);
     const hasDayOnly = Number.isFinite(dayNum) && dayNum >= 0 && dayNum <= 6 && dateRange.length === 0;
     const hasDateRange = dateRange.length > 0;
+    const hasDayAndRange = Number.isFinite(dayNum) && dayNum >= 0 && dayNum <= 6 && hasDateRange;
 
     if (hasDayOnly) {
       const dates = getDatesInMonthForDayOfWeek(dayNum);
@@ -350,6 +365,35 @@ export default function LeavesCalendar() {
         });
         const result = await res.json().catch(() => ({}));
         if (res.ok && result.success) {
+          setMarkDayOfWeek('');
+          setMarkLabel('');
+          loadCalendar();
+        }
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setMarkSubmitting(false);
+      }
+      return;
+    }
+    if (hasDayAndRange) {
+      const from = dateRange[0];
+      const to = dateRange[dateRange.length - 1];
+      const dates = getDatesInRangeForDayOfWeek(from, to, dayNum);
+      if (dates.length === 0) return;
+      setMarkSubmitting(true);
+      try {
+        const body = { dates, type: markType, label: markLabel || undefined };
+        if (markType === 'important') body.department_id = markDepartmentId ? Number(markDepartmentId) : null;
+        const res = await fetch('/api/leaves/blocked-dates', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-user-role': user?.role || 'employee' },
+          body: JSON.stringify(body),
+        });
+        const result = await res.json().catch(() => ({}));
+        if (res.ok && result.success) {
+          setMarkFrom('');
+          setMarkTo('');
           setMarkDayOfWeek('');
           setMarkLabel('');
           loadCalendar();
@@ -392,6 +436,7 @@ export default function LeavesCalendar() {
     const dateRange = getDateRange(unmarkFrom, unmarkTo);
     const hasDayOnly = Number.isFinite(dayNum) && dayNum >= 0 && dayNum <= 6 && dateRange.length === 0;
     const hasDateRange = dateRange.length > 0;
+    const hasDayAndRange = Number.isFinite(dayNum) && dayNum >= 0 && dayNum <= 6 && hasDateRange;
 
     if (hasDayOnly) {
       const dates = getDatesInMonthForDayOfWeek(dayNum);
@@ -408,6 +453,36 @@ export default function LeavesCalendar() {
           if (res.ok && result.success) anySuccess = true;
         }
         if (anySuccess) {
+          setUnmarkDayOfWeek('');
+          setUnmarkLabel('');
+          loadCalendar();
+        }
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setUnmarkSubmitting(false);
+      }
+      return;
+    }
+    if (hasDayAndRange) {
+      const from = dateRange[0];
+      const to = dateRange[dateRange.length - 1];
+      const dates = getDatesInRangeForDayOfWeek(from, to, dayNum);
+      if (dates.length === 0) return;
+      setUnmarkSubmitting(true);
+      try {
+        let anySuccess = false;
+        for (const date of dates) {
+          let url = `/api/leaves/blocked-dates/${date}?type=${unmarkType}`;
+          if (unmarkType === 'important' && unmarkDepartmentId) url += `&department_id=${encodeURIComponent(unmarkDepartmentId)}`;
+          if (unmarkLabel && String(unmarkLabel).trim()) url += `&label=${encodeURIComponent(String(unmarkLabel).trim())}`;
+          const res = await fetch(url, { method: 'DELETE', headers: { 'x-user-role': user?.role || 'admin' } });
+          const result = await res.json().catch(() => ({}));
+          if (res.ok && result.success) anySuccess = true;
+        }
+        if (anySuccess) {
+          setUnmarkFrom('');
+          setUnmarkTo('');
           setUnmarkDayOfWeek('');
           setUnmarkLabel('');
           loadCalendar();
@@ -463,6 +538,29 @@ export default function LeavesCalendar() {
   };
 
   const monthName = new Date(year, month - 1, 1).toLocaleString('default', { month: 'long', year: 'numeric' });
+
+  const handleAdminDeleteLeave = async (leave) => {
+    if (!isAdmin || !leave?.id) return;
+    const ok = window.confirm('Delete this leave from the calendar? This is an admin-only action.');
+    if (!ok) return;
+    try {
+      const res = await fetch(`/api/leaves/admin/${leave.id}`, {
+        method: 'DELETE',
+        headers: {
+          'x-user-role': user?.role || 'admin',
+        },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        alert(data.error || 'Failed to delete leave');
+        return;
+      }
+      loadCalendar(true);
+    } catch (e) {
+      console.error('Error deleting leave from calendar', e);
+      alert('Error deleting leave');
+    }
+  };
 
   if (loading) {
     return (
@@ -872,9 +970,19 @@ export default function LeavesCalendar() {
                     return (
                       <td
                         key={dateStr}
-                        className={`min-w-[3.5rem] w-14 h-9 p-0.5 align-middle ${style}`}
+                        className={`relative min-w-[3.5rem] w-14 h-9 p-0.5 align-middle ${style}`}
                         title={tooltipParts.filter(Boolean).join(' · ')}
                       >
+                        {isAdmin && leave && (
+                          <button
+                            type="button"
+                            onClick={() => handleAdminDeleteLeave(leave)}
+                            className="absolute top-0.5 right-0.5 text-[9px] leading-none px-0.5 rounded bg-black/10 hover:bg-black/20 text-gray-800"
+                            title="Delete leave (admin)"
+                          >
+                            ×
+                          </button>
+                        )}
                         {cellLabel && (
                           <span
                             className={`block text-[10px] font-medium leading-tight truncate px-0.5 text-center ${style && (style.includes('red') || style.includes('purple')) ? 'text-white' : 'text-gray-800'}`}

@@ -82,9 +82,11 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     start_segment: 'full_day',
     end_segment: 'full_day',
     reason: '',
-    leave_type: 'paid', // paid | other
+    leave_type: 'paid', // paid | other (used when leave_types not loaded)
+    leave_type_id: '',  // id from leave_types table when using DB types
     emergency_type: '', // only when applying on red date
   });
+  const [leaveTypes, setLeaveTypes] = useState([]);
   const [dateAvailability, setDateAvailability] = useState(null); // { blocked, available, bookedBy } for apply form
   const [editDateAvailability, setEditDateAvailability] = useState(null); // availability for edit-dates modal
   const [pendingActions, setPendingActions] = useState({ swapRequests: [], acknowledgeRequests: [] });
@@ -230,6 +232,21 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     }
   };
 
+  const loadLeaveTypes = async () => {
+    try {
+      const res = await fetch('/api/leave-types');
+      if (res.ok) {
+        const data = await res.json();
+        setLeaveTypes(Array.isArray(data) ? data : []);
+      } else {
+        setLeaveTypes([]);
+      }
+    } catch (err) {
+      console.error('Error loading leave types', err);
+      setLeaveTypes([]);
+    }
+  };
+
   const loadReport = async () => {
     if (!employeeId) return;
     try {
@@ -370,6 +387,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
       loadMyLeaves();
       loadPolicy();
       loadReport();
+      loadLeaveTypes();
       loadDepartmentRestrictedDays();
     }
 
@@ -391,10 +409,14 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     const remaining = report.remaining_paid ?? null;
     const leavesTakenThisMonth = Number(report.leaves_taken_this_month) ?? 0;
     const noQuota = remaining !== null && remaining <= 0;
-    if (noQuota && leavesTakenThisMonth > 0 && form.leave_type === 'paid') {
-      setForm((prev) => ({ ...prev, leave_type: 'other' }));
+    if (noQuota && leavesTakenThisMonth > 0) {
+      const hadPaidSelected = form.leave_type === 'paid' ||
+        (leaveTypes.length > 0 && form.leave_type_id && leaveTypes.find((t) => String(t.id) === String(form.leave_type_id))?.is_paid);
+      if (hadPaidSelected) {
+        setForm((prev) => ({ ...prev, leave_type: 'other', leave_type_id: '' }));
+      }
     }
-  }, [report?.remaining_paid, report?.leaves_taken_this_month]);
+  }, [report?.remaining_paid, report?.leaves_taken_this_month, leaveTypes, form.leave_type, form.leave_type_id]);
 
   const loadDateAvailability = async (startDate, endDate) => {
     if (!startDate) {
@@ -659,13 +681,16 @@ export default function Leaves({ initialTab, initialManagerSection }) {
       alert('User is not available for leave application');
       return;
     }
+    const hasLeaveType = leaveTypes.length > 0
+      ? (form.leave_type_id !== '' && form.leave_type_id != null)
+      : form.leave_type;
     if (
       !form.start_date ||
       !form.end_date ||
       !form.start_segment ||
       !form.end_segment ||
       !form.reason.trim() ||
-      !form.leave_type
+      !hasLeaveType
     ) {
       alert('Please complete all fields, including leave type, before applying for leave.');
       return;
@@ -676,7 +701,12 @@ export default function Leaves({ initialTab, initialManagerSection }) {
       return;
     }
     const daysRequested = computeDaysRequested();
-    const policyApplies = form.leave_type === 'other';
+    const selectedLeaveType = leaveTypes.length > 0 && form.leave_type_id
+      ? leaveTypes.find((t) => String(t.id) === String(form.leave_type_id))
+      : null;
+    const policyApplies = selectedLeaveType
+      ? selectedLeaveType.is_paid === 0 || selectedLeaveType.is_paid === false
+      : form.leave_type === 'other';
     if (policyApplies && !policyForm.expected_return_date?.trim()) {
       alert('Please fill in when you will be back.');
       return;
@@ -697,8 +727,12 @@ export default function Leaves({ initialTab, initialManagerSection }) {
         start_segment: form.start_segment,
         end_segment: form.end_segment,
         days_requested: daysRequested,
-        leave_type: policyApplies ? 'other' : (form.leave_type || 'paid'),
       };
+      if (leaveTypes.length > 0 && form.leave_type_id !== '' && form.leave_type_id != null) {
+        payload.leave_type_id = Number(form.leave_type_id);
+      } else {
+        payload.leave_type = policyApplies ? 'other' : (form.leave_type || 'paid');
+      }
       if (policyApplies) {
         payload.policy_reason_detail = form.reason || '';
         payload.expected_return_date = policyForm.expected_return_date || '';
@@ -809,6 +843,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
         end_segment: 'full_day',
         reason: '',
         leave_type: 'paid',
+        leave_type_id: '',
         emergency_type: '',
       });
       setPolicyForm({ policy_reason_detail: '', expected_return_date: '', policy_duration_explanation: '' });
@@ -833,7 +868,12 @@ export default function Leaves({ initialTab, initialManagerSection }) {
       report != null &&
       (remaining !== null && remaining <= 0) &&
       leavesTakenThisMonth > 0;
-    const effectiveLeaveType = paidDisabled ? 'other' : form.leave_type;
+    const selectedTypeForForm = leaveTypes.length > 0 && form.leave_type_id
+      ? leaveTypes.find((t) => String(t.id) === String(form.leave_type_id))
+      : null;
+    const effectiveLeaveType = selectedTypeForForm
+      ? (selectedTypeForForm.is_paid === 0 || selectedTypeForForm.is_paid === false ? 'other' : 'paid')
+      : (paidDisabled ? 'other' : form.leave_type);
     const showPolicyForm = effectiveLeaveType === 'other';
     const isEventBlocked = dateAvailability?.blocked;
     const applyDisabled = isEventBlocked;
@@ -918,17 +958,46 @@ export default function Leaves({ initialTab, initialManagerSection }) {
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Leave type</label>
-            <select
-              name="leave_type"
-              value={paidDisabled ? 'other' : form.leave_type}
-              onChange={handleFormChange}
-              className={`w-full border rounded px-3 py-2 ${paidDisabled ? 'bg-gray-100 text-gray-500' : ''}`}
-              disabled={paidDisabled}
-            >
-              <option value="paid" disabled={paidDisabled}>Paid</option>
-              <option value="other">Regular</option>
-            </select>
-            {paidDisabled && (
+            {leaveTypes.length > 0 ? (
+              <select
+                name="leave_type_id"
+                value={form.leave_type_id}
+                onChange={handleFormChange}
+                className="w-full border rounded px-3 py-2"
+              >
+                <option value="">Select leave type</option>
+                {leaveTypes.map((t) => {
+                  const isPaidType = t.is_paid === 1 || t.is_paid === true;
+                  const disablePaid = paidDisabled && isPaidType;
+                  return (
+                    <option
+                      key={t.id}
+                      value={t.id}
+                      disabled={disablePaid}
+                    >
+                      {t.name}
+                      {t.description ? ` — ${t.description}` : ''}
+                      {disablePaid ? ' (no paid quota left)' : ''}
+                    </option>
+                  );
+                })}
+              </select>
+            ) : (
+              <select
+                name="leave_type"
+                value={paidDisabled ? 'other' : form.leave_type}
+                onChange={handleFormChange}
+                className={`w-full border rounded px-3 py-2 ${paidDisabled ? 'bg-gray-100 text-gray-500' : ''}`}
+                disabled={paidDisabled}
+              >
+                <option value="paid" disabled={paidDisabled}>Paid</option>
+                <option value="other">Regular</option>
+              </select>
+            )}
+            {paidDisabled && leaveTypes.length > 0 && (
+              <p className="mt-1 text-xs text-amber-700">Paid leave types are disabled; you have no paid leave remaining this month.</p>
+            )}
+            {paidDisabled && leaveTypes.length === 0 && (
               <p className="mt-1 text-xs text-amber-700">Paid leave not available; you have no paid leave remaining this month.</p>
             )}
           </div>

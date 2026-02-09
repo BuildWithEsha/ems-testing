@@ -441,7 +441,7 @@ const initializeDatabaseTables = async () => {
       )
     `);
 
-    // Leave requests: add columns for emergency/swap/acknowledge/important-date/policy (ignore if already exist)
+    // Leave requests: add columns for emergency/swap/acknowledge/important-date/policy/leave_type_id (ignore if already exist)
     const leaveRequestNewColumns = [
       ['emergency_type', 'VARCHAR(100) NULL'],
       ['requested_swap_with_leave_id', 'INT NULL'],
@@ -451,7 +451,8 @@ const initializeDatabaseTables = async () => {
       ['acknowledged_at', 'DATETIME NULL'],
       ['is_important_date_override', 'TINYINT(1) NOT NULL DEFAULT 0'],
       ['policy_reason_detail', 'TEXT NULL'],
-      ['expected_return_date', 'DATE NULL']
+      ['expected_return_date', 'DATE NULL'],
+      ['leave_type_id', 'INT NULL']
     ];
     for (const [colName, colDef] of leaveRequestNewColumns) {
       try {
@@ -11302,11 +11303,33 @@ const recalculateUninformedDeductionsForEmployee = async (connection, employeeId
 
 // Leave Management API Routes
 
+// Get active leave types (from leave_types table) for apply form dropdown
+app.get('/api/leave-types', async (req, res) => {
+  let connection;
+  try {
+    connection = await mysqlPool.getConnection();
+    await connection.ping();
+    const [rows] = await connection.execute(
+      `SELECT id, name, description, max_days_per_year, max_consecutive_days, requires_approval, is_paid, color, status
+       FROM leave_types
+       WHERE status = 'Active' OR status IS NULL
+       ORDER BY name`
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error('Error fetching leave types:', err);
+    res.status(500).json({ error: 'Database error' });
+  } finally {
+    if (connection) connection.release();
+  }
+});
+
 // Apply for leave
 app.post('/api/leaves/apply', async (req, res) => {
   const {
     employee_id,
     department_id,
+    leave_type_id,
     reason,
     start_date,
     end_date,
@@ -11440,7 +11463,37 @@ app.post('/api/leaves/apply', async (req, res) => {
       ? days_requested
       : 1;
 
-    const isPaidLeaveType = (leave_type || 'paid') === 'paid';
+    // Resolve leave type: from leave_types table if leave_type_id provided, else from legacy leave_type string ('paid' | 'other')
+    let isPaid = 0;
+    let requiresApproval = 1;
+    let resolvedLeaveTypeId = null;
+
+    if (leave_type_id != null && leave_type_id !== '' && Number.isFinite(Number(leave_type_id))) {
+      const [typeRows] = await connection.execute(
+        'SELECT id, is_paid, requires_approval, max_consecutive_days FROM leave_types WHERE id = ? AND (status = \'Active\' OR status IS NULL) LIMIT 1',
+        [Number(leave_type_id)]
+      );
+      if (typeRows.length > 0) {
+        const t = typeRows[0];
+        isPaid = t.is_paid === 1 || t.is_paid === true ? 1 : 0;
+        requiresApproval = t.requires_approval === 1 || t.requires_approval === true ? 1 : 0;
+        resolvedLeaveTypeId = t.id;
+        const maxConsecutive = t.max_consecutive_days != null ? Number(t.max_consecutive_days) : null;
+        if (maxConsecutive != null && !Number.isNaN(maxConsecutive) && requested > maxConsecutive) {
+          return res.status(400).json({
+            error: `This leave type allows at most ${maxConsecutive} consecutive day(s). Please shorten your range.`
+          });
+        }
+      }
+    }
+
+    if (resolvedLeaveTypeId == null) {
+      const isPaidLeaveTypeLegacy = (leave_type || 'paid') === 'paid';
+      isPaid = isPaidLeaveTypeLegacy ? 1 : 0;
+      requiresApproval = isPaidLeaveTypeLegacy ? 0 : 1;
+    }
+    const isPaidLeaveType = isPaid === 1;
+
     const remainingPaid = Math.max(0, effectiveQuota - used);
 
     // If they ask for more paid days than they have remaining, do not allow a paid leave.
@@ -11448,24 +11501,20 @@ app.post('/api/leaves/apply', async (req, res) => {
       return res.status(200).json({
         success: false,
         paid_not_available: true,
-        message: `You only have ${remainingPaid} paid leave day(s) remaining. Please select Regular leave or reduce the requested range.`
+        message: `You only have ${remainingPaid} paid leave day(s) remaining. Please select another leave type or reduce the requested range.`
       });
     }
 
     const importantOverride = is_important_date_override ? 1 : 0;
 
-    // Determine initial status and paid flag purely from leave type and whether
-    // the date is booked (swap flow). Regular leaves always require admin
-    // acknowledgement; paid leaves on free dates are auto-approved.
+    // Rulebook: Date Available + Paid = auto-approved; Date Available + Regular = pending (admin); Date booked = pending
     let initialStatus;
-    let isPaid;
-    if (isPaidLeaveType) {
-      initialStatus = existingLeaveId ? 'pending' : 'approved';
-      isPaid = 1;
-    } else {
-      // Regular / other leave types always start as pending for admin
+    if (existingLeaveId) {
       initialStatus = 'pending';
-      isPaid = 0;
+    } else if (isPaid === 1) {
+      initialStatus = 'approved';  // Date available + paid: auto-approved (rulebook only)
+    } else {
+      initialStatus = 'pending';  // Date available + regular: need approval from admin
     }
 
     const insertQuery = `
@@ -11485,8 +11534,9 @@ app.post('/api/leaves/apply', async (req, res) => {
         requested_swap_with_leave_id,
         is_important_date_override,
         policy_reason_detail,
-        expected_return_date
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)
+        expected_return_date,
+        leave_type_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)
     `;
 
     const [result] = await connection.execute(insertQuery, [
@@ -11504,7 +11554,8 @@ app.post('/api/leaves/apply', async (req, res) => {
       swapLeaveId,
       importantOverride,
       policy_reason_detail || null,
-      expected_return_date || null
+      expected_return_date || null,
+      resolvedLeaveTypeId
     ]);
 
     if (initialStatus === 'approved' && isPaid) {
@@ -11628,7 +11679,9 @@ app.get('/api/leaves/calendar', async (req, res) => {
         lr.acknowledged_by, lr.acknowledged_at
        FROM leave_requests lr
        JOIN employees e ON e.id = lr.employee_id
-       WHERE lr.employee_id != 0 AND lr.start_date <= ? AND lr.end_date >= ?`,
+       WHERE lr.employee_id != 0
+         AND lr.status IN ('pending','approved')
+         AND lr.start_date <= ? AND lr.end_date >= ?`,
       [end, start]
     );
     const [blockedRows] = await connection.execute(
@@ -12348,6 +12401,44 @@ app.delete('/api/leaves/:id', async (req, res) => {
     res.json({ success: true, id: Number(id) });
   } catch (err) {
     console.error('Error cancelling leave:', err);
+    res.status(500).json({ error: 'Database error' });
+  } finally {
+    if (connection) connection.release();
+  }
+});
+
+// Admin-only: hard delete a leave request from the calendar (any employee leave, not blocked dates).
+// NOTE: This is intended for correcting bad data and does NOT currently adjust paid_used or
+// uninformed balances. Use sparingly for cleanup.
+app.delete('/api/leaves/admin/:id', async (req, res) => {
+  const { id } = req.params;
+  const userRole = (req.headers['x-user-role'] || req.headers['user-role'] || '').toLowerCase();
+  if (userRole !== 'admin') {
+    return res.status(403).json({ error: 'Only admins can delete leaves from the calendar.' });
+  }
+
+  let connection;
+  try {
+    connection = await mysqlPool.getConnection();
+    await connection.ping();
+
+    const [rows] = await connection.execute(
+      'SELECT id, employee_id, status FROM leave_requests WHERE id = ?',
+      [id]
+    );
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Leave not found' });
+    }
+    const leave = rows[0];
+    // Do not delete blocked dates (employee_id = 0) via this endpoint.
+    if (leave.employee_id === 0) {
+      return res.status(400).json({ error: 'Use blocked-dates APIs to remove holidays/important events.' });
+    }
+
+    await connection.execute('DELETE FROM leave_requests WHERE id = ?', [id]);
+    res.json({ success: true, id: Number(id) });
+  } catch (err) {
+    console.error('Error deleting leave as admin:', err);
     res.status(500).json({ error: 'Database error' });
   } finally {
     if (connection) connection.release();
