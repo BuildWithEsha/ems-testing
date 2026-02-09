@@ -12159,7 +12159,7 @@ app.post('/api/leaves/:id/respond-swap', async (req, res) => {
 // Admin acknowledges emergency leave (approve as paid/other or reject)
 app.post('/api/leaves/:id/acknowledge', async (req, res) => {
   const { id } = req.params;
-  const { approved, leave_type, decision_by } = req.body || {};
+  const { approved, decision_by } = req.body || {};
   const userRole = (req.headers['x-user-role'] || req.headers['user-role'] || '').toLowerCase();
   const adminId = Number(req.headers['x-user-id'] || req.headers['user-id'] || decision_by || 0);
   if (userRole !== 'admin') return res.status(403).json({ error: 'Only admins can acknowledge' });
@@ -12178,12 +12178,15 @@ app.post('/api/leaves/:id/acknowledge', async (req, res) => {
       await connection.rollback();
       return res.status(400).json({ error: 'Only pending requests can be acknowledged' });
     }
-    const isPaid = approved && (leave_type || 'paid') === 'paid' ? 1 : 0;
+    // Do not change the original requested leave type here.
+    // If the employee applied as paid and it was within rules, is_paid is already 1.
+    // Policy/unpaid and override cases have is_paid = 0.
+    const isPaid = approved && request.is_paid ? 1 : 0;
     await connection.execute(
       'UPDATE leave_requests SET acknowledged_by = ?, acknowledged_at = NOW(), status = ?, decision_by = ?, decision_at = NOW(), is_paid = ? WHERE id = ?',
       [adminId, approved ? 'approved' : 'rejected', adminId, isPaid, id]
     );
-    if (approved) {
+    if (approved && isPaid) {
       const { year, month } = getYearMonthFromDate(request.start_date);
       const balance = await getOrCreateLeaveBalance(connection, request.employee_id, year, month);
       const used = balance.paid_used || 0;

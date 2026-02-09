@@ -2678,30 +2678,16 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                       </span>
                     </div>
                     <div className="flex gap-2 items-center">
-                      <select
-                        id={`ack-type-${item.leave_id}`}
-                        className="border rounded px-2 py-1.5 text-sm"
-                        defaultValue="paid"
-                      >
-                        <option value="paid">Paid</option>
-                        <option value="other">Regular</option>
-                      </select>
                       <button
                         type="button"
-                        onClick={() => {
-                          const leaveType = document.getElementById(`ack-type-${item.leave_id}`)?.value || 'paid';
-                          handleAcknowledge(item.leave_id, false, leaveType);
-                        }}
+                        onClick={() => handleAcknowledge(item.leave_id, false)}
                         className="px-3 py-1.5 border border-gray-300 rounded text-sm text-gray-700 hover:bg-gray-50"
                       >
                         Reject
                       </button>
                       <button
                         type="button"
-                        onClick={() => {
-                          const leaveType = document.getElementById(`ack-type-${item.leave_id}`)?.value || 'paid';
-                          handleAcknowledge(item.leave_id, true, leaveType);
-                        }}
+                        onClick={() => handleAcknowledge(item.leave_id, true)}
                         className="px-3 py-1.5 bg-indigo-600 text-white rounded text-sm hover:bg-indigo-700"
                       >
                         Acknowledge
@@ -3085,32 +3071,19 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                     <span className="font-medium text-gray-500">Emergency reason</span>
                     <span className="text-gray-900 font-medium">{pendingActionModal.data.emergency_type || '—'}</span>
                   </div>
-                  <div className="flex justify-between items-center py-3">
-                    <span className="font-medium text-gray-500">Leave type to approve as</span>
-                    <select id="ack-leave-type-dept" className="border border-gray-300 rounded-xl px-3 py-2 text-sm text-gray-900 bg-white" defaultValue="paid">
-                      <option value="paid">Paid</option>
-                      <option value="other">Regular</option>
-                    </select>
-                  </div>
                 </div>
               </div>
               <div className="px-6 py-4 flex flex-wrap gap-3 justify-end bg-gray-50/80 border-t border-gray-200">
                 <button
                   type="button"
-                  onClick={() => {
-                    const leaveType = document.getElementById('ack-leave-type-dept')?.value || 'paid';
-                    handleAcknowledge(pendingActionModal.data.leave_id, false, leaveType);
-                  }}
+                onClick={() => handleAcknowledge(pendingActionModal.data.leave_id, false)}
                   className="px-5 py-2.5 border border-gray-300 rounded-xl text-gray-700 bg-white hover:bg-gray-50 font-medium transition-colors"
                 >
                   Reject
                 </button>
                 <button
                   type="button"
-                  onClick={() => {
-                    const leaveType = document.getElementById('ack-leave-type-dept')?.value || 'paid';
-                    handleAcknowledge(pendingActionModal.data.leave_id, true, leaveType);
-                  }}
+                onClick={() => handleAcknowledge(pendingActionModal.data.leave_id, true)}
                   className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 font-medium transition-colors shadow-sm"
                 >
                   Acknowledge
@@ -3193,7 +3166,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     }
   };
 
-  const handleAcknowledge = async (leaveId, approved, leaveType) => {
+  const handleAcknowledge = async (leaveId, approved) => {
     try {
       const res = await fetch(`/api/leaves/${leaveId}/acknowledge`, {
         method: 'POST',
@@ -3202,7 +3175,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
           'x-user-role': user?.role || 'employee',
           'x-user-id': String(user?.id || ''),
         },
-        body: JSON.stringify({ approved, leave_type: leaveType || 'paid', decision_by: user?.id }),
+        body: JSON.stringify({ approved, decision_by: user?.id }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -3486,32 +3459,19 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                   <span className="font-medium text-gray-500">Emergency reason</span>
                   <span className="text-gray-900 font-medium">{pendingActionModal.data.emergency_type || '—'}</span>
                 </div>
-                <div className="flex justify-between items-center py-3">
-                  <span className="font-medium text-gray-500">Leave type to approve as</span>
-                  <select id="ack-leave-type" className="border border-gray-300 rounded-xl px-3 py-2 text-sm text-gray-900 bg-white" defaultValue="paid">
-                    <option value="paid">Paid</option>
-                    <option value="other">Regular</option>
-                  </select>
-                </div>
               </div>
             </div>
             <div className="px-6 py-4 flex flex-wrap gap-3 justify-end bg-gray-50/80 border-t border-gray-200">
               <button
                 type="button"
-                onClick={() => {
-                  const leaveType = document.getElementById('ack-leave-type')?.value || 'paid';
-                  handleAcknowledge(pendingActionModal.data.leave_id, false, leaveType);
-                }}
+                onClick={() => handleAcknowledge(pendingActionModal.data.leave_id, false)}
                 className="px-5 py-2.5 border border-gray-300 rounded-xl text-gray-700 bg-white hover:bg-gray-50 font-medium transition-colors"
               >
                 Reject
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  const leaveType = document.getElementById('ack-leave-type')?.value || 'paid';
-                  handleAcknowledge(pendingActionModal.data.leave_id, true, leaveType);
-                }}
+                onClick={() => handleAcknowledge(pendingActionModal.data.leave_id, true)}
                 className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 font-medium transition-colors shadow-sm"
               >
                 Acknowledge
