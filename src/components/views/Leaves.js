@@ -6,6 +6,7 @@ const TABS = {
   FUTURE: 'future',
   PAST: 'past',
   PENDING: 'pending',
+  SWAP_REQUESTS: 'swap_requests',
   REJECTED: 'rejected',
   MY_ACK: 'my_ack',
   POLICY: 'policy',
@@ -105,6 +106,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
   const [notificationPopup, setNotificationPopup] = useState({ show: false, title: '', message: '', isError: false });
   const showNotification = (title, message, isError = false) =>
     setNotificationPopup({ show: true, title, message, isError });
+  const [swapRequestsData, setSwapRequestsData] = useState({ asBooker: [], asRequester: [] });
   const [myLeaves, setMyLeaves] = useState({ pending: [], recent_approved: [], recent_rejected: [], acknowledged: [] });
   const [policy, setPolicy] = useState(null);
   const [report, setReport] = useState(null);
@@ -248,6 +250,24 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     } catch (err) {
       console.error('Error loading leave types', err);
       setLeaveTypes([]);
+    }
+  };
+
+  const loadSwapRequests = async () => {
+    if (!employeeId) return;
+    try {
+      const res = await fetch(`/api/leaves/swap-requests?employee_id=${employeeId}`, {
+        headers: { 'x-user-id': String(user?.id || ''), 'x-user-role': user?.role || 'employee' }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSwapRequestsData({ asBooker: data.asBooker || [], asRequester: data.asRequester || [] });
+      } else {
+        setSwapRequestsData({ asBooker: [], asRequester: [] });
+      }
+    } catch (err) {
+      console.error('Error loading swap requests', err);
+      setSwapRequestsData({ asBooker: [], asRequester: [] });
     }
   };
 
@@ -532,6 +552,10 @@ export default function Leaves({ initialTab, initialManagerSection }) {
       return () => clearInterval(t);
     }
   }, [mode, employeeId, isAdmin]);
+
+  useEffect(() => {
+    if (mode === 'my' && activeTab === TABS.SWAP_REQUESTS && employeeId) loadSwapRequests();
+  }, [mode, activeTab, employeeId]);
 
   const handleFormChange = (e) => {
     const { name, value } = e.target;
@@ -2468,6 +2492,76 @@ export default function Leaves({ initialTab, initialManagerSection }) {
           </div>
         );
       }
+      case TABS.SWAP_REQUESTS: {
+        const { asBooker, asRequester } = swapRequestsData;
+        const statusLabel = (s) => {
+          const map = {
+            pending: 'Waiting for you',
+            booker_did_not_respond: 'Booker did not respond',
+            accepted_waiting_move: 'Accepted – please move your date',
+            swapped: 'Swapped',
+            rejected_by_me: 'Rejected by you',
+            waiting_for_booker: 'Waiting for booker',
+            booker_accepted: 'Booker accepted',
+            rejected_by_booker: 'Rejected by booker'
+          };
+          return map[s] || s;
+        };
+        const all = [
+          ...asBooker.map((r) => ({ ...r, type: 'Requested from you' })),
+          ...asRequester.map((r) => ({ ...r, type: 'Requested by you' }))
+        ];
+        return (
+          <div className="space-y-4">
+            <h2 className="text-lg font-semibold text-gray-900">Swap requests</h2>
+            <p className="text-sm text-gray-600">
+              Leaves that asked to swap with yours, or your leave requests that need a swap. Rejected by admin or cancelled are hidden.
+            </p>
+            {all.length === 0 ? (
+              <div className="bg-white border rounded p-6 text-gray-500">No swap requests.</div>
+            ) : (
+              <div className="bg-white border rounded-lg shadow-sm overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200 text-sm">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-4 py-2 text-left font-medium text-gray-700">Type</th>
+                      <th className="px-4 py-2 text-left font-medium text-gray-700">Other party</th>
+                      <th className="px-4 py-2 text-left font-medium text-gray-700">Request dates</th>
+                      <th className="px-4 py-2 text-left font-medium text-gray-700">My dates</th>
+                      <th className="px-4 py-2 text-left font-medium text-gray-700">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200 bg-white">
+                    {all.map((r) => (
+                      <tr key={r.type === 'Requested from you' ? `b-${r.requesting_leave_id}` : `r-${r.leave_id}`}>
+                        <td className="px-4 py-2 text-gray-800">{r.type}</td>
+                        <td className="px-4 py-2 text-gray-800">{r.requester_name || r.booker_name || '—'}</td>
+                        <td className="px-4 py-2 text-gray-800">
+                          {r.request_dates?.start ? formatDate(r.request_dates.start) : ''}
+                          {r.request_dates?.end && r.request_dates.end !== r.request_dates.start ? ` – ${formatDate(r.request_dates.end)}` : ''}
+                        </td>
+                        <td className="px-4 py-2 text-gray-800">
+                          {r.my_dates ? `${formatDate(r.my_dates.start)}${r.my_dates.end && r.my_dates.end !== r.my_dates.start ? ` – ${formatDate(r.my_dates.end)}` : ''}` : '—'}
+                        </td>
+                        <td className="px-4 py-2">
+                          <span className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${
+                            r.status === 'swapped' ? 'bg-green-100 text-green-800' :
+                            r.status === 'booker_did_not_respond' ? 'bg-amber-100 text-amber-800' :
+                            r.status === 'rejected_by_me' || r.status === 'rejected_by_booker' ? 'bg-gray-100 text-gray-800' :
+                            'bg-blue-100 text-blue-800'
+                          }`}>
+                            {statusLabel(r.status)}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        );
+      }
       case TABS.PAST: {
         const today = todayStr();
         const pastApproved = (myLeaves.recent_approved || []).filter((r) => toDateOnly(r.end_date) < today);
@@ -3411,6 +3505,12 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                       </span>
                     </div>
                   )}
+                  {pendingActionModal.data.booker_did_not_respond && (
+                    <div className="flex justify-between py-3 border-b border-gray-100">
+                      <span className="font-medium text-gray-500">Swap status</span>
+                      <span className="text-amber-800 font-medium">Booker did not respond</span>
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="px-6 py-4 flex flex-wrap gap-3 justify-end bg-gray-50/80 border-t border-gray-200">
@@ -3875,6 +3975,12 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                     </span>
                   </div>
                 )}
+                {pendingActionModal.data.booker_did_not_respond && (
+                  <div className="flex justify-between py-3 border-b border-gray-100">
+                    <span className="font-medium text-gray-500">Swap status</span>
+                    <span className="text-amber-800 font-medium">Booker did not respond</span>
+                  </div>
+                )}
               </div>
             </div>
             <div className="px-6 py-4 flex flex-wrap gap-3 justify-end bg-gray-50/80 border-t border-gray-200">
@@ -3936,6 +4042,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
               { id: TABS.FUTURE, label: 'Future leaves' },
               { id: TABS.PAST, label: 'Past leaves' },
               { id: TABS.PENDING, label: 'Pending leaves' },
+              { id: TABS.SWAP_REQUESTS, label: 'Swap requests' },
               { id: TABS.REJECTED, label: 'Rejected leaves' },
               { id: TABS.MY_ACK, label: 'Acknowledged' },
               { id: TABS.POLICY, label: 'Leave Policy' },

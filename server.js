@@ -12137,7 +12137,7 @@ app.get('/api/leaves/pending-actions', async (req, res) => {
       const [ackRows] = await connection.execute(
         `SELECT lr.id, lr.employee_id, lr.start_date, lr.end_date, lr.emergency_type, lr.reason,
                 lr.is_important_date_override, lr.requested_swap_with_leave_id, lr.swap_responded_at, lr.swap_accepted,
-                lr.policy_reason_detail, lr.expected_return_date,
+                lr.policy_reason_detail, lr.expected_return_date, lr.created_at,
                 e.name AS employee_name
          FROM leave_requests lr
          JOIN employees e ON e.id = lr.employee_id
@@ -12145,6 +12145,7 @@ app.get('/api/leaves/pending-actions', async (req, res) => {
            AND (
              (lr.is_important_date_override = 1)
              OR (lr.requested_swap_with_leave_id IS NOT NULL AND lr.swap_responded_at IS NOT NULL)
+             OR (lr.requested_swap_with_leave_id IS NOT NULL AND lr.swap_responded_at IS NULL AND lr.created_at < DATE_SUB(NOW(), INTERVAL 1 DAY))
              OR (
                (lr.requested_swap_with_leave_id IS NULL OR lr.swap_responded_at IS NOT NULL)
                AND (lr.policy_reason_detail IS NOT NULL OR lr.expected_return_date IS NOT NULL)
@@ -12171,6 +12172,9 @@ app.get('/api/leaves/pending-actions', async (req, res) => {
           }
         }
         const fmt = (d) => (d && typeof d.toISOString === 'function' ? d.toISOString().slice(0, 10) : (d && typeof d === 'string' ? d.slice(0, 10) : (d ? String(d).slice(0, 10) : '')));
+        const created = r.created_at ? new Date(r.created_at) : null;
+        const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+        const booker_did_not_respond = !!(r.requested_swap_with_leave_id && !r.swap_responded_at && created && created < oneDayAgo);
         return {
           type: 'acknowledge',
           leave_id: r.id,
@@ -12181,7 +12185,8 @@ app.get('/api/leaves/pending-actions', async (req, res) => {
           emergency_type: r.emergency_type || r.reason,
           is_important_date_override: !!r.is_important_date_override,
           requested_swap_with_leave_id: r.requested_swap_with_leave_id || null,
-          booker_has_swapped
+          booker_has_swapped,
+          booker_did_not_respond
         };
       }));
       acknowledgeRequests = ackWithBookerSwapped;
@@ -12190,6 +12195,90 @@ app.get('/api/leaves/pending-actions', async (req, res) => {
     res.json({ swapRequests, acknowledgeRequests, acceptedSwapTargets, rejected_swap_notifications });
   } catch (err) {
     console.error('Error fetching pending actions:', err);
+    res.status(500).json({ error: 'Database error' });
+  } finally {
+    if (connection) connection.release();
+  }
+});
+
+// Swap requests section: list of swap-related records for the user (as booker and as requester). Exclude rejected/cancelled (hidden).
+app.get('/api/leaves/swap-requests', async (req, res) => {
+  const { employee_id } = req.query;
+  if (!employee_id) return res.status(400).json({ error: 'employee_id required' });
+  const currentUserId = Number(employee_id);
+  let connection;
+  try {
+    connection = await mysqlPool.getConnection();
+    await connection.ping();
+    const fmt = (d) => (d && typeof d.toISOString === 'function' ? d.toISOString().slice(0, 10) : (d && typeof d === 'string' ? d.slice(0, 10) : (d ? String(d).slice(0, 10) : '')));
+
+    // As booker: leaves that requested to swap with my leave. Only pending or approved (hide rejected/cancelled).
+    const [bookerRows] = await connection.execute(
+      `SELECT req.id AS requesting_leave_id, req.status AS req_status, req.start_date AS req_start, req.end_date AS req_end,
+              req.swap_responded_at, req.swap_accepted, req.created_at AS req_created, req.approved_via_swap,
+              my.id AS my_leave_id, my.start_date AS my_start, my.end_date AS my_end,
+              e.name AS requester_name
+       FROM leave_requests req
+       JOIN leave_requests my ON my.id = req.requested_swap_with_leave_id
+       JOIN employees e ON e.id = req.employee_id
+       WHERE my.employee_id = ? AND req.status IN ('pending', 'approved')
+       ORDER BY req.created_at DESC`,
+      [currentUserId]
+    );
+    const oneDayMs = 24 * 60 * 60 * 1000;
+    const asBooker = bookerRows.map((r) => {
+      const created = r.req_created ? new Date(r.req_created) : null;
+      const isOld = created && (Date.now() - created.getTime() > oneDayMs);
+      let status = 'pending';
+      if (r.req_status === 'approved' && r.approved_via_swap) status = 'swapped';
+      else if (r.swap_responded_at != null) {
+        if (r.swap_accepted) status = 'accepted_waiting_move';
+        else status = 'rejected_by_me';
+      } else if (isOld) status = 'booker_did_not_respond';
+      return {
+        type: 'as_booker',
+        requesting_leave_id: r.requesting_leave_id,
+        requester_name: r.requester_name,
+        request_dates: { start: fmt(r.req_start), end: fmt(r.req_end) },
+        my_leave_id: r.my_leave_id,
+        my_dates: { start: fmt(r.my_start), end: fmt(r.my_end) },
+        status
+      };
+    });
+
+    // As requester: my leaves that have a swap request. Only pending or approved (hide rejected/cancelled).
+    const [requesterRows] = await connection.execute(
+      `SELECT lr.id AS leave_id, lr.status, lr.start_date, lr.end_date, lr.swap_responded_at, lr.swap_accepted, lr.created_at, lr.approved_via_swap,
+              my.id AS booker_leave_id, e.name AS booker_name
+       FROM leave_requests lr
+       JOIN leave_requests my ON my.id = lr.requested_swap_with_leave_id
+       JOIN employees e ON e.id = my.employee_id
+       WHERE lr.employee_id = ? AND lr.requested_swap_with_leave_id IS NOT NULL AND lr.status IN ('pending', 'approved')
+       ORDER BY lr.created_at DESC`,
+      [currentUserId]
+    );
+    const asRequester = requesterRows.map((r) => {
+      const created = r.created_at ? new Date(r.created_at) : null;
+      const isOld = created && (Date.now() - created.getTime() > oneDayMs);
+      let status = 'waiting_for_booker';
+      if (r.status === 'approved' && r.approved_via_swap) status = 'swapped';
+      else if (r.swap_responded_at != null) {
+        if (r.swap_accepted) status = 'booker_accepted';
+        else status = 'rejected_by_booker';
+      } else if (isOld) status = 'booker_did_not_respond';
+      return {
+        type: 'as_requester',
+        leave_id: r.leave_id,
+        request_dates: { start: fmt(r.start_date), end: fmt(r.end_date) },
+        booker_name: r.booker_name,
+        booker_leave_id: r.booker_leave_id,
+        status
+      };
+    });
+
+    res.json({ asBooker, asRequester });
+  } catch (err) {
+    console.error('Error fetching swap requests:', err);
     res.status(500).json({ error: 'Database error' });
   } finally {
     if (connection) connection.release();

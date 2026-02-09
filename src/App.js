@@ -304,7 +304,12 @@ const AuthenticatedApp = () => {
 
     checkPendingLeaves();
     const interval = setInterval(checkPendingLeaves, 90 * 1000); // poll every 90s so booker gets "revert date" popup after admin rejects
-    return () => clearInterval(interval);
+    const onVisibility = () => { if (document.visibilityState === 'visible') checkPendingLeaves(); };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
   }, [user]);
 
   // Listen to department open events
@@ -331,6 +336,7 @@ const AuthenticatedApp = () => {
   // Global leave pending modal (swap / acknowledge) – shown regardless of current view
   const [leavePendingModal, setLeavePendingModal] = useState(null); // { type: 'swap'|'ack', data }
   const [leaveRejectedSwapNotifications, setLeaveRejectedSwapNotifications] = useState([]); // booker: "you can set date back"
+  const [dismissedRejectedSwapIds, setDismissedRejectedSwapIds] = useState([]); // booker dismissed these; don't show again until new ones
 
   // Filter states
   const [filters, setFilters] = useState({});
@@ -820,6 +826,12 @@ const AuthenticatedApp = () => {
                   </span>
                 </div>
               )}
+              {leavePendingModal.data.booker_did_not_respond && (
+                <div className="flex justify-between">
+                  <span className="font-medium text-gray-500">Swap status</span>
+                  <span className="text-amber-800 font-medium">Booker did not respond</span>
+                </div>
+              )}
               <p className="text-xs text-gray-600 mt-2">
                 Open the <span className="font-semibold">Department → Acknowledge</span> section to review and either acknowledge or reject this leave.
               </p>
@@ -838,37 +850,42 @@ const AuthenticatedApp = () => {
       )}
 
       {/* Booker: leave request that asked to swap with your leave was rejected – you can set your date back */}
-      {leaveRejectedSwapNotifications.length > 0 && (user?.role !== 'admin' && user?.role !== 'Admin') && (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" aria-modal="true" role="dialog">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-gray-200/80">
-            <div className="px-6 py-5 border-b border-gray-100">
-              <h3 className="text-lg font-semibold text-gray-900">Request rejected</h3>
-              <p className="text-sm text-gray-600 mt-1">
-                The following leave request(s) that asked to swap with your leave have been rejected. You can set your date back if you had moved it.
-              </p>
-            </div>
-            <div className="px-6 py-4">
-              <ul className="text-sm text-gray-700 space-y-1">
-                {leaveRejectedSwapNotifications.map((n) => (
-                  <li key={n.rejected_leave_id}>
-                    Request for {formatPrettyDate(n.start_date)}
-                    {n.end_date && formatShortDate(n.end_date) !== formatShortDate(n.start_date) ? ` – ${formatPrettyDate(n.end_date)}` : ''} was rejected.
-                  </li>
-                ))}
-              </ul>
-            </div>
-            <div className="px-6 py-4 flex justify-end bg-gray-50/80 border-t border-gray-200">
-              <button
-                type="button"
-                onClick={() => setLeaveRejectedSwapNotifications([])}
-                className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 font-medium"
-              >
-                OK
-              </button>
+      {(() => {
+        const isAdminUser = user?.role && String(user.role).toLowerCase() === 'admin';
+        const toShow = (leaveRejectedSwapNotifications || []).filter((n) => !dismissedRejectedSwapIds.includes(n.rejected_leave_id));
+        if (toShow.length === 0 || isAdminUser) return null;
+        return (
+          <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" aria-modal="true" role="dialog">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-gray-200/80">
+              <div className="px-6 py-5 border-b border-gray-100">
+                <h3 className="text-lg font-semibold text-gray-900">Request rejected</h3>
+                <p className="text-sm text-gray-600 mt-1">
+                  The following leave request(s) that asked to swap with your leave have been rejected. You can set your date back if you had moved it.
+                </p>
+              </div>
+              <div className="px-6 py-4">
+                <ul className="text-sm text-gray-700 space-y-1">
+                  {toShow.map((n) => (
+                    <li key={n.rejected_leave_id}>
+                      Request for {formatPrettyDate(n.start_date)}
+                      {n.end_date && formatShortDate(n.end_date) !== formatShortDate(n.start_date) ? ` – ${formatPrettyDate(n.end_date)}` : ''} was rejected.
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div className="px-6 py-4 flex justify-end bg-gray-50/80 border-t border-gray-200">
+                <button
+                  type="button"
+                  onClick={() => setDismissedRejectedSwapIds((prev) => [...prev, ...toShow.map((n) => n.rejected_leave_id)])}
+                  className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 font-medium"
+                >
+                  OK
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 };
