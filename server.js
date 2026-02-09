@@ -452,7 +452,8 @@ const initializeDatabaseTables = async () => {
       ['is_important_date_override', 'TINYINT(1) NOT NULL DEFAULT 0'],
       ['policy_reason_detail', 'TEXT NULL'],
       ['expected_return_date', 'DATE NULL'],
-      ['leave_type_id', 'INT NULL']
+      ['leave_type_id', 'INT NULL'],
+      ['approved_via_swap', 'TINYINT(1) NOT NULL DEFAULT 0']
     ];
     for (const [colName, colDef] of leaveRequestNewColumns) {
       try {
@@ -12368,7 +12369,7 @@ app.patch('/api/leaves/:id', async (req, res) => {
             [newUsed, balance.id]
           );
           await connection.execute(
-            `UPDATE leave_requests SET status = 'approved', decision_at = NOW(), is_paid = ? WHERE id = ?`,
+            `UPDATE leave_requests SET status = 'approved', decision_at = NOW(), is_paid = ?, approved_via_swap = 1 WHERE id = ?`,
             [willExceedPaid ? 0 : 1, B.id]
           );
         }
@@ -12576,10 +12577,12 @@ app.get('/api/leaves/my', async (req, res) => {
       SELECT 
         lr.*,
         e.name AS employee_name,
-        approver.name AS decision_by_name
+        approver.name AS decision_by_name,
+        ack.name AS acknowledged_by_name
       FROM leave_requests lr
       JOIN employees e ON e.id = lr.employee_id
       LEFT JOIN employees approver ON approver.id = lr.decision_by
+      LEFT JOIN employees ack ON ack.id = lr.acknowledged_by
       WHERE lr.employee_id = ?
       ORDER BY lr.created_at DESC
       LIMIT 200

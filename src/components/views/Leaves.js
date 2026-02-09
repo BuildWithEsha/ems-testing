@@ -1748,6 +1748,35 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                   <dd className="text-gray-900">{formatDateTime(L.created_at)}</dd>
                 </div>
               )}
+              {/* How this leave was approved or rejected */}
+              {status !== 'pending' && (
+                <div className="sm:col-span-2">
+                  <dt className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-0.5">Approval</dt>
+                  <dd className="text-gray-900">
+                    {L.approved_via_swap ? (
+                      <>Approved via swap (booker moved their leave){L.decision_at ? <> · {formatDateTime(L.decision_at)}</> : null}</>
+                    ) : L.acknowledged_by ? (
+                      <>Acknowledged by {L.acknowledged_by_name || 'admin'}{L.acknowledged_at ? <> · {formatDateTime(L.acknowledged_at)}</> : null}</>
+                    ) : L.decision_by_name ? (
+                      <>{status === 'rejected' ? 'Rejected' : 'Decided'} by {L.decision_by_name}{L.decision_at ? <> · {formatDateTime(L.decision_at)}</> : null}</>
+                    ) : status === 'approved' ? (
+                      <>Auto-approved (date was available){L.decision_at ? <> · {formatDateTime(L.decision_at)}</> : null}</>
+                    ) : status === 'rejected' ? (
+                      'Rejected'
+                    ) : null}
+                  </dd>
+                </div>
+              )}
+              {status === 'pending' && L.requested_swap_with_leave_id && (
+                <div className="sm:col-span-2">
+                  <dt className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-0.5">Swap</dt>
+                  <dd className="text-gray-900">
+                    {L.swap_responded_at
+                      ? (L.swap_accepted ? 'Booker accepted; awaiting their date move' : 'Booker declined swap')
+                      : 'Swap requested (awaiting booker response)'}
+                  </dd>
+                </div>
+              )}
               {status !== 'pending' && L.decision_by_name && (
                 <div>
                   <dt className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-0.5">Decided by</dt>
