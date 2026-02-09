@@ -12486,13 +12486,21 @@ app.get('/api/leaves/my', async (req, res) => {
     `;
     const [rows] = await connection.execute(query, [employee_id]);
 
+    const fmtDate = (d) => (d && typeof d.toISOString === 'function' ? d.toISOString().slice(0, 10) : (d && typeof d === 'string' ? d.slice(0, 10) : (d ? String(d).slice(0, 10) : '')));
+    const normalizeRow = (r) => ({
+      ...r,
+      start_date: r.start_date != null ? fmtDate(r.start_date) : r.start_date,
+      end_date: r.end_date != null ? fmtDate(r.end_date) : r.end_date
+    });
+
     const pending = [];
     const approved = [];
     const rejected = [];
     const acknowledged = [];
     rows.forEach((row) => {
+      const r = normalizeRow(row);
       if (row.acknowledged_by != null) {
-        acknowledged.push(row);
+        acknowledged.push(r);
       }
       if (row.status === 'pending') {
         // A leave needs explicit admin acknowledgment when:
@@ -12506,14 +12514,14 @@ app.get('/api/leaves/my', async (req, res) => {
           row.policy_reason_detail != null ||
           row.expected_return_date != null
         );
-        pending.push({ ...row, needs_acknowledgment: needsAck });
+        pending.push({ ...r, needs_acknowledgment: needsAck });
       } else if (row.status === 'approved') {
-        // Do not show absentees (uninformed) in standard approved lists
-        if (!row.is_uninformed) {
-          approved.push(row);
+        // Include all approved leaves except uninformed (absentees). Use !== 1 so 0, null, "0" all count as normal.
+        if (row.is_uninformed !== 1) {
+          approved.push(r);
         }
       } else if (row.status === 'rejected') {
-        rejected.push(row);
+        rejected.push(r);
       }
     });
 
@@ -12594,19 +12602,27 @@ app.get('/api/leaves/department', async (req, res) => {
 
     const [rows] = await connection.execute(query, params);
 
+    const fmtDate = (d) => (d && typeof d.toISOString === 'function' ? d.toISOString().slice(0, 10) : (d && typeof d === 'string' ? d.slice(0, 10) : (d ? String(d).slice(0, 10) : '')));
+    const normalizeRow = (r) => ({
+      ...r,
+      start_date: r.start_date != null ? fmtDate(r.start_date) : r.start_date,
+      end_date: r.end_date != null ? fmtDate(r.end_date) : r.end_date
+    });
+
     const pending = [];
     const approved = [];
     const rejected = [];
     rows.forEach((row) => {
+      const r = normalizeRow(row);
       if (row.status === 'pending') {
-        pending.push(row);
+        pending.push(r);
       } else if (row.status === 'approved') {
-        // Do not show absentees (uninformed) in standard approved lists
-        if (!row.is_uninformed) {
-          approved.push(row);
+        // Include all approved except uninformed (absentees). Use !== 1 so 0, null, "0" all count as normal.
+        if (row.is_uninformed !== 1) {
+          approved.push(r);
         }
       } else if (row.status === 'rejected') {
-        rejected.push(row);
+        rejected.push(r);
       }
     });
 

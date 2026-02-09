@@ -781,6 +781,27 @@ export default function Leaves({ initialTab, initialManagerSection }) {
       } else {
         alert('Leave application submitted successfully');
       }
+      // Optimistic update: add auto-approved (paid available) leave so it shows immediately in Future
+      if (data.status === 'approved' && data.id) {
+        const newLeave = {
+          id: data.id,
+          employee_id: data.employee_id,
+          employee_name: data.employee_name,
+          status: 'approved',
+          start_date: data.start_date,
+          end_date: data.end_date,
+          start_segment: data.start_segment || 'full_day',
+          end_segment: data.end_segment || 'full_day',
+          reason: data.reason || '',
+          days_requested: payload.days_requested ?? 1,
+          is_paid: 1,
+          is_uninformed: 0,
+        };
+        setMyLeaves((prev) => ({
+          ...prev,
+          recent_approved: [newLeave, ...(prev.recent_approved || [])],
+        }));
+      }
       setForm({
         start_date: '',
         end_date: '',
