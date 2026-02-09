@@ -3137,7 +3137,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     );
   }
 
-  const handleRespondSwap = async (requestingLeaveId, accept) => {
+  async function handleRespondSwap(requestingLeaveId, accept) {
     try {
       const res = await fetch(`/api/leaves/${requestingLeaveId}/respond-swap`, {
         method: 'POST',
@@ -3164,9 +3164,9 @@ export default function Leaves({ initialTab, initialManagerSection }) {
       console.error('Error responding to swap', err);
       alert('Failed to respond');
     }
-  };
+  }
 
-  const handleAcknowledge = async (leaveId, approved) => {
+  async function handleAcknowledge(leaveId, approved) {
     try {
       const res = await fetch(`/api/leaves/${leaveId}/acknowledge`, {
         method: 'POST',
@@ -3191,7 +3191,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
       console.error('Error acknowledging', err);
       alert('Failed to acknowledge');
     }
-  };
+  }
 
   // Default: "My Leaves" – self-service employee view (for employees, managers, admins)
   return (
