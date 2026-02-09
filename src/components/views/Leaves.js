@@ -37,7 +37,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
   const todayStr = () => new Date().toISOString().split('T')[0];
   // Tab state for Department view (acknowledge / ack_history only)
   const [departmentTab, setDepartmentTab] = useState(
-    initialTab && [TABS.ACKNOWLEDGE, TABS.ACK_HISTORY, TABS.ALL_FUTURE, TABS.ALL_PAST].includes(initialTab)
+    initialTab && [TABS.ACKNOWLEDGE, TABS.ACK_HISTORY, TABS.ALL_FUTURE, TABS.ALL_PAST, TABS.REJECTED].includes(initialTab)
       ? initialTab
       : TABS.ACKNOWLEDGE
   );
@@ -459,7 +459,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
       if (departmentTab === TABS.ACK_HISTORY) loadAckHistory(ackHistoryFilters);
       else if (departmentTab === TABS.ACKNOWLEDGE) loadPendingActions();
       else if (departmentTab === TABS.ALL_FUTURE) loadAllLeaves('future', allLeavesFilters);
-      else if (departmentTab === TABS.ALL_PAST) loadAllLeaves('past', allLeavesFilters);
+      else if (departmentTab === TABS.ALL_PAST || departmentTab === TABS.REJECTED) loadAllLeaves('past', allLeavesFilters);
     }
   }, [mode, departmentTab, isAdmin]);
 
@@ -2663,7 +2663,10 @@ export default function Leaves({ initialTab, initialManagerSection }) {
             {renderDepartmentTable(allFutureLeaves, false, { hideFilters: true })}
           </div>
         );
-      case TABS.ALL_PAST:
+      case TABS.ALL_PAST: {
+        const approvedPast = (allPastLeaves || []).filter(
+          (row) => (row.status || '').toLowerCase() !== 'rejected'
+        );
         return (
           <div className="space-y-4">
             <h2 className="text-lg font-semibold text-gray-900">All employees – Past leaves</h2>
@@ -2730,9 +2733,85 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                 Clear
               </button>
             </div>
-            {renderDepartmentTable(allPastLeaves, false, { hideFilters: true })}
+            {renderDepartmentTable(approvedPast, false, { hideFilters: true })}
           </div>
         );
+      }
+      case TABS.REJECTED: {
+        const rejected = (allPastLeaves || []).filter(
+          (row) => (row.status || '').toLowerCase() === 'rejected'
+        );
+        return (
+          <div className="space-y-4">
+            <h2 className="text-lg font-semibold text-gray-900">All employees – Rejected leaves</h2>
+            <div className="flex flex-wrap items-end gap-3 text-sm bg-white border rounded-lg px-4 py-3">
+              {/* Re-use the same filter UI as past; filters still drive loadAllLeaves('past', ...) */}
+              <div>
+                <label className="block mb-1 font-medium text-gray-700">From</label>
+                <input
+                  type="date"
+                  value={allLeavesFilters.startDate}
+                  onChange={(e) => setAllLeavesFilters((f) => ({ ...f, startDate: e.target.value }))}
+                  className="border rounded px-2 py-1.5"
+                />
+              </div>
+              <div>
+                <label className="block mb-1 font-medium text-gray-700">To</label>
+                <input
+                  type="date"
+                  value={allLeavesFilters.endDate}
+                  onChange={(e) => setAllLeavesFilters((f) => ({ ...f, endDate: e.target.value }))}
+                  className="border rounded px-2 py-1.5"
+                />
+              </div>
+              <div>
+                <label className="block mb-1 font-medium text-gray-700">Department</label>
+                <select
+                  value={allLeavesFilters.departmentId}
+                  onChange={(e) => setAllLeavesFilters((f) => ({ ...f, departmentId: e.target.value }))}
+                  className="border rounded px-2 py-1.5 min-w-[140px]"
+                >
+                  <option value="">All departments</option>
+                  {adminDepartments.map((d) => (
+                    <option key={d.id} value={d.id}>{d.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block mb-1 font-medium text-gray-700">Type</label>
+                <select
+                  value={allLeavesFilters.type}
+                  onChange={(e) => setAllLeavesFilters((f) => ({ ...f, type: e.target.value }))}
+                  className="border rounded px-2 py-1.5"
+                >
+                  <option value="all">All</option>
+                  <option value="paid">Paid</option>
+                  <option value="regular">Regular</option>
+                  <option value="uninformed">Uninformed</option>
+                </select>
+              </div>
+              <button
+                type="button"
+                onClick={() => loadAllLeaves('past', allLeavesFilters)}
+                className="px-3 py-1.5 bg-indigo-600 text-white rounded text-sm hover:bg-indigo-700"
+              >
+                Apply filters
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setAllLeavesFilters({ startDate: '', endDate: '', departmentId: '', type: 'all' });
+                  setTimeout(() => loadAllLeaves('past', {}), 0);
+                }}
+                className="text-sm text-indigo-600 underline"
+              >
+                Clear
+              </button>
+            </div>
+            {renderDepartmentTable(rejected, false, { hideFilters: true })}
+          </div>
+        );
+      }
       case TABS.ACKNOWLEDGE: {
         const list = pendingActions.acknowledgeRequests || [];
         return (
@@ -3174,11 +3253,20 @@ export default function Leaves({ initialTab, initialManagerSection }) {
           <nav className="-mb-px flex space-x-4" aria-label="Tabs">
             {[
               ...(isAdmin ? [TABS.ALL_FUTURE, TABS.ALL_PAST] : []),
+              ...(isAdmin ? [TABS.REJECTED] : []),
               TABS.ACKNOWLEDGE,
               ...(isAdmin ? [TABS.ACK_HISTORY] : []),
             ].map((tabId) => {
               const label =
-                tabId === TABS.ALL_FUTURE ? 'Future' : tabId === TABS.ALL_PAST ? 'Past' : tabId === TABS.ACKNOWLEDGE ? 'Acknowledge' : 'Acknowledge history';
+                tabId === TABS.ALL_FUTURE
+                  ? 'Future'
+                  : tabId === TABS.ALL_PAST
+                  ? 'Past'
+                  : tabId === TABS.REJECTED
+                  ? 'Rejected'
+                  : tabId === TABS.ACKNOWLEDGE
+                  ? 'Acknowledge'
+                  : 'Acknowledge history';
               return (
                 <button
                   key={tabId}
@@ -3556,7 +3644,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
           </div>
         </div>
       )}
-      <div className="p-6">
+        <div className="p-6">
         <h1 className="text-2xl font-semibold text-gray-900 mb-4">My Leaves</h1>
         <div className="mb-4 border-b border-gray-200">
           <nav className="-mb-px flex space-x-4" aria-label="Tabs">
