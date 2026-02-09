@@ -848,13 +848,12 @@ export default function Leaves({ initialTab, initialManagerSection }) {
 
   const renderApplyForm = () => {
     const daysRequested = computeDaysRequested();
-    // Use "Leaves taken (this month)" as source of truth: only disable paid when they have actually taken at least one leave this month AND report says 0 remaining (avoids disabling when balance is out of sync with actual count)
     const remaining = report?.remaining_paid ?? null;
-    const leavesTakenThisMonth = Number(report?.leaves_taken_this_month) ?? 0;
+    // Disable Paid when the requested range is more than the remaining paid quota for this month
     const paidDisabled =
       report != null &&
-      (remaining !== null && remaining <= 0) &&
-      leavesTakenThisMonth > 0;
+      remaining != null &&
+      daysRequested > remaining;
     const effectiveLeaveType = paidDisabled ? 'other' : form.leave_type;
     const showPolicyForm = effectiveLeaveType === 'other';
     const isEventBlocked = dateAvailability?.blocked;
@@ -950,8 +949,10 @@ export default function Leaves({ initialTab, initialManagerSection }) {
               <option value="paid" disabled={paidDisabled}>Paid</option>
               <option value="other">Regular</option>
             </select>
-            {paidDisabled && (
-              <p className="mt-1 text-xs text-amber-700">Paid leave not available; you have no paid leave remaining this month.</p>
+            {paidDisabled && remaining != null && (
+              <p className="mt-1 text-xs text-amber-700">
+                Paid leave not available for this range; you only have {remaining} paid day(s) remaining this month.
+              </p>
             )}
           </div>
         </div>
@@ -2902,7 +2903,10 @@ export default function Leaves({ initialTab, initialManagerSection }) {
         return (
           <div className="space-y-6">
             <h2 className="text-lg font-semibold text-gray-900">Acknowledge emergency leaves</h2>
-            <p className="text-sm text-gray-600">Leaves applied on important dates or after booker rejected swap. If you missed the popup, use the list below to approve as paid/regular or reject.</p>
+            <p className="text-sm text-gray-600">
+              Leaves applied on important dates or after a booker rejected a swap. If you missed the popup, use the list
+              below to review each request and either acknowledge (approve) or reject it.
+            </p>
             {list.length === 0 ? (
               <div className="bg-white border rounded p-6 text-gray-500">No pending requests to acknowledge.</div>
             ) : (
