@@ -11409,7 +11409,8 @@ app.post('/api/leaves/apply', async (req, res) => {
         message: 'This date is already booked. Select an emergency reason to request leave.'
       });
     }
-    const swapLeaveId = emergency_type && existingLeaveId
+    // Regular or paid on booked date: send to booker to swap. Paid also requires emergency reason (checked above).
+    const swapLeaveId = existingLeaveId
       ? (requested_swap_with_leave_id || existingLeaveId)
       : (requested_swap_with_leave_id || null);
 
@@ -12114,6 +12115,23 @@ app.get('/api/leaves/pending-actions', async (req, res) => {
       requesting_leave_id: r.requesting_leave_id
     }));
 
+    // Rejected swap notifications for booker: a leave that asked to swap with my leave was rejected by admin
+    const [rejectedSwapRows] = await connection.execute(
+      `SELECT req.id AS rejected_leave_id, req.start_date, req.end_date, req.requested_swap_with_leave_id AS my_leave_id
+       FROM leave_requests req
+       JOIN leave_requests my ON my.id = req.requested_swap_with_leave_id
+       WHERE req.status = 'rejected' AND my.employee_id = ?
+       ORDER BY req.decision_at DESC LIMIT 20`,
+      [currentUserId]
+    );
+    const fmtDate = (d) => (d && typeof d.toISOString === 'function' ? d.toISOString().slice(0, 10) : (d && typeof d === 'string' ? d.slice(0, 10) : (d ? String(d).slice(0, 10) : '')));
+    const rejected_swap_notifications = (rejectedSwapRows || []).map((r) => ({
+      rejected_leave_id: r.rejected_leave_id,
+      my_leave_id: r.my_leave_id,
+      start_date: fmtDate(r.start_date),
+      end_date: fmtDate(r.end_date)
+    }));
+
     let acknowledgeRequests = [];
     if (isAdmin) {
       const [ackRows] = await connection.execute(
@@ -12126,24 +12144,47 @@ app.get('/api/leaves/pending-actions', async (req, res) => {
          WHERE lr.status = 'pending' AND lr.employee_id != 0
            AND (
              (lr.is_important_date_override = 1)
-             OR (lr.requested_swap_with_leave_id IS NOT NULL AND lr.swap_responded_at IS NOT NULL AND lr.swap_accepted = 0)
+             OR (lr.requested_swap_with_leave_id IS NOT NULL AND lr.swap_responded_at IS NOT NULL)
              OR (lr.policy_reason_detail IS NOT NULL OR lr.expected_return_date IS NOT NULL)
            )
          ORDER BY lr.created_at DESC LIMIT 50`
       );
-      acknowledgeRequests = ackRows.map((r) => ({
-        type: 'acknowledge',
-        leave_id: r.id,
-        employee_id: r.employee_id,
-        employee_name: r.employee_name,
-        start_date: r.start_date,
-        end_date: r.end_date,
-        emergency_type: r.emergency_type || r.reason,
-        is_important_date_override: !!r.is_important_date_override
+      // For swap-related leaves, compute whether the booker has moved their leave (no overlap = swapped)
+      const ackWithBookerSwapped = await Promise.all(ackRows.map(async (r) => {
+        let booker_has_swapped = null;
+        if (r.requested_swap_with_leave_id) {
+          const [bookerLeave] = await connection.execute(
+            'SELECT start_date, end_date FROM leave_requests WHERE id = ?',
+            [r.requested_swap_with_leave_id]
+          );
+          if (bookerLeave.length > 0) {
+            const b = bookerLeave[0];
+            const reqStart = r.start_date ? new Date(r.start_date) : null;
+            const reqEnd = r.end_date ? new Date(r.end_date) : null;
+            const bStart = b.start_date ? new Date(b.start_date) : null;
+            const bEnd = b.end_date ? new Date(b.end_date) : null;
+            const overlap = reqStart && reqEnd && bStart && bEnd && bStart <= reqEnd && bEnd >= reqStart;
+            booker_has_swapped = !overlap;
+          }
+        }
+        const fmt = (d) => (d && typeof d.toISOString === 'function' ? d.toISOString().slice(0, 10) : (d && typeof d === 'string' ? d.slice(0, 10) : (d ? String(d).slice(0, 10) : '')));
+        return {
+          type: 'acknowledge',
+          leave_id: r.id,
+          employee_id: r.employee_id,
+          employee_name: r.employee_name,
+          start_date: fmt(r.start_date),
+          end_date: fmt(r.end_date),
+          emergency_type: r.emergency_type || r.reason,
+          is_important_date_override: !!r.is_important_date_override,
+          requested_swap_with_leave_id: r.requested_swap_with_leave_id || null,
+          booker_has_swapped
+        };
       }));
+      acknowledgeRequests = ackWithBookerSwapped;
     }
 
-    res.json({ swapRequests, acknowledgeRequests, acceptedSwapTargets });
+    res.json({ swapRequests, acknowledgeRequests, acceptedSwapTargets, rejected_swap_notifications });
   } catch (err) {
     console.error('Error fetching pending actions:', err);
     res.status(500).json({ error: 'Database error' });

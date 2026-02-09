@@ -5,6 +5,7 @@ const TABS = {
   APPLY: 'apply',
   FUTURE: 'future',
   PAST: 'past',
+  PENDING: 'pending',
   REJECTED: 'rejected',
   MY_ACK: 'my_ack',
   POLICY: 'policy',
@@ -89,8 +90,9 @@ export default function Leaves({ initialTab, initialManagerSection }) {
   const EMERGENCY_OPTIONS_FALLBACK = ['Medical', 'Family emergency', 'Bereavement', 'Other'];
   const [dateAvailability, setDateAvailability] = useState(null); // { blocked, available, bookedBy } for apply form
   const [editDateAvailability, setEditDateAvailability] = useState(null); // availability for edit-dates modal
-  const [pendingActions, setPendingActions] = useState({ swapRequests: [], acknowledgeRequests: [] });
+  const [pendingActions, setPendingActions] = useState({ swapRequests: [], acknowledgeRequests: [], rejected_swap_notifications: [] });
   const [pendingActionModal, setPendingActionModal] = useState(null); // { type: 'swap'|'ack', data }
+  const [rejectedSwapModalDismissed, setRejectedSwapModalDismissed] = useState(false); // booker: "you can set date back" shown once per load
   const [departmentRestrictedDays, setDepartmentRestrictedDays] = useState([]); // day_of_week 0-6 for current user's department (from admin-configured rules)
   const [policyForm, setPolicyForm] = useState({
     policy_reason_detail: '',
@@ -473,6 +475,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
           swapRequests: data.swapRequests || [],
           acknowledgeRequests: data.acknowledgeRequests || [],
           acceptedSwapTargets: data.acceptedSwapTargets || [],
+          rejected_swap_notifications: data.rejected_swap_notifications || [],
         });
         const swap = (data.swapRequests || [])[0];
         const ack = (data.acknowledgeRequests || [])[0];
@@ -481,6 +484,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
           else if (swap) setPendingActionModal({ type: 'swap', data: swap });
           else if (ack) setPendingActionModal({ type: 'ack', data: ack });
         }
+        if ((data.rejected_swap_notifications || []).length > 0) setRejectedSwapModalDismissed(false);
       }
     } catch {
       // ignore
@@ -519,7 +523,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
   }, [isAdmin]);
 
   useEffect(() => {
-    if ((mode === 'my' || (mode === 'department' && isAdmin)) && employeeId) {
+    if ((mode === 'my' || mode === 'department') && employeeId) {
       loadPendingActions();
       const t = setInterval(loadPendingActions, 5 * 60 * 1000);
       return () => clearInterval(t);
@@ -2442,6 +2446,23 @@ export default function Leaves({ initialTab, initialManagerSection }) {
           </div>
         );
       }
+      case TABS.PENDING: {
+        const pendingRows = myLeaves.pending || [];
+        return (
+          <div className="space-y-4">
+            <h2 className="text-lg font-semibold text-gray-900">Pending leaves</h2>
+            <p className="text-sm text-gray-600">
+              Leaves you have applied for that are still pending decision (including those waiting for booker or admin
+              acknowledgment).
+            </p>
+            {pendingRows.length === 0 ? (
+              <div className="bg-white border rounded p-6 text-gray-500">You have no pending leave requests.</div>
+            ) : (
+              renderLeaveTable(pendingRows, { showEditDates: false, showCancel: true })
+            )}
+          </div>
+        );
+      }
       case TABS.PAST: {
         const today = todayStr();
         const pastApproved = (myLeaves.recent_approved || []).filter((r) => toDateOnly(r.end_date) < today);
@@ -2965,10 +2986,9 @@ export default function Leaves({ initialTab, initialManagerSection }) {
         const list = pendingActions.acknowledgeRequests || [];
         return (
           <div className="space-y-6">
-            <h2 className="text-lg font-semibold text-gray-900">Acknowledge emergency leaves</h2>
+            <h2 className="text-lg font-semibold text-gray-900">Acknowledge leaves</h2>
             <p className="text-sm text-gray-600">
-              Leaves applied on important dates or after a booker rejected a swap. If you missed the popup, use the list
-              below to review each request and either acknowledge (approve) or reject it.
+              Leaves on important dates, or regular/paid on booked dates after the booker has responded to the swap (accept or decline). Review each request and either acknowledge (approve) or reject. If you reject, the booker is notified they can set their date back.
             </p>
             {list.length === 0 ? (
               <div className="bg-white border rounded p-6 text-gray-500">No pending requests to acknowledge.</div>
@@ -3378,6 +3398,14 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                     <span className="font-medium text-gray-500">Emergency reason</span>
                     <span className="text-gray-900 font-medium">{pendingActionModal.data.emergency_type || '—'}</span>
                   </div>
+                  {pendingActionModal.data.requested_swap_with_leave_id != null && (
+                    <div className="flex justify-between py-3 border-b border-gray-100">
+                      <span className="font-medium text-gray-500">Booker has swapped</span>
+                      <span className="text-gray-900 font-medium">
+                        {pendingActionModal.data.booker_has_swapped === true ? 'Yes' : pendingActionModal.data.booker_has_swapped === false ? 'No' : '—'}
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="px-6 py-4 flex flex-wrap gap-3 justify-end bg-gray-50/80 border-t border-gray-200">
@@ -3394,6 +3422,37 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                   className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 font-medium transition-colors shadow-sm"
                 >
                   Acknowledge
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        {!isAdmin && (pendingActions.rejected_swap_notifications || []).length > 0 && !rejectedSwapModalDismissed && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" aria-modal="true" role="dialog">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-gray-200/80">
+              <div className="px-6 py-5 border-b border-gray-100">
+                <h3 className="text-lg font-semibold text-gray-900">Request rejected</h3>
+                <p className="text-sm text-gray-600 mt-1">
+                  The following leave request(s) that asked to swap with your leave have been rejected. You can set your date back if you had moved it.
+                </p>
+              </div>
+              <div className="px-6 py-4">
+                <ul className="text-sm text-gray-700 space-y-1">
+                  {(pendingActions.rejected_swap_notifications || []).map((n) => (
+                    <li key={n.rejected_leave_id}>
+                      Request for {formatDate(n.start_date)}
+                      {n.end_date && n.end_date !== n.start_date ? ` – ${formatDate(n.end_date)}` : ''} was rejected.
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div className="px-6 py-4 flex justify-end bg-gray-50/80 border-t border-gray-200">
+                <button
+                  type="button"
+                  onClick={() => setRejectedSwapModalDismissed(true)}
+                  className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 font-medium"
+                >
+                  OK
                 </button>
               </div>
             </div>
@@ -3776,6 +3835,14 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                   <span className="font-medium text-gray-500">Emergency reason</span>
                   <span className="text-gray-900 font-medium">{pendingActionModal.data.emergency_type || '—'}</span>
                 </div>
+                {pendingActionModal.data.requested_swap_with_leave_id != null && (
+                  <div className="flex justify-between py-3 border-b border-gray-100">
+                    <span className="font-medium text-gray-500">Booker has swapped</span>
+                    <span className="text-gray-900 font-medium">
+                      {pendingActionModal.data.booker_has_swapped === true ? 'Yes' : pendingActionModal.data.booker_has_swapped === false ? 'No' : '—'}
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
             <div className="px-6 py-4 flex flex-wrap gap-3 justify-end bg-gray-50/80 border-t border-gray-200">
@@ -3797,6 +3864,37 @@ export default function Leaves({ initialTab, initialManagerSection }) {
           </div>
         </div>
       )}
+      {!isAdmin && (pendingActions.rejected_swap_notifications || []).length > 0 && !rejectedSwapModalDismissed && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" aria-modal="true" role="dialog">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-gray-200/80">
+            <div className="px-6 py-5 border-b border-gray-100">
+              <h3 className="text-lg font-semibold text-gray-900">Request rejected</h3>
+              <p className="text-sm text-gray-600 mt-1">
+                The following leave request(s) that asked to swap with your leave have been rejected. You can set your date back if you had moved it.
+              </p>
+            </div>
+            <div className="px-6 py-4">
+              <ul className="text-sm text-gray-700 space-y-1">
+                {(pendingActions.rejected_swap_notifications || []).map((n) => (
+                  <li key={n.rejected_leave_id}>
+                    Request for {formatDate(n.start_date)}
+                    {n.end_date && n.end_date !== n.start_date ? ` – ${formatDate(n.end_date)}` : ''} was rejected.
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div className="px-6 py-4 flex justify-end bg-gray-50/80 border-t border-gray-200">
+              <button
+                type="button"
+                onClick={() => setRejectedSwapModalDismissed(true)}
+                className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 font-medium"
+              >
+                OK
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
         <div className="p-6">
         <h1 className="text-2xl font-semibold text-gray-900 mb-4">My Leaves</h1>
         <div className="mb-4 border-b border-gray-200">
@@ -3805,6 +3903,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
               { id: TABS.APPLY, label: 'Apply for Leave' },
               { id: TABS.FUTURE, label: 'Future leaves' },
               { id: TABS.PAST, label: 'Past leaves' },
+              { id: TABS.PENDING, label: 'Pending leaves' },
               { id: TABS.REJECTED, label: 'Rejected leaves' },
               { id: TABS.MY_ACK, label: 'Acknowledged' },
               { id: TABS.POLICY, label: 'Leave Policy' },

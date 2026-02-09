@@ -44,6 +44,20 @@ import Button from './components/ui/Button';
 
 // Main App Component with Authentication
 const AppContent = () => {
+  const formatShortDate = (value) => {
+    if (!value) return '';
+    const str = String(value);
+    // If already YYYY-MM-DD just show as is
+    if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+    // Strip time part from ISO-like strings
+    const datePart = str.split('T')[0];
+    if (/^\d{4}-\d{2}-\d{2}$/.test(datePart)) return datePart;
+    // Fallback to locale date
+    const d = new Date(str);
+    // Guard against invalid dates
+    if (Number.isNaN(d.getTime())) return str;
+    return d.toISOString().slice(0, 10);
+  };
   const { isAuthenticated, isLoading, login } = useAuth();
 
   // Show loading spinner while checking authentication
@@ -775,9 +789,9 @@ const AuthenticatedApp = () => {
               <div className="flex justify-between">
                 <span className="font-medium text-gray-500">Dates</span>
                 <span className="text-gray-900">
-                  {leavePendingModal.data.start_date}
+                  {formatShortDate(leavePendingModal.data.start_date)}
                   {leavePendingModal.data.end_date && String(leavePendingModal.data.end_date) !== String(leavePendingModal.data.start_date)
-                    ? ` – ${leavePendingModal.data.end_date}`
+                    ? ` – ${formatShortDate(leavePendingModal.data.end_date)}`
                     : ''}
                 </span>
               </div>
@@ -788,7 +802,7 @@ const AuthenticatedApp = () => {
                 </div>
               )}
               <p className="text-xs text-gray-600 mt-2">
-                Open the <span className="font-semibold">Department → Acknowledge</span> section to approve as paid/regular or reject.
+                Open the <span className="font-semibold">Department → Acknowledge</span> section to review and either acknowledge or reject this leave.
               </p>
             </div>
             <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 flex justify-end">
