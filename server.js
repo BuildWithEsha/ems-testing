@@ -12717,7 +12717,8 @@ app.post('/api/leaves/:id/decision', async (req, res) => {
         // Recalculate cascading deductions across future months for this employee.
         await recalculateUninformedDeductionsForEmployee(connection, request.employee_id);
         updatedIsPaid = 0;
-      } else {
+      } else if (request.is_paid) {
+        // Only increment paid_used when the leave was applied as paid. Regular leaves must not deduct paid quota.
         const willExceedPaid = used + requestedDays > effectiveQuota;
         const newUsed = willExceedPaid ? used : used + requestedDays;
         await connection.execute(
@@ -12725,6 +12726,9 @@ app.post('/api/leaves/:id/decision', async (req, res) => {
           [newUsed, balance.id]
         );
         updatedIsPaid = willExceedPaid ? 0 : 1;
+      } else {
+        // Regular (non-paid) leave: do not touch paid_used; leave type stays unpaid.
+        updatedIsPaid = 0;
       }
     }
 

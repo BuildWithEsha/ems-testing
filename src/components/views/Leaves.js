@@ -15,6 +15,28 @@ const TABS = {
   ALL_PAST: 'all_past',
 };
 
+/*
+ * Leave rules (rulebook) — used by apply, acknowledge, and Future/Past/Acknowledge views:
+ *
+ * - Date Available + Paid leave:
+ *   No form / no emergency field; no approval from admin. Auto-approved.
+ *
+ * - Date booked + Paid leave + booker swaps:
+ *   Emergency field appears; after booker swaps, approved without admin.
+ *
+ * - Date booked + Paid leave + booker does not swap:
+ *   Approval of admin required.
+ *
+ * - Date booked + Regular leave (booker swaps or not):
+ *   Emergency field/form appears; approval of admin required.
+ *
+ * - Date Available + Regular leave:
+ *   Form appears; need approval from admin.
+ *
+ * - Important/holiday date: no leave allowed (blocked).
+ * - If requested paid days > remaining paid quota: cannot select paid (use Regular or shorten range).
+ */
+
 // initialManagerSection determines which completely separate UI to show:
 // - undefined / null → "My Leaves" (per-employee self-service)
 // - 'department'     → Department leaves management for managers/admins
@@ -35,6 +57,13 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     initialTab && Object.values(TABS).includes(initialTab) ? initialTab : TABS.APPLY
   );
   const todayStr = () => new Date().toISOString().split('T')[0];
+  // Normalize API date (ISO string or YYYY-MM-DD) to YYYY-MM-DD for consistent Future/Past comparison
+  const toDateOnly = (d) => {
+    if (d == null) return '';
+    if (typeof d === 'string') return d.slice(0, 10);
+    if (d && typeof d.toISOString === 'function') return d.toISOString().slice(0, 10);
+    return String(d).slice(0, 10);
+  };
   // Tab state for Department view (acknowledge / ack_history only)
   const [departmentTab, setDepartmentTab] = useState(
     initialTab && [TABS.ACKNOWLEDGE, TABS.ACK_HISTORY, TABS.ALL_FUTURE, TABS.ALL_PAST, TABS.REJECTED].includes(initialTab)
@@ -2220,7 +2249,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
         // Only show approved future leaves here. Pending leaves that need acknowledgment
         // are surfaced via the admin acknowledge flow and shown under "Acknowledged"
         // once a decision is made.
-        const futureApproved = (myLeaves.recent_approved || []).filter((r) => r.end_date >= today);
+        const futureApproved = (myLeaves.recent_approved || []).filter((r) => toDateOnly(r.end_date) >= today);
         const futureRows = filterByCommonCriteria(futureApproved, myFilters);
         return (
           <div className="space-y-4">
@@ -2295,7 +2324,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
       }
       case TABS.PAST: {
         const today = todayStr();
-        const pastApproved = (myLeaves.recent_approved || []).filter((r) => r.end_date < today);
+        const pastApproved = (myLeaves.recent_approved || []).filter((r) => toDateOnly(r.end_date) < today);
         const pastRows = filterByCommonCriteria(pastApproved, myFilters);
         return (
           <div className="space-y-4">
