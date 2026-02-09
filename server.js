@@ -11600,12 +11600,14 @@ app.post('/api/leaves/apply', async (req, res) => {
   }
 });
 
-// Date availability for a single date or range (red/green): blocked or booked in range
+// Date availability for a single date or range (red/green): blocked or booked in range.
+// Optional exclude_leave_id: when editing a leave, exclude that leave from "booked" so the booker's own leave doesn't count.
 app.get('/api/leaves/date-availability', async (req, res) => {
-  const { date, end_date, employee_id } = req.query;
+  const { date, end_date, employee_id, exclude_leave_id } = req.query;
   const startDate = date || req.query.start_date;
   if (!startDate) return res.status(400).json({ error: 'date or start_date is required (YYYY-MM-DD)' });
   const endDate = end_date || req.query.end_date || startDate;
+  const excludeId = exclude_leave_id != null && exclude_leave_id !== '' && Number.isFinite(Number(exclude_leave_id)) ? Number(exclude_leave_id) : null;
   let connection;
   try {
     connection = await mysqlPool.getConnection();
@@ -11631,13 +11633,16 @@ app.get('/api/leaves/date-availability', async (req, res) => {
        ) LIMIT 1`,
       [endDate, startDate, deptId]
     );
-    const [booked] = await connection.execute(
-      `SELECT lr.id, lr.employee_id, e.name AS employee_name FROM leave_requests lr
+    let bookedQuery = `SELECT lr.id, lr.employee_id, e.name AS employee_name FROM leave_requests lr
        JOIN employees e ON e.id = lr.employee_id
        WHERE lr.employee_id != 0 AND lr.status IN ('pending','approved')
-       AND lr.start_date <= ? AND lr.end_date >= ?`,
-      [endDate, startDate]
-    );
+       AND lr.start_date <= ? AND lr.end_date >= ?`;
+    const bookedParams = [endDate, startDate];
+    if (excludeId != null) {
+      bookedQuery += ' AND lr.id != ?';
+      bookedParams.push(excludeId);
+    }
+    const [booked] = await connection.execute(bookedQuery, bookedParams);
     const bookedUnique = booked.reduce((acc, r) => {
       if (!acc.some((x) => x.leave_id === r.id)) acc.push({ leave_id: r.id, employee_id: r.employee_id, employee_name: r.employee_name });
       return acc;
@@ -11673,6 +11678,7 @@ app.get('/api/leaves/calendar', async (req, res) => {
        WHERE e.status = 'Active'
        ORDER BY e.name`
     );
+    // Only show approved leaves on calendar; pending leaves are not yet decided so show nothing for those days
     const [leaves] = await connection.execute(
       `SELECT lr.id, lr.employee_id, e.name AS employee_name, lr.start_date, lr.end_date, lr.status,
         lr.is_uninformed, lr.start_segment, lr.end_segment, lr.reason, lr.emergency_type,
@@ -11680,7 +11686,7 @@ app.get('/api/leaves/calendar', async (req, res) => {
        FROM leave_requests lr
        JOIN employees e ON e.id = lr.employee_id
        WHERE lr.employee_id != 0
-         AND lr.status IN ('pending','approved')
+         AND lr.status = 'approved'
          AND lr.start_date <= ? AND lr.end_date >= ?`,
       [end, start]
     );

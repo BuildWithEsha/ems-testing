@@ -435,7 +435,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     }
   };
 
-  const loadEditDateAvailability = async (startDate, endDate) => {
+  const loadEditDateAvailability = async (startDate, endDate, leaveIdToExclude) => {
     if (!startDate) {
       setEditDateAvailability(null);
       return;
@@ -445,6 +445,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
       let url = `/api/leaves/date-availability?date=${encodeURIComponent(startDate)}`;
       if (end !== startDate) url += `&end_date=${encodeURIComponent(end)}`;
       if (employeeId) url += `&employee_id=${employeeId}`;
+      if (leaveIdToExclude) url += `&exclude_leave_id=${encodeURIComponent(leaveIdToExclude)}`;
       const res = await fetch(url);
       if (res.ok) {
         const data = await res.json();
@@ -491,10 +492,10 @@ export default function Leaves({ initialTab, initialManagerSection }) {
     else setDateAvailability(null);
   }, [form.start_date, form.end_date]);
 
-  // Keep edit-dates modal in sync with availability (events / existing bookings)
+  // Keep edit-dates modal in sync with availability (events / existing bookings); exclude current leave when editing
   useEffect(() => {
     if (editingLeave && editLeaveForm.start_date) {
-      loadEditDateAvailability(editLeaveForm.start_date, editLeaveForm.end_date);
+      loadEditDateAvailability(editLeaveForm.start_date, editLeaveForm.end_date, editingLeave.id);
     } else {
       setEditDateAvailability(null);
     }
@@ -3621,7 +3622,8 @@ export default function Leaves({ initialTab, initialManagerSection }) {
               <button
                 type="button"
                 onClick={saveEditLeave}
-                className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
+                disabled={editDateAvailability?.blocked || (editDateAvailability && !editDateAvailability.available)}
+                className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Save
               </button>
