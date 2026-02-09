@@ -5,6 +5,7 @@ const TABS = {
   APPLY: 'apply',
   FUTURE: 'future',
   PAST: 'past',
+  REJECTED: 'rejected',
   MY_ACK: 'my_ack',
   POLICY: 'policy',
   REPORT: 'report',
@@ -2295,14 +2296,11 @@ export default function Leaves({ initialTab, initialManagerSection }) {
       case TABS.PAST: {
         const today = todayStr();
         const pastApproved = (myLeaves.recent_approved || []).filter((r) => r.end_date < today);
-        const pastRows = filterByCommonCriteria(
-          [...pastApproved, ...(myLeaves.recent_rejected || [])],
-          myFilters
-        );
+        const pastRows = filterByCommonCriteria(pastApproved, myFilters);
         return (
           <div className="space-y-4">
             <h2 className="text-lg font-semibold text-gray-900">Past leaves</h2>
-            <p className="text-sm text-gray-600">Taken and rejected leaves (approved with end date before today, and rejected).</p>
+            <p className="text-sm text-gray-600">Taken leaves (approved with end date before today).</p>
             <div className="flex flex-wrap gap-3 text-xs text-gray-700 bg-white border rounded px-4 py-3">
               <div>
                 <label className="block mb-1 font-medium">From</label>
@@ -2371,7 +2369,10 @@ export default function Leaves({ initialTab, initialManagerSection }) {
         );
       }
       case TABS.MY_ACK: {
-        const ackRows = (myLeaves.acknowledged || []).filter((r) => r.acknowledged_by != null);
+        // Only show acknowledged leaves that were approved; rejected ones are handled in the Rejected tab.
+        const ackRows = (myLeaves.acknowledged || []).filter(
+          (r) => r.acknowledged_by != null && (r.status || '').toLowerCase() !== 'rejected'
+        );
         const filteredAck = filterByCommonCriteria(ackRows, myFilters);
         const classifyAck = (row) => {
           const badges = [];
@@ -2502,6 +2503,81 @@ export default function Leaves({ initialTab, initialManagerSection }) {
                 </table>
               </div>
             )}
+          </div>
+        );
+      }
+      case TABS.REJECTED: {
+        const rejectedRows = filterByCommonCriteria(myLeaves.recent_rejected || [], myFilters);
+        return (
+          <div className="space-y-4">
+            <h2 className="text-lg font-semibold text-gray-900">Rejected leaves</h2>
+            <p className="text-sm text-gray-600">
+              Leaves that were not approved by admin.
+            </p>
+            <div className="flex flex-wrap gap-3 text-xs text-gray-700 bg-white border rounded px-4 py-3">
+              <div>
+                <label className="block mb-1 font-medium">From</label>
+                <input
+                  type="date"
+                  value={myFilters.startDate}
+                  onChange={(e) => setMyFilters((f) => ({ ...f, startDate: e.target.value }))}
+                  className="border rounded px-2 py-1"
+                />
+              </div>
+              <div>
+                <label className="block mb-1 font-medium">To</label>
+                <input
+                  type="date"
+                  value={myFilters.endDate}
+                  onChange={(e) => setMyFilters((f) => ({ ...f, endDate: e.target.value }))}
+                  className="border rounded px-2 py-1"
+                />
+              </div>
+              <div>
+                <label className="block mb-1 font-medium">Min days</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.5"
+                  value={myFilters.minDays}
+                  onChange={(e) => setMyFilters((f) => ({ ...f, minDays: e.target.value }))}
+                  className="border rounded px-2 py-1 w-20"
+                />
+              </div>
+              <div>
+                <label className="block mb-1 font-medium">Max days</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.5"
+                  value={myFilters.maxDays}
+                  onChange={(e) => setMyFilters((f) => ({ ...f, maxDays: e.target.value }))}
+                  className="border rounded px-2 py-1 w-20"
+                />
+              </div>
+              <div>
+                <label className="block mb-1 font-medium">Type</label>
+                <select
+                  value={myFilters.type}
+                  onChange={(e) => setMyFilters((f) => ({ ...f, type: e.target.value }))}
+                  className="border rounded px-2 py-1"
+                >
+                  <option value="all">All</option>
+                  <option value="regular">Regular</option>
+                  <option value="uninformed">Uninformed</option>
+                </select>
+              </div>
+              <button
+                type="button"
+                className="ml-auto text-[11px] text-indigo-600 underline"
+                onClick={() =>
+                  setMyFilters({ startDate: '', endDate: '', minDays: '', maxDays: '', type: 'all' })
+                }
+              >
+                Clear filters
+              </button>
+            </div>
+            {renderLeaveTable(rejectedRows)}
           </div>
         );
       }
@@ -3488,6 +3564,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
               { id: TABS.APPLY, label: 'Apply for Leave' },
               { id: TABS.FUTURE, label: 'Future leaves' },
               { id: TABS.PAST, label: 'Past leaves' },
+              { id: TABS.REJECTED, label: 'Rejected leaves' },
               { id: TABS.MY_ACK, label: 'Acknowledged' },
               { id: TABS.POLICY, label: 'Leave Policy' },
               { id: TABS.REPORT, label: 'My Leave Report' },
