@@ -3613,7 +3613,7 @@ export default function Leaves({ initialTab, initialManagerSection }) {
             </div>
           </div>
         )}
-        {!isAdmin && (pendingActions.rejected_swap_notifications || []).length > 0 && !rejectedSwapModalDismissed && (
+        {false && !isAdmin && (pendingActions.rejected_swap_notifications || []).length > 0 && !rejectedSwapModalDismissed && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" aria-modal="true" role="dialog">
             <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-gray-200/80">
               <div className="px-6 py-5 border-b border-gray-100">

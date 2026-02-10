@@ -365,9 +365,11 @@ const AuthenticatedApp = () => {
       return [];
     }
   }); // booker dismissed these; don't show again until new ones
+  // Use a new storage key for rejected leaves so old per-view dismissals
+  // don't prevent the new global popup from showing once.
   const [dismissedRejectedLeaveIds, setDismissedRejectedLeaveIds] = useState(() => {
     try {
-      const raw = window.localStorage.getItem('ems_dismissedRejectedLeaveIds');
+      const raw = window.localStorage.getItem('ems_dismissedRejectedLeaveIds_v2');
       const parsed = raw ? JSON.parse(raw) : [];
       return Array.isArray(parsed) ? parsed : [];
     } catch {
@@ -990,7 +992,7 @@ const AuthenticatedApp = () => {
                     setDismissedRejectedLeaveIds((prev) => {
                       const next = [...new Set([...prev, ...toShow.map((n) => n.leave_id)])];
                       try {
-                        window.localStorage.setItem('ems_dismissedRejectedLeaveIds', JSON.stringify(next));
+                        window.localStorage.setItem('ems_dismissedRejectedLeaveIds_v2', JSON.stringify(next));
                       } catch {
                         // ignore storage errors
                       }
