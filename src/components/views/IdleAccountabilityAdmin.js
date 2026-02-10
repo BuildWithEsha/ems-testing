@@ -4,6 +4,7 @@ import { useAuth } from '../../contexts/AuthContext';
 const IdleAccountabilityAdmin = () => {
   const { user } = useAuth();
   const [items, setItems] = useState([]);
+  const [activeTab, setActiveTab] = useState('pending');
   const [filters, setFilters] = useState({
     from: '',
     to: '',
@@ -20,6 +21,7 @@ const IdleAccountabilityAdmin = () => {
     'This notification is to inform you that you had high idle time and did not submit an accountability reason for the selected date.'
   );
   const [creatingTickets, setCreatingTickets] = useState(false);
+  const [ticketInfoMessage, setTicketInfoMessage] = useState('');
 
   const load = async () => {
     if (!user) return;
@@ -69,6 +71,14 @@ const IdleAccountabilityAdmin = () => {
     .filter(Boolean)
     .sort();
 
+  const pendingItems = items.filter(
+    (i) => Number(i.idle_minutes) > 20 && i.status === 'pending'
+  );
+
+  const resolvedItems = items.filter((i) => i.status !== 'pending');
+
+  const currentItems = activeTab === 'pending' ? pendingItems : resolvedItems;
+
   const canCreateIdleTickets = !!user && (
     (user.role && (user.role === 'admin' || user.role === 'Admin')) ||
     user.permissions?.includes('all') ||
@@ -86,6 +96,17 @@ const IdleAccountabilityAdmin = () => {
         return d.toISOString().split('T')[0];
       })();
     setTicketDate(base);
+    // When opening the modal, compute whether tickets already exist for this date
+    const hasTicketsForDate = items.some(
+      (i) => i.date === base && i.ticket_id
+    );
+    if (hasTicketsForDate) {
+      setTicketInfoMessage(
+        'At least one idle accountability ticket has already been created for this date.'
+      );
+    } else {
+      setTicketInfoMessage('');
+    }
     setCreateModalOpen(true);
   };
 
@@ -216,15 +237,50 @@ const IdleAccountabilityAdmin = () => {
         )}
       </div>
 
+      <div className="mb-4 border-b border-gray-200">
+        <nav className="-mb-px flex space-x-4" aria-label="Tabs">
+          <button
+            type="button"
+            onClick={() => setActiveTab('pending')}
+            className={`px-3 py-2 text-sm font-medium border-b-2 ${
+              activeTab === 'pending'
+                ? 'border-indigo-500 text-indigo-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            Pending Accountability
+            <span className="ml-1 text-xs text-gray-400">
+              ({pendingItems.length})
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('resolved')}
+            className={`px-3 py-2 text-sm font-medium border-b-2 ${
+              activeTab === 'resolved'
+                ? 'border-indigo-500 text-indigo-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            Resolved Accountability
+            <span className="ml-1 text-xs text-gray-400">
+              ({resolvedItems.length})
+            </span>
+          </button>
+        </nav>
+      </div>
+
       {error && (
         <div className="mb-3 p-3 rounded bg-red-50 text-red-700 text-sm">{error}</div>
       )}
 
       {loading ? (
         <div className="py-12 text-center text-gray-500">Loading records...</div>
-      ) : items.length === 0 ? (
+      ) : currentItems.length === 0 ? (
         <div className="py-12 text-center text-gray-500">
-          No idle accountability records found for the selected filters.
+          {activeTab === 'pending'
+            ? 'No pending idle accountability records found for the selected filters.'
+            : 'No resolved idle accountability records found for the selected filters.'}
         </div>
       ) : (
         <div className="overflow-auto border border-gray-200 rounded-lg bg-white">
@@ -261,7 +317,7 @@ const IdleAccountabilityAdmin = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {items.map((item) => (
+              {currentItems.map((item) => (
                 <tr key={item.id} className="hover:bg-gray-50">
                   <td className="px-3 py-2 whitespace-nowrap text-gray-900">{item.date}</td>
                   <td className="px-3 py-2 whitespace-nowrap text-gray-900">
@@ -328,10 +384,28 @@ const IdleAccountabilityAdmin = () => {
                 <input
                   type="date"
                   value={ticketDate}
-                  onChange={(e) => setTicketDate(e.target.value)}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setTicketDate(value);
+                    const hasTicketsForDate = items.some(
+                      (i) => i.date === value && i.ticket_id
+                    );
+                    if (hasTicketsForDate) {
+                      setTicketInfoMessage(
+                        'At least one idle accountability ticket has already been created for this date.'
+                      );
+                    } else {
+                      setTicketInfoMessage('');
+                    }
+                  }}
                   className="w-full border border-gray-300 rounded-lg px-2 py-1 text-sm"
                 />
               </div>
+              {ticketInfoMessage && (
+                <div className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-md px-2 py-1">
+                  {ticketInfoMessage}
+                </div>
+              )}
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">
                   Ticket title (template)

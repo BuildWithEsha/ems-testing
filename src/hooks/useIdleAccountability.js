@@ -3,10 +3,12 @@ import { useAuth } from '../contexts/AuthContext';
 
 export const useIdleAccountability = () => {
   const { user } = useAuth();
-  const [items, setItems] = useState([]);
+  const [pendingItems, setPendingItems] = useState([]);
+  const [resolvedItems, setResolvedItems] = useState([]);
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [filters, setFilters] = useState({ from: '', to: '' });
 
   const loadCategories = async () => {
     try {
@@ -19,28 +21,43 @@ export const useIdleAccountability = () => {
     }
   };
 
-  const fetchMyPending = async () => {
+  const fetchMyItems = async (overrideFilters) => {
     if (!user?.id && !user?.email) {
-      setItems([]);
+      setPendingItems([]);
+      setResolvedItems([]);
       return;
     }
+    const effectiveFilters = overrideFilters || filters;
     try {
       setLoading(true);
       setError(null);
       const headers = {};
       if (user?.id) headers['x-user-id'] = String(user.id);
       if (user?.email) headers['x-user-email'] = user.email;
-      const res = await fetch('/api/idle-accountability/my-pending', { headers });
+      const params = new URLSearchParams();
+      if (effectiveFilters.from) params.set('from', effectiveFilters.from);
+      if (effectiveFilters.to) params.set('to', effectiveFilters.to);
+      const res = await fetch(
+        `/api/idle-accountability/my?${params.toString()}`,
+        { headers }
+      );
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
         throw new Error(errData.error || 'Failed to load idle accountability items');
       }
       const data = await res.json();
-      setItems(Array.isArray(data) ? data : []);
+      const rows = Array.isArray(data) ? data : [];
+      const pending = rows.filter(
+        (i) => Number(i.idle_minutes) > 20 && i.status === 'pending'
+      );
+      const resolved = rows.filter((i) => i.status !== 'pending');
+      setPendingItems(pending);
+      setResolvedItems(resolved);
     } catch (e) {
       console.error('Error fetching idle accountability items:', e);
       setError(e.message);
-      setItems([]);
+      setPendingItems([]);
+      setResolvedItems([]);
     } finally {
       setLoading(false);
     }
@@ -62,7 +79,7 @@ export const useIdleAccountability = () => {
       const errData = await res.json().catch(() => ({}));
       throw new Error(errData.error || 'Failed to submit reason');
     }
-    await fetchMyPending();
+    await fetchMyItems();
   };
 
   useEffect(() => {
@@ -70,15 +87,18 @@ export const useIdleAccountability = () => {
   }, []);
 
   useEffect(() => {
-    fetchMyPending();
+    fetchMyItems();
   }, [user?.id, user?.email]);
 
   return {
-    items,
+    pendingItems,
+    resolvedItems,
     categories,
     loading,
     error,
-    refresh: fetchMyPending,
+    filters,
+    setFilters,
+    refresh: fetchMyItems,
     submitReason
   };
 };

@@ -9187,7 +9187,7 @@ async function createIdleTicketsForDate(targetDate) {
       SELECT ia.*, e.name AS employee_name, e.department
       FROM idle_accountability ia
       LEFT JOIN employees e ON ia.employee_id = e.id
-      WHERE ia.date = ? AND ia.status = 'pending'
+      WHERE ia.date = ? AND ia.status = 'pending' AND ia.idle_minutes > 20 AND ia.ticket_id IS NULL
       `,
       [date]
     );
@@ -9817,6 +9817,9 @@ app.get('/api/admin/idle-accountability', async (req, res) => {
       params.push(category);
     }
 
+    // Always enforce minimum idle threshold of > 20 minutes
+    clauses.push('ia.idle_minutes > 20');
+
     const where = clauses.join(' AND ');
 
     const sql = `
@@ -9848,8 +9851,8 @@ app.get('/api/idle-accountability/categories', (req, res) => {
   res.json(IDLE_REASON_CATEGORIES);
 });
 
-// List pending idle accountability items for the current employee
-app.get('/api/idle-accountability/my-pending', async (req, res) => {
+// List idle accountability items for the current employee (pending + resolved)
+app.get('/api/idle-accountability/my', async (req, res) => {
   const userId = Number(req.headers['x-user-id'] || req.headers['user-id'] || 0);
   const userEmailHeader = (req.headers['x-user-email'] || req.headers['user-email'] || '').toString().trim();
 
@@ -9875,7 +9878,7 @@ app.get('/api/idle-accountability/my-pending', async (req, res) => {
     await connection.ping();
 
     const params = [];
-    let where = 'ia.status IN (\'pending\', \'ticket_created\') AND ia.date BETWEEN ? AND ?';
+    let where = 'ia.date BETWEEN ? AND ?';
     params.push(fromDate, toDate);
 
     if (userId) {
