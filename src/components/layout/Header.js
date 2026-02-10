@@ -100,7 +100,11 @@ const Header = ({ onSearch, onLogout, tasks, employees, onStartTimer, onStopTime
   const [idleAccResolved, setIdleAccResolved] = useState([]);
   const [idleAccLoading, setIdleAccLoading] = useState(false);
   const [idleAccError, setIdleAccError] = useState(null);
-  const [idleAccEmployeeDate, setIdleAccEmployeeDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [idleAccEmployeeDate, setIdleAccEmployeeDate] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 1);
+    return d.toISOString().split('T')[0];
+  });
   
   // MTW notification system for admin users
   const { missedTaskNotifications, hasMissedTaskNotifications, loading: missedTaskNotificationsLoading, daysThreshold, updateDaysThreshold } = useMissedTaskNotifications();
@@ -199,7 +203,6 @@ const Header = ({ onSearch, onLogout, tasks, employees, onStartTimer, onStopTime
     } else {
       fetchEmployeeIdleAccountability();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, lowIdleStartDate, lowIdleEndDate]);
   
   // Close menu when clicking outside
