@@ -139,7 +139,9 @@ const Header = ({ onSearch, onLogout, tasks, employees, onStartTimer, onStopTime
       const data = await res.json();
       const rows = Array.isArray(data) ? data : [];
       const pending = rows.filter(
-        (i) => Number(i.idle_minutes) > 20 && i.status === 'pending'
+        (i) =>
+          Number(i.idle_minutes) > 20 &&
+          (i.status === 'pending' || i.status === 'ticket_created')
       );
       // Admin "Resolved Accountability" should only show entries
       // where the accountability has actually been completed by a
@@ -180,7 +182,9 @@ const Header = ({ onSearch, onLogout, tasks, employees, onStartTimer, onStopTime
       const data = await res.json();
       const rows = Array.isArray(data) ? data : [];
       const pending = rows.filter(
-        (i) => Number(i.idle_minutes) > 20 && i.status === 'pending'
+        (i) =>
+          Number(i.idle_minutes) > 20 &&
+          (i.status === 'pending' || i.status === 'ticket_created')
       );
       // For employees as well, only consider items resolved once a
       // form is submitted (or waived).

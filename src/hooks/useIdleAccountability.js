@@ -48,7 +48,9 @@ export const useIdleAccountability = () => {
       const data = await res.json();
       const rows = Array.isArray(data) ? data : [];
       const pending = rows.filter(
-        (i) => Number(i.idle_minutes) > 20 && i.status === 'pending'
+        (i) =>
+          Number(i.idle_minutes) > 20 &&
+          (i.status === 'pending' || i.status === 'ticket_created')
       );
       // An accountability item is only considered "resolved" once
       // the employee has submitted a form (or it has been waived).

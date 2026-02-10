@@ -72,7 +72,9 @@ const IdleAccountabilityAdmin = () => {
     .sort();
 
   const pendingItems = items.filter(
-    (i) => Number(i.idle_minutes) > 20 && i.status === 'pending'
+    (i) =>
+      Number(i.idle_minutes) > 20 &&
+      (i.status === 'pending' || i.status === 'ticket_created')
   );
 
   // Only treat items as resolved once a form has been submitted
