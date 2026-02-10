@@ -291,7 +291,9 @@ const AuthenticatedApp = () => {
         const swapList = Array.isArray(data.swapRequests) ? data.swapRequests : [];
         const ackList = Array.isArray(data.acknowledgeRequests) ? data.acknowledgeRequests : [];
         const rejected = data.rejected_swap_notifications || [];
+        const rejectedLeaves = data.rejected_leave_notifications || [];
         setLeaveRejectedSwapNotifications(rejected);
+        setLeaveRejectedNotifications(rejectedLeaves);
 
         const isAdminUser = user.role === 'admin' || user.role === 'Admin';
         const swapIds = swapList.map((s) => s.requesting_leave_id || s.my_leave_id || s.leave_id || s.id).sort().join(',');
@@ -351,7 +353,8 @@ const AuthenticatedApp = () => {
   // Global leave pending modal (swap / acknowledge) – shown regardless of current view
   const [leavePendingModal, setLeavePendingModal] = useState(null); // { type: 'swap'|'ack', data }
   const [leaveRejectedSwapNotifications, setLeaveRejectedSwapNotifications] = useState([]); // booker: "you can set date back"
-  // Remember which rejected swap requests the booker has already seen,
+  const [leaveRejectedNotifications, setLeaveRejectedNotifications] = useState([]); // applier: "your leave was rejected"
+  // Remember which rejected swap requests / leaves the user has already seen,
   // persisted across sessions so the same global popup doesn't keep reappearing.
   const [dismissedRejectedSwapIds, setDismissedRejectedSwapIds] = useState(() => {
     try {
@@ -362,6 +365,15 @@ const AuthenticatedApp = () => {
       return [];
     }
   }); // booker dismissed these; don't show again until new ones
+  const [dismissedRejectedLeaveIds, setDismissedRejectedLeaveIds] = useState(() => {
+    try {
+      const raw = window.localStorage.getItem('ems_dismissedRejectedLeaveIds');
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  });
 
   // Filter states
   const [filters, setFilters] = useState({});
@@ -918,6 +930,67 @@ const AuthenticatedApp = () => {
                       const next = [...new Set([...prev, ...toShow.map((n) => n.rejected_leave_id)])];
                       try {
                         window.localStorage.setItem('ems_dismissedRejectedSwapIds', JSON.stringify(next));
+                      } catch {
+                        // ignore storage errors
+                      }
+                      return next;
+                    })
+                  }
+                  className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 font-medium"
+                >
+                  OK
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Applier: your leave request(s) have been rejected */}
+      {(() => {
+        const isAdminUser = user?.role && String(user.role).toLowerCase() === 'admin';
+        const uniqueRejected = [...new Map((leaveRejectedNotifications || []).map((n) => [n.leave_id, n])).values()];
+        const toShow = uniqueRejected.filter((n) => !dismissedRejectedLeaveIds.includes(n.leave_id));
+        if (toShow.length === 0 || isAdminUser) return null;
+
+        // Deduplicate by date range so the same start/end pair is not repeated
+        const seenDateKeys = new Set();
+        const distinctByDate = [];
+        toShow.forEach((n) => {
+          const key = `${n.start_date || ''}|${n.end_date || ''}`;
+          if (!seenDateKeys.has(key)) {
+            seenDateKeys.add(key);
+            distinctByDate.push(n);
+          }
+        });
+
+        return (
+          <div className="fixed inset-0 z-[119] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" aria-modal="true" role="dialog">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-gray-200/80">
+              <div className="px-6 py-5 border-b border-gray-100">
+                <h3 className="text-lg font-semibold text-gray-900">Leave rejected</h3>
+                <p className="text-sm text-gray-600 mt-1">
+                  Your leave request(s) have been rejected.
+                </p>
+              </div>
+              <div className="px-6 py-4">
+                <ul className="text-sm text-gray-700 space-y-1">
+                  {distinctByDate.map((n) => (
+                    <li key={n.leave_id}>
+                      Leave for {formatPrettyDate(n.start_date)}
+                      {n.end_date && formatShortDate(n.end_date) !== formatShortDate(n.start_date) ? ` – ${formatPrettyDate(n.end_date)}` : ''} was rejected.
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div className="px-6 py-4 flex justify-end bg-gray-50/80 border-t border-gray-200">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setDismissedRejectedLeaveIds((prev) => {
+                      const next = [...new Set([...prev, ...toShow.map((n) => n.leave_id)])];
+                      try {
+                        window.localStorage.setItem('ems_dismissedRejectedLeaveIds', JSON.stringify(next));
                       } catch {
                         // ignore storage errors
                       }

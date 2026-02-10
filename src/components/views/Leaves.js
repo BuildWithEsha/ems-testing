@@ -549,29 +549,8 @@ export default function Leaves({ initialTab, initialManagerSection }) {
         const rejectedSwap = data.rejected_swap_notifications || [];
         const uniqueRejectedSwap = [...new Map(rejectedSwap.map((n) => [n.rejected_leave_id, n])).values()];
         const toShowSwap = uniqueRejectedSwap.filter((n) => !dismissedRejectedSwapIds.includes(n.rejected_leave_id));
-        const rejectedLeaves = data.rejected_leave_notifications || [];
-        const uniqueRejectedLeaves = [...new Map(rejectedLeaves.map((n) => [n.leave_id, n])).values()];
-        const toShowRejected = uniqueRejectedLeaves.filter((n) => !dismissedRejectedLeaveIds.includes(n.leave_id));
-        // Swap-rejected popup is handled globally in App; only show "your leave was rejected" here.
-        // Only show notification when the set of ids has changed (avoid duplicate popups on re-run/poll)
-        if (!isAdmin && toShowRejected.length > 0) {
-          const key = toShowRejected.map((n) => n.leave_id).sort().join(',');
-          if (key !== lastShownRejectedKeyRef.current) {
-            lastShownRejectedKeyRef.current = key;
-            const msg = toShowRejected.map((n) => `Leave for ${formatDate(n.start_date)}${n.end_date && n.end_date !== n.start_date ? ` – ${formatDate(n.end_date)}` : ''} was rejected.`).join('\n');
-            showNotification('Leave rejected', `Your leave request(s) have been rejected.\n\n${msg}`, true, () =>
-              setDismissedRejectedLeaveIds((prev) => {
-                const next = [...new Set([...prev, ...toShowRejected.map((n) => n.leave_id)])];
-                try {
-                  window.localStorage.setItem('ems_dismissedRejectedLeaveIds', JSON.stringify(next));
-                } catch {
-                  // ignore storage errors
-                }
-                return next;
-              })
-            );
-          }
-        }
+        // Rejected leave notifications are handled globally in App (single popup per leave),
+        // so we don't show an additional popup here in the Leaves view.
       }
     } catch {
       // ignore
