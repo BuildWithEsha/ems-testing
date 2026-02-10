@@ -485,6 +485,32 @@ const initializeDatabaseTables = async () => {
       )
     `);
 
+    // Create idle accountability table to track daily high idle time and employee justifications
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS idle_accountability (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        employee_id INT NULL,
+        employee_email VARCHAR(255) NULL,
+        date DATE NOT NULL,
+        idle_hours DECIMAL(10,4) NOT NULL,
+        idle_minutes INT NOT NULL,
+        threshold_minutes INT NOT NULL,
+        status ENUM('pending','submitted','ticket_created','waived') NOT NULL DEFAULT 'pending',
+        category VARCHAR(100) NULL,
+        subcategory VARCHAR(100) NULL,
+        reason_text TEXT NULL,
+        ticket_id INT NULL,
+        submitted_at DATETIME NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_idle_emp_date (employee_id, date),
+        INDEX idx_idle_date_status (date, status),
+        INDEX idx_idle_status (status),
+        INDEX idx_idle_employee_id (employee_id),
+        INDEX idx_idle_employee_email (employee_email)
+      )
+    `);
+
     // Add indexes for tasks table to improve query performance
     try {
       // Single column indexes for filtering
@@ -8997,6 +9023,166 @@ function getEpochMsForRange(startDateStr, endDateStr, timezoneOffsetMinutes = 33
   return { startMs, endMs };
 }
 
+// Shared helper: derive idle hours from Team Logger employee_summary_report row
+function getIdleHours(row) {
+  if (!row || typeof row !== 'object') return 0;
+  const h = row.idleHours ?? row.idle_hours ?? row.IdleHours;
+  if (h != null && h !== '') {
+    const num = typeof h === 'number' ? h : parseFloat(h);
+    if (!Number.isNaN(num)) return num;
+  }
+  const sec = row.inactiveSecondsCount ?? row.inactive_seconds_count ?? row.InactiveSecondsCount;
+  if (sec != null && sec !== '') {
+    const num = typeof sec === 'number' ? sec : parseFloat(sec);
+    if (!Number.isNaN(num)) return num / 3600;
+  }
+  // Fallback: find any key containing 'idle' (hours) or 'inactive' (seconds)
+  const keys = Object.keys(row);
+  for (const k of keys) {
+    const lower = k.toLowerCase();
+    if (lower.includes('idle') && !lower.includes('inactive') && !lower.includes('second')) {
+      const v = row[k];
+      if (v != null && v !== '') {
+        const num = typeof v === 'number' ? v : parseFloat(v);
+        if (!Number.isNaN(num)) return num;
+      }
+    }
+    if (lower.includes('inactive') && (lower.includes('second') || lower.includes('count'))) {
+      const v = row[k];
+      if (v != null && v !== '') {
+        const num = typeof v === 'number' ? v : parseFloat(v);
+        if (!Number.isNaN(num)) return num / 3600;
+      }
+    }
+  }
+  return 0;
+}
+
+// Hard-coded reason categories for idle accountability (can be moved to DB later)
+const IDLE_REASON_CATEGORIES = [
+  {
+    key: 'personal',
+    label: 'Personal',
+    subcategories: [
+      { key: 'health', label: 'Health related' },
+      { key: 'family', label: 'Family emergency' },
+      { key: 'break', label: 'Extended break' }
+    ]
+  },
+  {
+    key: 'work_process',
+    label: 'Work / Process',
+    subcategories: [
+      { key: 'waiting_requirements', label: 'Waiting for requirements' },
+      { key: 'waiting_approvals', label: 'Waiting for approvals' },
+      { key: 'tool_issues', label: 'Tool/infra issues' }
+    ]
+  },
+  {
+    key: 'other',
+    label: 'Other',
+    subcategories: [
+      { key: 'misc', label: 'Miscellaneous' }
+    ]
+  }
+];
+
+// Auto-create high-priority tickets for idle accountability records without submitted reasons
+async function createIdleTicketsForDate(targetDate) {
+  const todayIso = new Date().toISOString().split('T')[0];
+  const date = (targetDate || todayIso).split('T')[0];
+
+  let connection;
+  try {
+    connection = await mysqlPool.getConnection();
+    await connection.ping();
+
+    const [rows] = await connection.execute(
+      `
+      SELECT ia.*, e.name AS employee_name, e.department
+      FROM idle_accountability ia
+      LEFT JOIN employees e ON ia.employee_id = e.id
+      WHERE ia.date = ? AND ia.status = 'pending'
+      `,
+      [date]
+    );
+
+    if (!rows.length) {
+      return { date, ticketsCreated: 0 };
+    }
+
+    let ticketsCreated = 0;
+
+    for (const row of rows) {
+      const employeeId = row.employee_id;
+      const employeeName = row.employee_name || row.employee_email || 'Employee';
+      const dept = row.department || 'Unassigned';
+
+      const title = `High idle time on ${row.date} – reason not submitted`;
+      const description =
+        `This ticket was auto-created because idle time accountability for ${row.date} ` +
+        `was not submitted.\n\n` +
+        `Employee: ${employeeName}\n` +
+        `Department: ${dept}\n` +
+        `Idle time: ${row.idle_minutes} minutes (threshold ${row.threshold_minutes} minutes)\n\n` +
+        `Please review the employee's activity and follow up as needed.`;
+
+      const [maxIdRow] = await connection.execute('SELECT MAX(id) AS maxId FROM tickets');
+      const maxId = maxIdRow && maxIdRow[0] && maxIdRow[0].maxId ? Number(maxIdRow[0].maxId) : 0;
+      const nextId = maxId + 1;
+      const ticketNumber = `T-${String(nextId).padStart(6, '0')}`;
+
+      const [ticketResult] = await connection.execute(
+        `
+        INSERT INTO tickets (ticket_number, title, description, category, priority, status, assigned_to, department, created_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+        [
+          ticketNumber,
+          title,
+          description,
+          'Idle Time',
+          'High',
+          'Open',
+          employeeId || null,
+          dept,
+          employeeId || null
+        ]
+      );
+
+      const ticketId = ticketResult.insertId;
+
+      await connection.execute(
+        `
+        UPDATE idle_accountability
+        SET status = 'ticket_created', ticket_id = ?, updated_at = NOW()
+        WHERE id = ?
+        `,
+        [ticketId, row.id]
+      );
+
+      ticketsCreated += 1;
+    }
+
+    console.log(
+      'Idle tickets auto-created for date=%s, ticketsCreated=%d (pending idle_accountability rows=%d)',
+      date,
+      ticketsCreated,
+      rows.length
+    );
+
+    return { date, ticketsCreated };
+  } finally {
+    if (connection) {
+      try {
+        connection.release();
+      } catch (e) {
+        // ignore
+      }
+    }
+  }
+}
+
 // Wages: employee time summary (admin-only) - all employees, no min-idle filter; for Earn Track wages UI
 app.get('/api/wages/employee-time-summary', async (req, res) => {
   const userRole = req.headers['x-user-role'];
@@ -9232,39 +9418,6 @@ app.get('/api/notifications/low-idle-employees', async (req, res) => {
     const rows = Array.isArray(responseData)
       ? responseData
       : (Array.isArray(responseData?.data) ? responseData.data : []);
-    const getIdleHours = (row) => {
-      if (!row || typeof row !== 'object') return 0;
-      const h = row.idleHours ?? row.idle_hours ?? row.IdleHours;
-      if (h != null && h !== '') {
-        const num = typeof h === 'number' ? h : parseFloat(h);
-        if (!Number.isNaN(num)) return num;
-      }
-      const sec = row.inactiveSecondsCount ?? row.inactive_seconds_count ?? row.InactiveSecondsCount;
-      if (sec != null && sec !== '') {
-        const num = typeof sec === 'number' ? sec : parseFloat(sec);
-        if (!Number.isNaN(num)) return num / 3600;
-      }
-      // Fallback: find any key containing 'idle' (hours) or 'inactive' (seconds)
-      const keys = Object.keys(row);
-      for (const k of keys) {
-        const lower = k.toLowerCase();
-        if (lower.includes('idle') && !lower.includes('inactive') && !lower.includes('second')) {
-          const v = row[k];
-          if (v != null && v !== '') {
-            const num = typeof v === 'number' ? v : parseFloat(v);
-            if (!Number.isNaN(num)) return num;
-          }
-        }
-        if (lower.includes('inactive') && (lower.includes('second') || lower.includes('count'))) {
-          const v = row[k];
-          if (v != null && v !== '') {
-            const num = typeof v === 'number' ? v : parseFloat(v);
-            if (!Number.isNaN(num)) return num / 3600;
-          }
-        }
-      }
-      return 0;
-    };
     // Filter: show only employees with idle time *more than* threshold (high idle in range)
     let list = rows
       .filter((row) => {
@@ -9335,6 +9488,358 @@ app.get('/api/notifications/low-idle-employees', async (req, res) => {
       error: 'Failed to fetch idle data from tracking app',
       message: msg || (err.response?.data ? JSON.stringify(err.response.data).slice(0, 200) : 'Unknown error')
     });
+  }
+});
+
+// Internal helper: run idle accountability detection for a single date
+async function runIdleAccountabilityForDate(targetDate) {
+  const apiKey = process.env.TEAMLOGGER_API_KEY || TEAMLOGGER_API_KEY_HARDCODED;
+  if (!apiKey) {
+    throw new Error('Team Logger API key is not configured (TEAMLOGGER_API_KEY/TEAMLOGGER_API_KEY_HARDCODED)');
+  }
+
+  const todayIso = new Date().toISOString().split('T')[0];
+  const norm = (s) => (typeof s === 'string' && s.includes('T') ? s.split('T')[0] : s);
+  const today = norm(todayIso);
+  let date = targetDate ? norm(targetDate) : today;
+
+  // Default to yesterday if no date given
+  if (!targetDate) {
+    const d = new Date(today + 'T00:00:00.000Z');
+    d.setUTCDate(d.getUTCDate() - 1);
+    date = d.toISOString().split('T')[0];
+  }
+
+  const { startMs, endMs } = getEpochMsForRange(date, date);
+
+  const response = await axios.get(TEAMLOGGER_EMPLOYEE_SUMMARY_REPORT_URL, {
+    params: { startTime: startMs, endTime: endMs },
+    headers: { Authorization: `Bearer ${apiKey}` },
+    timeout: 30000,
+    validateStatus: () => true
+  });
+
+  if (response.status !== 200) {
+    const body = response.data;
+    const msg = body && (typeof body === 'object' ? (body.message || body.error || JSON.stringify(body).slice(0, 200)) : String(body).slice(0, 200));
+    throw new Error(`Team Logger employee_summary_report failed (${response.status}): ${msg || 'no message'}`);
+  }
+
+  const responseData = response.data;
+  const rows = Array.isArray(responseData)
+    ? responseData
+    : (Array.isArray(responseData?.data) ? responseData.data : []);
+
+  const thresholdMinutes = 20;
+
+  let connection;
+  try {
+    connection = await mysqlPool.getConnection();
+    await connection.ping();
+
+    const [empRows] = await connection.execute(
+      'SELECT id, LOWER(TRIM(email)) AS email_key, LOWER(TRIM(name)) AS name_key, email FROM employees WHERE status = ?',
+      ['Active']
+    );
+    const emailToEmp = {};
+    const nameToEmp = {};
+    for (const r of empRows) {
+      if (r.email_key) emailToEmp[r.email_key] = { id: r.id, email: r.email };
+      if (r.name_key) nameToEmp[r.name_key] = { id: r.id, email: r.email };
+    }
+
+    const insertSql = `
+      INSERT INTO idle_accountability (
+        employee_id,
+        employee_email,
+        date,
+        idle_hours,
+        idle_minutes,
+        threshold_minutes
+      ) VALUES (?, ?, ?, ?, ?, ?)
+      ON DUPLICATE KEY UPDATE
+        idle_hours = VALUES(idle_hours),
+        idle_minutes = VALUES(idle_minutes),
+        threshold_minutes = VALUES(threshold_minutes),
+        updated_at = CURRENT_TIMESTAMP
+    `;
+
+    let createdCount = 0;
+    for (const row of rows) {
+      const idleH = getIdleHours(row);
+      const idleM = Math.round(Number(idleH) * 60);
+      if (!Number.isFinite(idleM) || idleM < thresholdMinutes) continue;
+
+      const rawEmail = (row.email ?? '').toString().trim();
+      const name = (row.title ?? row.name ?? row.employeeName ?? '').toString().trim();
+      const emailKey = rawEmail.toLowerCase();
+      const nameKey = name.toLowerCase();
+
+      let emp = null;
+      if (emailKey && emailToEmp[emailKey]) emp = emailToEmp[emailKey];
+      else if (nameKey && nameToEmp[nameKey]) emp = nameToEmp[nameKey];
+
+      const employeeId = emp ? emp.id : null;
+      const employeeEmail = rawEmail || (emp ? emp.email : null) || null;
+
+      await connection.execute(insertSql, [
+        employeeId,
+        employeeEmail,
+        date,
+        Number(Number(idleH).toFixed(4)),
+        idleM,
+        thresholdMinutes
+      ]);
+      createdCount += 1;
+    }
+
+    console.log('Idle accountability run complete for date=%s, rowsFromApi=%d, createdOrUpdated=%d (threshold=%dmin)',
+      date, rows.length, createdCount, thresholdMinutes);
+
+    return { date, rowsFromApi: rows.length, processed: createdCount, thresholdMinutes };
+  } finally {
+    if (connection) {
+      try { connection.release(); } catch (e) { /* ignore */ }
+    }
+  }
+}
+
+// Manual trigger endpoint for idle accountability detection (admin use)
+app.post('/api/admin/idle-accountability/run', async (req, res) => {
+  try {
+    const { date } = req.body || {};
+    const result = await runIdleAccountabilityForDate(date);
+    res.json({
+      message: 'Idle accountability run completed',
+      ...result
+    });
+  } catch (err) {
+    console.error('Idle accountability run failed:', err.message || err, err.stack || '');
+    res.status(500).json({
+      error: 'Idle accountability run failed',
+      message: err.message || 'Unknown error'
+    });
+  }
+});
+
+// Admin listing endpoint for idle accountability records
+app.get('/api/admin/idle-accountability', async (req, res) => {
+  const userRoleHeader = req.headers['user-role'] || req.headers['x-user-role'] || 'employee';
+  const userRole = String(userRoleHeader || '').toLowerCase();
+  const permsHeader = req.headers['user-permissions'] || req.headers['x-user-permissions'] || '[]';
+  let perms = [];
+  try {
+    perms = typeof permsHeader === 'string' ? JSON.parse(permsHeader) : [];
+  } catch {
+    // ignore, treat as no special perms
+  }
+
+  const isAdmin = userRole === 'admin';
+  if (!isAdmin && !perms.includes('all') && !perms.includes('idle_accountability_admin_view')) {
+    return res.status(403).json({ error: 'Access denied. Idle accountability admin view is for admins only.' });
+  }
+
+  const norm = (s) => (typeof s === 'string' && s.includes('T') ? s.split('T')[0] : s);
+  const { from, to, status, department, category } = req.query || {};
+
+  const todayIso = new Date().toISOString().split('T')[0];
+  const today = norm(todayIso);
+  const dFrom = new Date(todayIso + 'T00:00:00.000Z');
+  dFrom.setUTCDate(dFrom.getUTCDate() - 30);
+  const defaultFrom = dFrom.toISOString().split('T')[0];
+
+  const fromDate = norm(from || defaultFrom);
+  const toDate = norm(to || today);
+
+  let connection;
+  try {
+    connection = await mysqlPool.getConnection();
+    await connection.ping();
+
+    const clauses = ['ia.date BETWEEN ? AND ?'];
+    const params = [fromDate, toDate];
+
+    if (status) {
+      clauses.push('ia.status = ?');
+      params.push(status);
+    }
+    if (department) {
+      clauses.push('(e.department = ? OR (e.department IS NULL AND ? = \'Unassigned\'))');
+      params.push(department, department);
+    }
+    if (category) {
+      clauses.push('ia.category = ?');
+      params.push(category);
+    }
+
+    const where = clauses.join(' AND ');
+
+    const sql = `
+      SELECT
+        ia.*,
+        e.name AS employee_name,
+        e.department
+      FROM idle_accountability ia
+      LEFT JOIN employees e ON ia.employee_id = e.id
+      WHERE ${where}
+      ORDER BY ia.date DESC, ia.id DESC
+      LIMIT 500
+    `;
+
+    const [rows] = await connection.execute(sql, params);
+    res.json(rows);
+  } catch (err) {
+    console.error('Error fetching idle accountability admin list:', err.message || err, err.stack || '');
+    res.status(500).json({ error: 'Failed to fetch idle accountability admin list', message: err.message || 'Unknown error' });
+  } finally {
+    if (connection) {
+      try { connection.release(); } catch (e) { /* ignore */ }
+    }
+  }
+});
+
+// Expose idle accountability reason categories
+app.get('/api/idle-accountability/categories', (req, res) => {
+  res.json(IDLE_REASON_CATEGORIES);
+});
+
+// List pending idle accountability items for the current employee
+app.get('/api/idle-accountability/my-pending', async (req, res) => {
+  const userId = Number(req.headers['x-user-id'] || req.headers['user-id'] || 0);
+  const userEmailHeader = (req.headers['x-user-email'] || req.headers['user-email'] || '').toString().trim();
+
+  if (!userId && !userEmailHeader) {
+    return res.status(401).json({ error: 'User identification required (user-id or user-email header).' });
+  }
+
+  const norm = (s) => (typeof s === 'string' && s.includes('T') ? s.split('T')[0] : s);
+  const { from, to } = req.query || {};
+
+  const today = new Date();
+  const defaultTo = norm(today.toISOString().split('T')[0]);
+  const dFrom = new Date(today);
+  dFrom.setDate(dFrom.getDate() - 30);
+  const defaultFrom = dFrom.toISOString().split('T')[0];
+
+  const fromDate = norm(from || defaultFrom);
+  const toDate = norm(to || defaultTo);
+
+  let connection;
+  try {
+    connection = await mysqlPool.getConnection();
+    await connection.ping();
+
+    const params = [];
+    let where = 'ia.status IN (\'pending\', \'ticket_created\') AND ia.date BETWEEN ? AND ?';
+    params.push(fromDate, toDate);
+
+    if (userId) {
+      where += ' AND (ia.employee_id = ?';
+      params.push(userId);
+      if (userEmailHeader) {
+        where += ' OR (ia.employee_id IS NULL AND LOWER(ia.employee_email) = LOWER(?))';
+        params.push(userEmailHeader);
+      }
+      where += ')';
+    } else if (userEmailHeader) {
+      where += ' AND LOWER(ia.employee_email) = LOWER(?)';
+      params.push(userEmailHeader);
+    }
+
+    const sql = `
+      SELECT
+        ia.*,
+        e.name AS employee_name,
+        e.department
+      FROM idle_accountability ia
+      LEFT JOIN employees e ON ia.employee_id = e.id
+      WHERE ${where}
+      ORDER BY ia.date DESC, ia.id DESC
+    `;
+
+    const [rows] = await connection.execute(sql, params);
+    res.json(rows);
+  } catch (err) {
+    console.error('Error fetching my idle accountability items:', err.message || err, err.stack || '');
+    res.status(500).json({ error: 'Failed to fetch idle accountability items', message: err.message || 'Unknown error' });
+  } finally {
+    if (connection) {
+      try { connection.release(); } catch (e) { /* ignore */ }
+    }
+  }
+});
+
+// Submit or update reason for a specific idle accountability record (employee scope)
+app.post('/api/idle-accountability/:id/reason', async (req, res) => {
+  const { id } = req.params;
+  const userId = Number(req.headers['x-user-id'] || req.headers['user-id'] || 0);
+  const userEmailHeader = (req.headers['x-user-email'] || req.headers['user-email'] || '').toString().trim();
+
+  if (!userId && !userEmailHeader) {
+    return res.status(401).json({ error: 'User identification required (user-id or user-email header).' });
+  }
+
+  const { category, subcategory, reason } = req.body || {};
+  if (!category || !subcategory || !reason || !reason.toString().trim()) {
+    return res.status(400).json({ error: 'category, subcategory and reason are required.' });
+  }
+
+  // Validate category/subcategory against hard-coded config
+  const cat = IDLE_REASON_CATEGORIES.find((c) => c.key === category);
+  if (!cat) {
+    return res.status(400).json({ error: 'Invalid category.' });
+  }
+  const sub = cat.subcategories.find((s) => s.key === subcategory);
+  if (!sub) {
+    return res.status(400).json({ error: 'Invalid subcategory.' });
+  }
+
+  let connection;
+  try {
+    connection = await mysqlPool.getConnection();
+    await connection.ping();
+
+    const params = [category, subcategory, reason.toString().trim(), id];
+    let where = 'id = ?';
+
+    if (userId) {
+      where += ' AND (employee_id = ?';
+      params.push(userId);
+      if (userEmailHeader) {
+        where += ' OR (employee_id IS NULL AND LOWER(employee_email) = LOWER(?))';
+        params.push(userEmailHeader);
+      }
+      where += ')';
+    } else if (userEmailHeader) {
+      where += ' AND LOWER(employee_email) = LOWER(?)';
+      params.push(userEmailHeader);
+    }
+
+    const sql = `
+      UPDATE idle_accountability
+      SET
+        category = ?,
+        subcategory = ?,
+        reason_text = ?,
+        status = 'submitted',
+        submitted_at = NOW(),
+        updated_at = NOW()
+      WHERE ${where} AND status IN ('pending', 'ticket_created')
+    `;
+
+    const [result] = await connection.execute(sql, params);
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ error: 'Idle accountability record not found or not editable.' });
+    }
+
+    res.json({ message: 'Reason submitted successfully', id: Number(id) });
+  } catch (err) {
+    console.error('Error submitting idle accountability reason:', err.message || err, err.stack || '');
+    res.status(500).json({ error: 'Failed to submit reason', message: err.message || 'Unknown error' });
+  } finally {
+    if (connection) {
+      try { connection.release(); } catch (e) { /* ignore */ }
+    }
   }
 });
 
@@ -10375,6 +10880,41 @@ app.post('/api/tickets/auto-over-estimate', async (req, res) => {
   } catch (err) {
     console.error('Error auto-creating over-estimate tickets:', err);
     res.status(500).json({ error: 'Failed to auto-create over-estimate tickets' });
+  }
+});
+
+// Admin-only endpoint to auto-create idle tickets for a given date (pending idle_accountability without reasons)
+app.post('/api/tickets/auto-idle-accountability', async (req, res) => {
+  const userRole = (req.headers['user-role'] || req.headers['x-user-role'] || 'employee').toString();
+  const permsHeader = req.headers['user-permissions'] || req.headers['x-user-permissions'] || '[]';
+  let perms = [];
+  try {
+    perms = typeof permsHeader === 'string' ? JSON.parse(permsHeader) : [];
+  } catch {
+    return res.status(400).json({ error: 'Invalid permissions format' });
+  }
+
+  const isAdmin =
+    userRole === 'admin' ||
+    userRole === 'Admin' ||
+    perms.includes('all') ||
+    perms.includes('tickets_auto_less_hours');
+
+  if (!isAdmin) {
+    return res.status(403).json({ error: 'Access denied: You do not have permission to auto-create idle tickets' });
+  }
+
+  const body = req.body || {};
+  const dateFromBody = body.date;
+  const dateFromQuery = req.query.date;
+  const targetDate = (dateFromBody || dateFromQuery || new Date().toISOString().split('T')[0]).split('T')[0];
+
+  try {
+    const result = await createIdleTicketsForDate(targetDate);
+    res.json(result);
+  } catch (err) {
+    console.error('Error auto-creating idle accountability tickets:', err);
+    res.status(500).json({ error: 'Failed to auto-create idle accountability tickets' });
   }
 });
 // Get single ticket

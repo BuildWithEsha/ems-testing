@@ -110,10 +110,12 @@ const Sidebar = ({ currentView, onViewChange }) => {
           { id: 'departments', label: 'Departments', icon: Building, permission: 'view_departments_submenu' },
           { id: 'appreciations', label: 'Appreciations', icon: ThumbsUp, permission: 'view_appreciations_submenu' },
           { id: 'warning-letters', label: 'Warning Letters', icon: AlertTriangle, permission: 'view_warning_letters_submenu' },
+          { id: 'idleReasonForms', label: 'Idle Accountability', icon: Clock, permission: 'view_own_tasks' },
         ]
       },
       { id: 'healthDashboard', label: 'Health Dashboard', icon: AlertTriangle, permission: 'view_health_dashboard_menu' },
       { id: 'reports', label: 'Reports', icon: BarChart2, permission: 'view_reports_menu', specialAccess: canAccessReports },
+      { id: 'idleAccountabilityAdmin', label: 'Idle Accountability (Admin)', icon: Clock, permission: 'view_reports_menu', adminOnly: true },
       { id: 'earntrack', label: 'EarnTrack', icon: Wallet, permission: null },
       { id: 'earnTrackWages', label: 'Wages Tracker', icon: DollarSign, adminOnly: true },
       { id: 'noticeBoard', label: 'Notice Board', icon: Megaphone, permission: 'view_notice_board_menu', isSpecial: true },

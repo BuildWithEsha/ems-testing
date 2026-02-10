@@ -37,6 +37,8 @@ const EmployeeHealth = lazy(() => import('./components/views/EmployeeHealth'));
 const TaskConfiguration = lazy(() => import('./components/views/TaskConfiguration'));
 const EarnTrack = lazy(() => import('./components/views/EarnTrack'));
 const EarnTrackWages = lazy(() => import('./components/views/EarnTrackWages'));
+const IdleReasonForms = lazy(() => import('./components/views/IdleReasonForms'));
+const IdleAccountabilityAdmin = lazy(() => import('./components/views/IdleAccountabilityAdmin'));
 
 // UI Components
 import Modal from './components/ui/Modal';
@@ -654,6 +656,18 @@ const AuthenticatedApp = () => {
         return (
           <Suspense fallback={<LoadingFallback />}>
             <Tickets />
+          </Suspense>
+        );
+      case 'idleReasonForms':
+        return (
+          <Suspense fallback={<LoadingFallback />}>
+            <IdleReasonForms />
+          </Suspense>
+        );
+      case 'idleAccountabilityAdmin':
+        return (
+          <Suspense fallback={<LoadingFallback />}>
+            <IdleAccountabilityAdmin />
           </Suspense>
         );
       case 'errors':
