@@ -9,7 +9,6 @@ import MissedTaskNotificationPanel from '../ui/MissedTaskNotificationPanel';
 import LessTrainedEmployeeNotificationPanel from '../ui/LessTrainedEmployeeNotificationPanel';
 import OverEstimateTaskNotificationPanel from '../ui/OverEstimateTaskNotificationPanel';
 import LowHoursNotificationPanel from '../ui/LowHoursNotificationPanel';
-import LowIdleNotificationPanel from '../ui/LowIdleNotificationPanel';
 import NotificationBell from '../ui/NotificationBell';
 import ChangePasswordModal from '../ui/ChangePasswordModal';
 import { useNotifications } from '../../hooks/useNotifications';
@@ -73,7 +72,9 @@ const Header = ({ onSearch, onLogout, tasks, employees, onStartTimer, onStopTime
   // LHE (Low Hours Employees) notification system for admin users
   const { lowHoursNotifications, hasLowHoursNotifications, loading: lowHoursNotificationsLoading, minHoursThreshold, selectedDate: lowHoursSelectedDate, updateMinHoursThreshold, updateSelectedDate: updateLowHoursDate, updateSettings: updateLowHoursSettings } = useLowHoursNotifications();
   
-  // Low Idle (Team Logger API) notification system for admin users
+  // Low Idle (Team Logger API) notification system was previously used for a tracking-app panel.
+  // We still initialize the hook so data remains available if needed elsewhere,
+  // but the main Idle button now routes to the idle accountability views.
   const {
     lowIdleNotifications,
     hasLowIdleNotifications,
@@ -496,25 +497,15 @@ const Header = ({ onSearch, onLogout, tasks, employees, onStartTimer, onStopTime
               </button>
             )}
 
-            {/* Low Idle (Team Logger) - Only show if user has low_idle_view permission */}
-            {(user?.permissions?.includes('low_idle_view') || user?.permissions?.includes('all') || user?.role === 'admin' || user?.role === 'Admin') && (
+            {/* Idle Accountability entry point - all users can access their idle accountability via this */}
+            {user && (
               <button 
                 className="p-2 rounded-lg hover:bg-gray-100 relative transition-colors"
                 onClick={() => setShowLowIdleNotificationPanel(true)}
-                title="Low Idle Employees (from tracking app)"
-                disabled={lowIdleNotificationsLoading}
+                title="Idle Accountability"
+                disabled={false}
               >
-                <span className={`text-sm font-medium ${lowIdleNotificationsLoading ? 'text-gray-400' : 'text-teal-600'}`}>Idle</span>
-                {hasLowIdleNotifications && !lowIdleNotificationsLoading && (
-                  <span className="absolute -top-1 -right-1 bg-teal-500 text-white text-xs rounded-full h-4 min-w-[1rem] px-1 flex items-center justify-center">
-                    {lowIdleNotifications.length}
-                  </span>
-                )}
-                {lowIdleNotificationsLoading && (
-                  <span className="absolute -top-1 -right-1 bg-gray-400 text-white text-xs rounded-full h-4 w-4 flex items-center justify-center">
-                    <div className="w-2 h-2 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  </span>
-                )}
+                <span className="text-sm font-medium text-teal-600">Idle</span>
               </button>
             )}
 
@@ -708,27 +699,21 @@ const Header = ({ onSearch, onLogout, tasks, employees, onStartTimer, onStopTime
         onUpdateSettings={updateLowHoursSettings}
       />
 
-      <LowIdleNotificationPanel
-        isOpen={showLowIdleNotificationPanel}
-        onClose={() => setShowLowIdleNotificationPanel(false)}
-        lowIdleNotifications={lowIdleNotifications}
-        startDate={lowIdleStartDate}
-        endDate={lowIdleEndDate}
-        minIdleHours={lowIdleMinHours}
-        minIdleMinutes={lowIdleMinMinutes}
-        onUpdateSettings={updateLowIdleSettings}
-        loading={lowIdleNotificationsLoading}
-        error={lowIdleError}
-        currentlyIdleList={currentlyIdleList}
-        currentlyIdleLoading={currentlyIdleLoading}
-        currentlyIdleError={currentlyIdleError}
-        currentlyIdleWindowMinutes={currentlyIdleWindowMinutes}
-        currentlyIdleMinMinutes={currentlyIdleMinMinutes}
-        onCurrentlyIdleWindowChange={setCurrentlyIdleWindowMinutes}
-        onCurrentlyIdleMinMinutesChange={setCurrentlyIdleMinMinutes}
-        onRefreshCurrentlyIdle={refreshCurrentlyIdle}
-        onFetchCurrentlyIdle={fetchCurrentlyIdle}
-      />
+      {/* Idle Notification – route to appropriate idle accountability view for admin/employee */}
+      {showLowIdleNotificationPanel && user && (
+        <>
+          {(() => {
+            const isAdminUser = user.role === 'admin' || user.role === 'Admin';
+            window.dispatchEvent(
+              new CustomEvent('open-idle-accountability', {
+                detail: { view: isAdminUser ? 'idleAccountabilityAdmin' : 'idleReasonForms' }
+              })
+            );
+            setShowLowIdleNotificationPanel(false);
+            return null;
+          })()}
+        </>
+      )}
 
       {/* MTW Notification Panel */}
       <MissedTaskNotificationPanel

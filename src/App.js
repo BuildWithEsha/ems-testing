@@ -342,6 +342,16 @@ const AuthenticatedApp = () => {
     return () => window.removeEventListener('open-department-dashboard', handler);
   }, []);
 
+  // Listen for idle accountability open requests coming from header "Idle" notification
+  useEffect(() => {
+    const handler = (e) => {
+      const targetView = e.detail?.view || (user?.role === 'admin' || user?.role === 'Admin' ? 'idleAccountabilityAdmin' : 'idleReasonForms');
+      updateAppState({ view: targetView });
+    };
+    window.addEventListener('open-idle-accountability', handler);
+    return () => window.removeEventListener('open-idle-accountability', handler);
+  }, [user]);
+
   // Modal states
   const [modalState, setModalState] = useState({
     isOpen: false,
