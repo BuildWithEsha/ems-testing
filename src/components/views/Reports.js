@@ -750,7 +750,15 @@ const TimeLogReport = () => {
             </tr>
           </thead>
           <tbody>
-            {rows.map((r, idx) => (
+            {rows
+              .filter((r) =>
+                filters.taskTitle
+                  ? (r.task_title || '')
+                      .toLowerCase()
+                      .includes(filters.taskTitle.toLowerCase())
+                  : true
+              )
+              .map((r, idx) => (
               <tr key={idx} className="border-b">
                 <td className="px-6 py-3">{r.employee_name}</td>
                 <td className="px-6 py-3">{r.task_title}</td>
@@ -904,7 +912,15 @@ const ConsolidatedTimeLogReport = () => {
             </tr>
           </thead>
           <tbody>
-            {rows.map((r, idx) => (
+            {rows
+              .filter((r) =>
+                filters.taskTitle
+                  ? (r.task_title || '')
+                      .toLowerCase()
+                      .includes(filters.taskTitle.toLowerCase())
+                  : true
+              )
+              .map((r, idx) => (
               <tr key={idx} className="border-b">
                 <td className="px-6 py-3">{r.employee_name}</td>
                 <td className="px-6 py-3">{r.task_title}</td>

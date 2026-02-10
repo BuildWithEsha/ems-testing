@@ -53,8 +53,15 @@ const NotificationPanel = ({ isOpen, onClose, notifications, selectedDate, onDat
     return acc;
   }, {});
 
-  // Apply filters to notifications
+  // Apply filters to notifications, including date range
   const filteredNotifications = notifications.filter(notification => {
+    // Date range filter (notification.date is YYYY-MM-DD)
+    if (fromDate && notification.date && notification.date < fromDate) {
+      return false;
+    }
+    if (toDate && notification.date && notification.date > toDate) {
+      return false;
+    }
     if (filters.searchTerm && !notification.taskTitle?.toLowerCase().includes(filters.searchTerm.toLowerCase())) {
       return false;
     }

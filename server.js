@@ -2387,9 +2387,9 @@ app.get('/api/reports/timelog', async (req, res) => {
     where += ` AND t.department = ?`;
     params.push(department);
   }
-  if (taskTitle) {
-    where += ` AND t.title LIKE ?`;
-    params.push(`%${taskTitle}%`);
+  if (taskTitle && String(taskTitle).trim() !== '') {
+    where += ` AND LOWER(t.title) LIKE ?`;
+    params.push(`%${String(taskTitle).trim().toLowerCase()}%`);
   }
 
   const query = `
@@ -2450,9 +2450,9 @@ app.get('/api/reports/timelog/consolidated', async (req, res) => {
     where += ` AND t.department = ?`;
     params.push(department);
   }
-  if (taskTitle) {
-    where += ` AND t.title LIKE ?`;
-    params.push(`%${taskTitle}%`);
+  if (taskTitle && String(taskTitle).trim() !== '') {
+    where += ` AND LOWER(t.title) LIKE ?`;
+    params.push(`%${String(taskTitle).trim().toLowerCase()}%`);
   }
 
   const query = `
