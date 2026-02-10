@@ -57,6 +57,7 @@ const LowIdleNotificationPanel = ({
   const [tempMinIdleMinutes, setTempMinIdleMinutes] = useState(minIdleMinutes);
   const [searchTerm, setSearchTerm] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('');
+  const [designationFilter, setDesignationFilter] = useState('');
   const [expandedDepartments, setExpandedDepartments] = useState(new Set());
   const [categories, setCategories] = useState([]);
   const [selectedPendingId, setSelectedPendingId] = useState(null);
