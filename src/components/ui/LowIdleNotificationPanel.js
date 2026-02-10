@@ -53,6 +53,11 @@ const LowIdleNotificationPanel = ({
     reason: ''
   });
   const [reasonSubmitting, setReasonSubmitting] = useState(false);
+  const [createTicketsOpen, setCreateTicketsOpen] = useState(false);
+  const [createTicketDate, setCreateTicketDate] = useState(() => formatShortDate(todayIso()));
+  const [creatingTickets, setCreatingTickets] = useState(false);
+
+  const todayIso = () => new Date().toISOString().split('T')[0];
 
   const formatShortDate = (value) => {
     if (!value) return '';
@@ -65,8 +70,8 @@ const LowIdleNotificationPanel = ({
     return d.toISOString().slice(0, 10);
   };
 
-  const displayStart = typeof startDate === 'string' ? formatShortDate(startDate) : new Date().toISOString().split('T')[0];
-  const displayEnd = typeof endDate === 'string' ? formatShortDate(endDate) : new Date().toISOString().split('T')[0];
+  const displayStart = typeof startDate === 'string' ? formatShortDate(startDate) : todayIso();
+  const displayEnd = typeof endDate === 'string' ? formatShortDate(endDate) : todayIso();
 
   useEffect(() => {
     if (showSettings) {
@@ -396,6 +401,18 @@ const LowIdleNotificationPanel = ({
                     .
                   </div>
                   <div className="flex items-center space-x-2">
+                    {viewMode === 'pendingAccountability' && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCreateTicketDate(displayEnd);
+                          setCreateTicketsOpen(true);
+                        }}
+                        className="px-3 py-1.5 text-xs rounded-lg bg-red-600 text-white hover:bg-red-700"
+                      >
+                        Create idle tickets
+                      </button>
+                    )}
                     {onRefreshAccountability && (
                       <button
                         type="button"
@@ -571,23 +588,35 @@ const LowIdleNotificationPanel = ({
                                               {item.status}
                                             </span>
                                           </div>
-                                          <div className="text-sm text-gray-500">
-                                            Category:{' '}
-                                            <span className="text-gray-900">
-                                              {item.category || '-'}
-                                            </span>{' '}
-                                            · Subcategory:{' '}
-                                            <span className="text-gray-900">
-                                              {item.subcategory || '-'}
-                                            </span>
-                                          </div>
                                           {viewMode === 'resolvedAccountability' && (
-                                            <div className="text-sm text-gray-500 mt-1">
-                                              Reason:{' '}
-                                              <span className="text-gray-900 whitespace-pre-line">
-                                                {item.reason_text || '—'}
+                                            <div className="text-sm text-gray-500">
+                                              Category:{' '}
+                                              <span className="text-gray-900">
+                                                {item.category || '-'}
+                                              </span>{' '}
+                                              · Subcategory:{' '}
+                                              <span className="text-gray-900">
+                                                {item.subcategory || '-'}
                                               </span>
                                             </div>
+                                          )}
+                                          {viewMode === 'resolvedAccountability' && (
+                                            <>
+                                              <div className="text-sm text-gray-500 mt-1">
+                                                Reason:{' '}
+                                                <span className="text-gray-900 whitespace-pre-line">
+                                                  {item.reason_text || '—'}
+                                                </span>
+                                              </div>
+                                              {(item.updated_at || item.submitted_at) && (
+                                                <div className="text-xs text-gray-500 mt-1">
+                                                  Submitted at:{' '}
+                                                  {new Date(
+                                                    item.updated_at || item.submitted_at
+                                                  ).toLocaleString()}
+                                                </div>
+                                              )}
+                                            </>
                                           )}
                                         </div>
                                         <div className="text-right text-sm text-gray-600">
@@ -703,12 +732,22 @@ const LowIdleNotificationPanel = ({
                                     </span>
                                   </div>
                                   {!isPending && (
-                                    <div className="text-sm text-gray-500">
-                                      Reason:{' '}
-                                      <span className="text-gray-900 whitespace-pre-line">
-                                        {item.reason_text || '—'}
-                                      </span>
-                                    </div>
+                                    <>
+                                      <div className="text-sm text-gray-500">
+                                        Reason:{' '}
+                                        <span className="text-gray-900 whitespace-pre-line">
+                                          {item.reason_text || '—'}
+                                        </span>
+                                      </div>
+                                      {(item.updated_at || item.submitted_at) && (
+                                        <div className="text-xs text-gray-500 mt-1">
+                                          Submitted at:{' '}
+                                          {new Date(
+                                            item.updated_at || item.submitted_at
+                                          ).toLocaleString()}
+                                        </div>
+                                      )}
+                                    </>
                                   )}
                                   {item.ticket_id && (
                                     <div className="mt-1 text-xs text-gray-500">
@@ -885,13 +924,122 @@ const LowIdleNotificationPanel = ({
           </>
         )}
 
-        {/* Employee submit reason modal */}
-        {!isAdmin && selectedPendingId && (
+        {/* Admin create idle tickets modal */}
+        {isAdmin && createTicketsOpen && (
           <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
             <div className="bg-white rounded-lg shadow-xl w-full max-w-lg p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">
-                Submit idle accountability reason
+              <h2 className="text-lg font-semibold text-gray-900 mb-3">
+                Create idle tickets
               </h2>
+              <p className="text-sm text-gray-600 mb-4">
+                This will create high-priority{' '}
+                <span className="font-semibold">Idle Time</span> tickets for all
+                employees who have pending idle accountability for the selected
+                date and have not submitted a reason.
+              </p>
+              <div className="space-y-4 mb-4">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">
+                    Date to check for pending accountability
+                  </label>
+                  <input
+                    type="date"
+                    value={createTicketDate}
+                    onChange={(e) => setCreateTicketDate(e.target.value)}
+                    className="w-full border border-gray-300 rounded-lg px-2 py-1 text-sm"
+                  />
+                </div>
+              </div>
+              <div className="flex items-center justify-end space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setCreateTicketsOpen(false)}
+                  className="px-3 py-2 text-sm rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50"
+                  disabled={creatingTickets}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!createTicketDate) return;
+                    try {
+                      setCreatingTickets(true);
+                      const res = await fetch(
+                        '/api/tickets/auto-idle-accountability',
+                        {
+                          method: 'POST',
+                          headers: {
+                            'Content-Type': 'application/json',
+                            'user-role': user?.role || 'admin',
+                            'user-permissions': JSON.stringify(
+                              user?.permissions || ['all']
+                            ),
+                            'user-id': String(user?.id || '')
+                          },
+                          body: JSON.stringify({ date: createTicketDate })
+                        }
+                      );
+                      if (!res.ok) {
+                        const errData = await res.json().catch(() => ({}));
+                        throw new Error(
+                          errData.error ||
+                            'Failed to auto-create idle accountability tickets'
+                        );
+                      }
+                      const result = await res.json();
+                      alert(
+                        `Created ${
+                          result.ticketsCreated || 0
+                        } "Idle Time" ticket(s) for ${result.date}.`
+                      );
+                      setCreateTicketsOpen(false);
+                      onRefreshAccountability?.();
+                    } catch (e) {
+                      alert(e.message || 'Failed to auto-create idle tickets');
+                    } finally {
+                      setCreatingTickets(false);
+                    }
+                  }}
+                  className="px-4 py-2 text-sm rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
+                  disabled={creatingTickets || !createTicketDate}
+                >
+                  {creatingTickets ? 'Creating...' : 'Create tickets'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Employee submit reason modal */}
+        {!isAdmin && selectedPendingId && (
+          <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50 px-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl max-h-[90vh] flex flex-col overflow-hidden">
+              <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+                <div>
+                  <h2 className="text-lg font-semibold text-gray-900">
+                Submit idle accountability reason
+                  </h2>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Date {accountabilityDate || ''} · Explain why your idle time was higher than 20 minutes.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedPendingId(null);
+                    setReasonForm({
+                      category: '',
+                      subcategory: '',
+                      reason: ''
+                    });
+                  }}
+                  className="p-2 rounded-full hover:bg-gray-100 text-gray-400"
+                  disabled={reasonSubmitting}
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
               <form
                 onSubmit={async (e) => {
                   e.preventDefault();
@@ -940,7 +1088,7 @@ const LowIdleNotificationPanel = ({
                     setReasonSubmitting(false);
                   }
                 }}
-                className="space-y-4"
+                className="space-y-4 px-6 py-4 overflow-y-auto"
               >
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -1010,7 +1158,7 @@ const LowIdleNotificationPanel = ({
                     required
                   />
                 </div>
-                <div className="flex items-center justify-end space-x-2">
+                <div className="flex items-center justify-end space-x-2 pt-2 border-t border-gray-100">
                   <button
                     type="button"
                     onClick={() => {

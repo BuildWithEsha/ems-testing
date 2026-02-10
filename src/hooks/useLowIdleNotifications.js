@@ -1,7 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 
-const today = () => new Date().toISOString().split('T')[0];
+const today = () => {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  return d.toISOString().split('T')[0];
+};
 
 export const useLowIdleNotifications = () => {
   const { user } = useAuth();

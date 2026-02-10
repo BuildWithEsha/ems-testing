@@ -115,6 +115,9 @@ const Header = ({ onSearch, onLogout, tasks, employees, onStartTimer, onStopTime
     user?.user_role === 'admin' ||
     user?.user_role === 'Admin';
   
+  const [showIdleReminderModal, setShowIdleReminderModal] = useState(false);
+  const [idleReminderDates, setIdleReminderDates] = useState([]);
+  
   const fetchAdminIdleAccountability = async () => {
     if (!isAdminUser) return;
     try {
@@ -204,6 +207,31 @@ const Header = ({ onSearch, onLogout, tasks, employees, onStartTimer, onStopTime
       fetchEmployeeIdleAccountability();
     }
   }, [user, lowIdleStartDate, lowIdleEndDate]);
+  
+  // Employee: global daily reminder to submit pending idle accountability
+  useEffect(() => {
+    if (!user || isAdminUser) return;
+    if (!idleAccPending || idleAccPending.length === 0) return;
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const lastShown =
+        window.localStorage.getItem('ems_idleReminderLastShownDate_v1') || '';
+      if (lastShown === today) return;
+      const pendingDatesSet = new Set(
+        idleAccPending
+          .map((i) => {
+            const str = String(i.date || '');
+            return str.includes('T') ? str.split('T')[0] : str;
+          })
+          .filter(Boolean)
+      );
+      if (pendingDatesSet.size === 0) return;
+      setIdleReminderDates(Array.from(pendingDatesSet).sort());
+      setShowIdleReminderModal(true);
+    } catch {
+      // ignore localStorage errors
+    }
+  }, [idleAccPending, isAdminUser, user]);
   
   // Close menu when clicking outside
   useEffect(() => {
@@ -612,9 +640,13 @@ const Header = ({ onSearch, onLogout, tasks, employees, onStartTimer, onStopTime
                 disabled={lowIdleNotificationsLoading}
               >
                 <span className={`text-sm font-medium ${lowIdleNotificationsLoading ? 'text-gray-400' : 'text-teal-600'}`}>Idle</span>
-                {hasLowIdleNotifications && !lowIdleNotificationsLoading && (
+                {/* Admins: show tracking-app low-idle count; Employees: show pending accountability count */}
+                {(
+                  (isAdminUser && hasLowIdleNotifications) ||
+                  (!isAdminUser && idleAccPending.length > 0)
+                ) && !lowIdleNotificationsLoading && (
                   <span className="absolute -top-1 -right-1 bg-teal-500 text-white text-xs rounded-full h-4 min-w-[1rem] px-1 flex items-center justify-center">
-                    {lowIdleNotifications.length}
+                    {isAdminUser ? lowIdleNotifications.length : idleAccPending.length}
                   </span>
                 )}
                 {lowIdleNotificationsLoading && (
@@ -844,6 +876,69 @@ const Header = ({ onSearch, onLogout, tasks, employees, onStartTimer, onStopTime
         onChangeAccountabilityDate={setIdleAccEmployeeDate}
         onRefreshAccountability={refreshIdleAccountability}
       />
+
+      {/* Employee idle accountability reminder (global, once per day) */}
+      {showIdleReminderModal && idleReminderDates.length > 0 && !isAdminUser && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-gray-200/80">
+            <div className="px-6 py-5 bg-amber-50 border-b border-amber-100">
+              <h3 className="text-lg font-semibold text-gray-900">
+                Idle accountability pending
+              </h3>
+              <p className="text-sm text-amber-800 mt-1">
+                You still have idle accountability forms to submit for the
+                following date(s). Please submit them today to avoid tickets.
+              </p>
+            </div>
+            <div className="px-6 py-4 text-sm text-gray-700 max-h-[50vh] overflow-y-auto">
+              <ul className="list-disc list-inside space-y-1">
+                {idleReminderDates.map((d) => (
+                  <li key={d}>{d}</li>
+                ))}
+              </ul>
+            </div>
+            <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 flex justify-end space-x-3">
+              <button
+                type="button"
+                onClick={() => {
+                  try {
+                    const today = new Date().toISOString().split('T')[0];
+                    window.localStorage.setItem(
+                      'ems_idleReminderLastShownDate_v1',
+                      today
+                    );
+                  } catch {
+                    // ignore
+                  }
+                  setShowIdleReminderModal(false);
+                }}
+                className="px-4 py-2 text-sm font-medium rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+              >
+                Dismiss
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  try {
+                    const today = new Date().toISOString().split('T')[0];
+                    window.localStorage.setItem(
+                      'ems_idleReminderLastShownDate_v1',
+                      today
+                    );
+                  } catch {
+                    // ignore
+                  }
+                  setShowIdleReminderModal(false);
+                  setShowLowIdleNotificationPanel(true);
+                }}
+                className="px-4 py-2 text-sm font-medium rounded-lg bg-indigo-600 text-white hover:bg-indigo-700"
+              >
+                Review now
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* MTW Notification Panel */}
       <MissedTaskNotificationPanel
