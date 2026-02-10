@@ -7,12 +7,16 @@ export const useNotifications = (selectedDate = null) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
+  // Helper: format a Date as local YYYY-MM-DD without shifting a day
+  const toLocalIsoDate = (d) => {
+    const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
+    return local.toISOString().split('T')[0];
+  };
+
   const fetchForDate = async (dateStr) => {
     // Use provided date string (YYYY-MM-DD) and return raw notifications
-    const targetDate = new Date(dateStr + 'T00:00:00');
-    const dateIso = targetDate.toISOString().split('T')[0];
-
-    const dateFormatted = targetDate.toLocaleDateString('en-US', {
+    const dateIso = dateStr;
+    const displayDate = new Date(dateIso + 'T00:00:00').toLocaleDateString('en-US', {
       weekday: 'long',
       year: 'numeric',
       month: 'long',
@@ -36,7 +40,7 @@ export const useNotifications = (selectedDate = null) => {
     const data = await response.json();
     return data.map((notification) => ({
       ...notification,
-      displayDate: dateFormatted,
+      displayDate,
       date: dateIso
     }));
   };
@@ -52,16 +56,13 @@ export const useNotifications = (selectedDate = null) => {
       setLoading(true);
       setError(null);
 
-      // Use provided date or default to yesterday
-      const targetDate = date
-        ? new Date(date)
-        : (() => {
-            const yesterday = new Date();
-            yesterday.setDate(yesterday.getDate() - 1);
-            return yesterday;
-          })();
-
-      const dateStr = targetDate.toISOString().split('T')[0];
+      // Use provided date string (YYYY-MM-DD) or default to yesterday (local)
+      let dateStr = date;
+      if (!dateStr) {
+        const yesterday = new Date();
+        yesterday.setDate(yesterday.getDate() - 1);
+        dateStr = toLocalIsoDate(yesterday);
+      }
 
       console.log('🔔 DWM Debug: Fetching notifications for date:', dateStr);
       console.log('🔔 DWM Debug: Current date:', new Date().toISOString().split('T')[0]);
