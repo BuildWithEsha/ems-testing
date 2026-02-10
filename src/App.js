@@ -351,7 +351,17 @@ const AuthenticatedApp = () => {
   // Global leave pending modal (swap / acknowledge) – shown regardless of current view
   const [leavePendingModal, setLeavePendingModal] = useState(null); // { type: 'swap'|'ack', data }
   const [leaveRejectedSwapNotifications, setLeaveRejectedSwapNotifications] = useState([]); // booker: "you can set date back"
-  const [dismissedRejectedSwapIds, setDismissedRejectedSwapIds] = useState([]); // booker dismissed these; don't show again until new ones
+  // Remember which rejected swap requests the booker has already seen,
+  // persisted across sessions so the same global popup doesn't keep reappearing.
+  const [dismissedRejectedSwapIds, setDismissedRejectedSwapIds] = useState(() => {
+    try {
+      const raw = window.localStorage.getItem('ems_dismissedRejectedSwapIds');
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }); // booker dismissed these; don't show again until new ones
 
   // Filter states
   const [filters, setFilters] = useState({});
@@ -903,7 +913,17 @@ const AuthenticatedApp = () => {
               <div className="px-6 py-4 flex justify-end bg-gray-50/80 border-t border-gray-200">
                 <button
                   type="button"
-                  onClick={() => setDismissedRejectedSwapIds((prev) => [...prev, ...toShow.map((n) => n.rejected_leave_id)])}
+                  onClick={() =>
+                    setDismissedRejectedSwapIds((prev) => {
+                      const next = [...new Set([...prev, ...toShow.map((n) => n.rejected_leave_id)])];
+                      try {
+                        window.localStorage.setItem('ems_dismissedRejectedSwapIds', JSON.stringify(next));
+                      } catch {
+                        // ignore storage errors
+                      }
+                      return next;
+                    })
+                  }
                   className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 font-medium"
                 >
                   OK

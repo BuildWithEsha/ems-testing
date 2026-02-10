@@ -106,8 +106,27 @@ export default function Leaves({ initialTab, initialManagerSection }) {
   const [notificationPopup, setNotificationPopup] = useState({ show: false, title: '', message: '', isError: false, onClose: null });
   const showNotification = (title, message, isError = false, onClose = null) =>
     setNotificationPopup({ show: true, title, message, isError, onClose });
-  const [dismissedRejectedSwapIds, setDismissedRejectedSwapIds] = useState([]);
-  const [dismissedRejectedLeaveIds, setDismissedRejectedLeaveIds] = useState([]);
+
+  // Remember which rejected leaves / swap requests have already been shown to this user
+  // so the same global popup does not keep appearing on every visit / reload.
+  const [dismissedRejectedSwapIds, setDismissedRejectedSwapIds] = useState(() => {
+    try {
+      const raw = window.localStorage.getItem('ems_dismissedRejectedSwapIds');
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  });
+  const [dismissedRejectedLeaveIds, setDismissedRejectedLeaveIds] = useState(() => {
+    try {
+      const raw = window.localStorage.getItem('ems_dismissedRejectedLeaveIds');
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  });
   const lastShownRejectedKeyRef = useRef('');
   const lastShownSwapKeyRef = useRef('');
   const [swapRequestsData, setSwapRequestsData] = useState({ asBooker: [], asRequester: [] });
@@ -533,20 +552,24 @@ export default function Leaves({ initialTab, initialManagerSection }) {
         const rejectedLeaves = data.rejected_leave_notifications || [];
         const uniqueRejectedLeaves = [...new Map(rejectedLeaves.map((n) => [n.leave_id, n])).values()];
         const toShowRejected = uniqueRejectedLeaves.filter((n) => !dismissedRejectedLeaveIds.includes(n.leave_id));
+        // Swap-rejected popup is handled globally in App; only show "your leave was rejected" here.
         // Only show notification when the set of ids has changed (avoid duplicate popups on re-run/poll)
-        if (!isAdmin && toShowSwap.length > 0) {
-          const key = toShowSwap.map((n) => n.rejected_leave_id).sort().join(',');
-          if (key !== lastShownSwapKeyRef.current) {
-            lastShownSwapKeyRef.current = key;
-            const msg = toShowSwap.map((n) => `Request for ${formatDate(n.start_date)}${n.end_date && n.end_date !== n.start_date ? ` – ${formatDate(n.end_date)}` : ''} was rejected.`).join('\n');
-            showNotification('Request rejected', `The following leave request(s) that asked to swap with your leave have been rejected. You can set your date back if you had moved it.\n\n${msg}`, false, () => setDismissedRejectedSwapIds((prev) => [...new Set([...prev, ...toShowSwap.map((n) => n.rejected_leave_id)])]));
-          }
-        } else if (!isAdmin && toShowRejected.length > 0) {
+        if (!isAdmin && toShowRejected.length > 0) {
           const key = toShowRejected.map((n) => n.leave_id).sort().join(',');
           if (key !== lastShownRejectedKeyRef.current) {
             lastShownRejectedKeyRef.current = key;
             const msg = toShowRejected.map((n) => `Leave for ${formatDate(n.start_date)}${n.end_date && n.end_date !== n.start_date ? ` – ${formatDate(n.end_date)}` : ''} was rejected.`).join('\n');
-            showNotification('Leave rejected', `Your leave request(s) have been rejected.\n\n${msg}`, true, () => setDismissedRejectedLeaveIds((prev) => [...new Set([...prev, ...toShowRejected.map((n) => n.leave_id)])]));
+            showNotification('Leave rejected', `Your leave request(s) have been rejected.\n\n${msg}`, true, () =>
+              setDismissedRejectedLeaveIds((prev) => {
+                const next = [...new Set([...prev, ...toShowRejected.map((n) => n.leave_id)])];
+                try {
+                  window.localStorage.setItem('ems_dismissedRejectedLeaveIds', JSON.stringify(next));
+                } catch {
+                  // ignore storage errors
+                }
+                return next;
+              })
+            );
           }
         }
       }
