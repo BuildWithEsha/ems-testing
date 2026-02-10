@@ -463,13 +463,16 @@ const LowIdleNotificationPanel = ({
                       const dept = r.department || 'Unassigned';
                       const matchesDept =
                         !departmentFilter || dept === departmentFilter;
+                      const matchesDesignation =
+                        !designationFilter ||
+                        (r.designation || '') === designationFilter;
                       const empName = (r.employee_name || '').toLowerCase();
                       const empEmail = (r.employee_email || '').toLowerCase();
                       const matchesSearch =
                         !searchLower ||
                         empName.includes(searchLower) ||
                         empEmail.includes(searchLower);
-                      return matchesDept && matchesSearch;
+                      return matchesDept && matchesDesignation && matchesSearch;
                     });
 
                     const grouped = rowsFiltered.reduce((acc, r) => {
@@ -480,6 +483,13 @@ const LowIdleNotificationPanel = ({
                     }, {});
 
                     const deptKeys = Object.keys(grouped).sort();
+                    const uniqueDesignations = Array.from(
+                      new Set(
+                        rows
+                          .map((r) => r.designation || '')
+                          .filter((d) => d && d.trim())
+                      )
+                    ).sort();
 
                     return (
                       <>
@@ -505,6 +515,20 @@ const LowIdleNotificationPanel = ({
                                 {deptKeys.map((dept) => (
                                   <option key={dept} value={dept}>
                                     {dept}
+                                  </option>
+                                ))}
+                              </select>
+                              <select
+                                value={designationFilter}
+                                onChange={(e) =>
+                                  setDesignationFilter(e.target.value)
+                                }
+                                className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm"
+                              >
+                                <option value="">All Designations</option>
+                                {uniqueDesignations.map((d) => (
+                                  <option key={d} value={d}>
+                                    {d}
                                   </option>
                                 ))}
                               </select>

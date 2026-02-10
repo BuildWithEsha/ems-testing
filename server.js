@@ -9173,23 +9173,46 @@ async function upsertIdleAccountabilityFromListForDate(list, date, thresholdMinu
 }
 
 // Auto-create high-priority tickets for idle accountability records without submitted reasons
-async function createIdleTicketsForDate(targetDate) {
+async function createIdleTicketsForDate(targetDate, opts = {}) {
   const todayIso = new Date().toISOString().split('T')[0];
   const date = (targetDate || todayIso).split('T')[0];
+  const { department, designation, title: customTitle, description: customDescription } = opts || {};
 
   let connection;
   try {
     connection = await mysqlPool.getConnection();
     await connection.ping();
 
+    const clauses = [
+      'ia.date = ?',
+      "ia.status = 'pending'",
+      'ia.idle_minutes > 20',
+      'ia.ticket_id IS NULL'
+    ];
+    const params = [date];
+
+    if (department) {
+      clauses.push(
+        '(e.department = ? OR (e.department IS NULL AND ? = \'Unassigned\'))'
+      );
+      params.push(department, department);
+    }
+
+    if (designation) {
+      clauses.push('e.designation = ?');
+      params.push(designation);
+    }
+
+    const where = clauses.join(' AND ');
+
     const [rows] = await connection.execute(
       `
-      SELECT ia.*, e.name AS employee_name, e.department
+      SELECT ia.*, e.name AS employee_name, e.department, e.designation
       FROM idle_accountability ia
       LEFT JOIN employees e ON ia.employee_id = e.id
-      WHERE ia.date = ? AND ia.status = 'pending' AND ia.idle_minutes > 20 AND ia.ticket_id IS NULL
+      WHERE ${where}
       `,
-      [date]
+      params
     );
 
     if (!rows.length) {
@@ -9203,13 +9226,19 @@ async function createIdleTicketsForDate(targetDate) {
       const employeeName = row.employee_name || row.employee_email || 'Employee';
       const dept = row.department || 'Unassigned';
 
-      const title = `High idle time on ${row.date} – reason not submitted`;
+      const title =
+        customTitle ||
+        `High idle time on ${row.date} – reason not submitted`;
+      const descriptionHeader =
+        customDescription ||
+        'This ticket was auto-created because idle time accountability was not submitted.';
       const description =
-        `This ticket was auto-created because idle time accountability for ${row.date} ` +
-        `was not submitted.\n\n` +
+        `${descriptionHeader}\n\n` +
+        `Date: ${row.date}\n` +
         `Employee: ${employeeName}\n` +
         `Department: ${dept}\n` +
-        `Idle time: ${row.idle_minutes} minutes (threshold ${row.threshold_minutes} minutes)\n\n` +
+        `Idle time: ${row.idle_minutes} minutes (threshold ${row.threshold_minutes} minutes)\n` +
+        `Status: ${row.status}\n\n` +
         `Please review the employee's activity and follow up as needed.`;
 
       const [maxIdRow] = await connection.execute('SELECT MAX(id) AS maxId FROM tickets');
@@ -11069,7 +11098,12 @@ app.post('/api/tickets/auto-idle-accountability', async (req, res) => {
   const targetDate = (dateFromBody || dateFromQuery || new Date().toISOString().split('T')[0]).split('T')[0];
 
   try {
-    const result = await createIdleTicketsForDate(targetDate);
+    const result = await createIdleTicketsForDate(targetDate, {
+      department,
+      designation,
+      title: customTitle,
+      description: customDescription
+    });
     res.json(result);
   } catch (err) {
     console.error('Error auto-creating idle accountability tickets:', err);
