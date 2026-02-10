@@ -9087,6 +9087,91 @@ const IDLE_REASON_CATEGORIES = [
   }
 ];
 
+// Helper: upsert idle_accountability rows from a list of high-idle employees for a specific date
+async function upsertIdleAccountabilityFromListForDate(list, date, thresholdMinutes) {
+  if (!Array.isArray(list) || list.length === 0) return;
+
+  let connection;
+  try {
+    connection = await mysqlPool.getConnection();
+    await connection.ping();
+
+    const [empRows] = await connection.execute(
+      'SELECT id, LOWER(TRIM(email)) AS email_key, LOWER(TRIM(name)) AS name_key, email FROM employees WHERE status = ?',
+      ['Active']
+    );
+    const emailToEmp = {};
+    const nameToEmp = {};
+    for (const r of empRows) {
+      if (r.email_key) emailToEmp[r.email_key] = { id: r.id, email: r.email };
+      if (r.name_key) nameToEmp[r.name_key] = { id: r.id, email: r.email };
+    }
+
+    const insertSql = `
+      INSERT INTO idle_accountability (
+        employee_id,
+        employee_email,
+        date,
+        idle_hours,
+        idle_minutes,
+        threshold_minutes
+      ) VALUES (?, ?, ?, ?, ?, ?)
+      ON DUPLICATE KEY UPDATE
+        idle_hours = VALUES(idle_hours),
+        idle_minutes = VALUES(idle_minutes),
+        threshold_minutes = VALUES(threshold_minutes),
+        updated_at = CURRENT_TIMESTAMP
+    `;
+
+    let count = 0;
+    for (const item of list) {
+      const idleH = Number(item.idleHours ?? 0);
+      const idleM = Math.round(idleH * 60);
+      if (!Number.isFinite(idleM) || idleM < thresholdMinutes) continue;
+
+      const rawEmail = (item.email ?? '').toString().trim();
+      const name = (item.employeeName ?? '').toString().trim();
+      const emailKey = rawEmail.toLowerCase();
+      const nameKey = name.toLowerCase();
+
+      let emp = null;
+      if (emailKey && emailToEmp[emailKey]) emp = emailToEmp[emailKey];
+      else if (nameKey && nameToEmp[nameKey]) emp = nameToEmp[nameKey];
+
+      const employeeId = emp ? emp.id : null;
+      const employeeEmail = rawEmail || (emp ? emp.email : null) || null;
+
+      await connection.execute(insertSql, [
+        employeeId,
+        employeeEmail,
+        date,
+        Number(idleH.toFixed(4)),
+        idleM,
+        thresholdMinutes
+      ]);
+      count += 1;
+    }
+
+    console.log(
+      'Idle accountability upsert from low-idle list complete for date=%s, rowsFromList=%d, createdOrUpdated=%d (threshold=%dmin)',
+      date,
+      list.length,
+      count,
+      thresholdMinutes
+    );
+  } catch (e) {
+    console.error('Idle accountability upsert from low-idle list failed:', e.message || e);
+  } finally {
+    if (connection) {
+      try {
+        connection.release();
+      } catch (e) {
+        // ignore
+      }
+    }
+  }
+}
+
 // Auto-create high-priority tickets for idle accountability records without submitted reasons
 async function createIdleTicketsForDate(targetDate) {
   const todayIso = new Date().toISOString().split('T')[0];
@@ -9479,6 +9564,24 @@ app.get('/api/notifications/low-idle-employees', async (req, res) => {
     res.set('X-Low-Idle-EndDate', end);
     res.set('X-Low-Idle-MinHours', String(thresholdHours));
     res.set('X-Low-Idle-Count', String(list.length));
+
+    // Also upsert idle accountability entries when a single day is requested
+    try {
+      // Only when start and end represent the same day
+      if (start === end && list.length > 0) {
+        const thresholdMinutesForAccount =
+          (Number.isNaN(minH) ? 0 : minH * 60) + (Number.isNaN(minM) ? 0 : minM);
+        await upsertIdleAccountabilityFromListForDate(
+          list,
+          start,
+          thresholdMinutesForAccount > 0 ? thresholdMinutesForAccount : 20
+        );
+      }
+    } catch (e) {
+      console.error('Idle accountability upsert from low-idle route failed:', e.message || e);
+      // Do not fail the notifications response if upsert fails
+    }
+
     res.json(list);
   } catch (err) {
     const status = err.response?.status;
