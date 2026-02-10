@@ -964,12 +964,32 @@ const LowIdleNotificationPanel = ({
               <h2 className="text-lg font-semibold text-gray-900 mb-3">
                 Create idle tickets – template preview
               </h2>
-              <p className="text-sm text-gray-600 mb-4">
+              <p className="text-sm text-gray-600 mb-2">
                 The following template will be used for all matching pending
                 accountability records (above 20 minutes) for the selected
                 date, department and designation. You can edit the title and
                 description below, then confirm to create tickets.
               </p>
+              {(() => {
+                if (!accountabilityPending || !createTicketDate) return null;
+                const alreadyTicketedCount = accountabilityPending.filter(
+                  (r) =>
+                    r.date &&
+                    r.date.startsWith(createTicketDate) &&
+                    r.status === 'ticket_created'
+                ).length;
+                if (!alreadyTicketedCount) return null;
+                return (
+                  <div className="mb-3 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+                    For <span className="font-semibold">{createTicketDate}</span>,{' '}
+                    <span className="font-semibold">{alreadyTicketedCount}</span>{' '}
+                    record{alreadyTicketedCount !== 1 ? 's' : ''} already have
+                    idle accountability ticket(s) created for this threshold.
+                    Creating tickets again will add another ticket for those
+                    same records.
+                  </div>
+                );
+              })()}
               <div className="space-y-4 mb-4">
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">
@@ -1015,8 +1035,7 @@ const LowIdleNotificationPanel = ({
 
 Date: 2026-02-09
 Employee: [Employee name]
-Idle time: [Idle minutes] minutes
-Status: pending`}
+Idle time: [Idle minutes] minutes`}
                   </pre>
                 </div>
               </div>

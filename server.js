@@ -9247,9 +9247,7 @@ async function createIdleTicketsForDate(targetDate, opts = {}) {
         `Date: ${dateOnly}\n` +
         `Employee: ${employeeName}\n` +
         `Department: ${dept}\n` +
-        `Idle time: ${row.idle_minutes} minutes\n` +
-        `Status: ${row.status}\n\n` +
-        `Please review the employee's activity and follow up as needed.`;
+        `Idle time: ${row.idle_minutes} minutes\n`;
 
       const [maxIdRow] = await connection.execute('SELECT MAX(id) AS maxId FROM tickets');
       const maxId = maxIdRow && maxIdRow[0] && maxIdRow[0].maxId ? Number(maxIdRow[0].maxId) : 0;
