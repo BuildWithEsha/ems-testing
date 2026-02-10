@@ -43,6 +43,14 @@ const LowIdleNotificationPanel = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [expandedDepartments, setExpandedDepartments] = useState(new Set());
+  const [categories, setCategories] = useState([]);
+  const [selectedPendingId, setSelectedPendingId] = useState(null);
+  const [reasonForm, setReasonForm] = useState({
+    category: '',
+    subcategory: '',
+    reason: ''
+  });
+  const [reasonSubmitting, setReasonSubmitting] = useState(false);
 
   const displayStart = typeof startDate === 'string' ? startDate : new Date().toISOString().split('T')[0];
   const displayEnd = typeof endDate === 'string' ? endDate : new Date().toISOString().split('T')[0];
@@ -61,6 +69,22 @@ const LowIdleNotificationPanel = ({
       onFetchCurrentlyIdle({ windowMinutes: currentlyIdleWindowMinutes, minIdleMinutes: currentlyIdleMinMinutes });
     }
   }, [viewMode, isOpen]);
+
+  useEffect(() => {
+    if (!isAdmin && isOpen) {
+      // Load reason categories for employee accountability form
+      (async () => {
+        try {
+          const res = await fetch('/api/idle-accountability/categories');
+          if (!res.ok) return;
+          const data = await res.json();
+          setCategories(Array.isArray(data) ? data : []);
+        } catch {
+          // ignore
+        }
+      })();
+    }
+  }, [isAdmin, isOpen]);
 
   const listForView = viewMode === 'current' ? (currentlyIdleList || []) : (lowIdleNotifications || []);
 
@@ -274,7 +298,7 @@ const LowIdleNotificationPanel = ({
           </>
         )}
 
-        {isAdmin && showSettings && viewMode === 'range' && (
+        {isAdmin && showSettings && viewMode !== 'current' && (
           <div className="p-4 bg-teal-50 border-b border-gray-200">
             <p className="text-sm font-medium text-gray-700 mb-3">Show employees with more than this idle time in the date range:</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
@@ -358,8 +382,8 @@ const LowIdleNotificationPanel = ({
                     </span>
                     .
                   </div>
-                  {onRefreshAccountability && (
-                    <div className="flex items-center space-x-2">
+                  <div className="flex items-center space-x-2">
+                    {onRefreshAccountability && (
                       <button
                         type="button"
                         onClick={() => onRefreshAccountability()}
@@ -367,8 +391,15 @@ const LowIdleNotificationPanel = ({
                       >
                         Refresh
                       </button>
-                    </div>
-                  )}
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setShowSettings(true)}
+                      className="px-3 py-1.5 text-xs rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50"
+                    >
+                      Change date range
+                    </button>
+                  </div>
                 </div>
                 {accountabilityError && (
                   <div className="mb-4 p-3 rounded bg-red-50 text-red-700 text-sm">
@@ -624,6 +655,12 @@ const LowIdleNotificationPanel = ({
                                   Date:{' '}
                                   <span className="font-medium text-gray-900">
                                     {item.date}
+                                  </span>
+                                </div>
+                                <div className="text-sm text-gray-500 mb-1">
+                                  Employee:{' '}
+                                  <span className="font-medium text-gray-900">
+                                    {item.employee_name || item.employee_email || 'You'}
                                   </span>
                                 </div>
                                 <div className="text-sm text-gray-500 mb-1">

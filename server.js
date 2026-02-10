@@ -9874,6 +9874,17 @@ app.get('/api/idle-accountability/my', async (req, res) => {
 
   let connection;
   try {
+    // Ensure idle_accountability rows exist for the requested single date,
+    // using the same TeamLogger-based generation as the admin/run and daily sync.
+    // This helps keep employee idle accountability in sync with the tracking app.
+    if (fromDate && toDate && fromDate === toDate) {
+      try {
+        await runIdleAccountabilityForDate(fromDate);
+      } catch (e) {
+        console.error('Idle accountability my: background generation failed for date', fromDate, e.message || e);
+        // Continue anyway; we will just return whatever is currently in the table.
+      }
+    }
     connection = await mysqlPool.getConnection();
     await connection.ping();
 
