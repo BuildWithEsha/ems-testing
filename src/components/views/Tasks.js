@@ -1231,42 +1231,15 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
     return () => window.removeEventListener('app:stop-timers-for-clockout', handler);
   }, [updateTimerState, user]);
 
-  // When tab/browser is actually closed (page unload): stop timers via sendBeacon.
-  // We do NOT stop on tab switch or window minimize — only on pagehide (tab close, browser close, navigate away).
+  // Previously, timers were auto-stopped on pagehide (tab close / refresh / navigate away)
+  // via sendBeacon. This also stopped timers on refresh or navigation, which we don't want.
+  // Auto-stop is now handled by:
+  // - stale timer logic (auto-stopping long-running timers),
+  // - offline handler,
+  // - clock-out logic.
+  // So we intentionally do NOT auto-stop timers on pagehide anymore.
   useEffect(() => {
-    const TAB_CLOSE_MEMO = 'Timer auto-stopped: browser/tab closed';
-
-    const onPageHide = () => {
-      const active = { ...activeTimersRef.current };
-      const taskIds = Object.keys(active);
-      if (taskIds.length === 0) return;
-
-      const nowMs = Date.now();
-      const tasks = tasksRef.current || [];
-      const u = userRef.current;
-
-      taskIds.forEach((taskId) => {
-        const { startTime } = active[taskId];
-        const startTimeMs = typeof startTime === 'number' ? startTime : new Date(startTime).getTime();
-        const loggedSeconds = Math.floor((nowMs - startTimeMs) / 1000);
-        const task = tasks.find((t) => t.id === Number(taskId));
-        const currentLogged = task?.logged_seconds || 0;
-
-        const body = JSON.stringify({
-          loggedSeconds,
-          startTimeMs,
-          endTimeMs: nowMs,
-          user_name: u?.name || 'Admin',
-          user_id: u?.id || 1,
-          memo: TAB_CLOSE_MEMO,
-        });
-        const url = `${window.location.origin}/api/tasks/${taskId}/stop-timer`;
-        navigator.sendBeacon(url, new Blob([body], { type: 'application/json' }));
-      });
-    };
-
-    window.addEventListener('pagehide', onPageHide);
-    return () => window.removeEventListener('pagehide', onPageHide);
+    return () => {};
   }, []);
 
   // Load more tasks function for pagination
