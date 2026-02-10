@@ -633,7 +633,7 @@ const TimeLogReport = () => {
     endDate: '',
     employee: '',
     department: '',
-    taskTitle: ''
+    taskName: ''
   });
   const [departments, setDepartments] = useState([]);
   const [rows, setRows] = useState([]);
@@ -673,6 +673,8 @@ const TimeLogReport = () => {
   const fetchReport = async () => {
     if (!filters.startDate || !filters.endDate) return;
     const params = new URLSearchParams({ start: filters.startDate, end: filters.endDate });
+    if (filters.employee) params.append('employee', filters.employee);
+    if (filters.department) params.append('department', filters.department);
     const res = await fetch(`/api/reports/timelog?${params.toString()}`);
     const data = res.ok ? await res.json() : { items: [], totalSeconds: 0 };
     setRows(data.items || []);
@@ -681,7 +683,17 @@ const TimeLogReport = () => {
 
   useEffect(() => {
     fetchReport();
-  }, [filters.startDate, filters.endDate, filters.employee, filters.department, filters.taskTitle]);
+  }, [filters.startDate, filters.endDate, filters.employee, filters.department]);
+
+  const filteredRows = rows.filter((r) => {
+    if (filters.taskName) {
+      const name = (r.task_title || '').toLowerCase();
+      if (!name.includes(filters.taskName.toLowerCase())) {
+        return false;
+      }
+    }
+    return true;
+  });
 
   return (
     <div className="space-y-6">
@@ -691,7 +703,7 @@ const TimeLogReport = () => {
           <h3 className="text-lg font-semibold text-gray-900">Time Log Report</h3>
           <div className="text-sm text-gray-600">Total: <span className="font-bold text-indigo-700">{formatHMS(totalSeconds)}</span></div>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Start Date</label>
             <input type="date" value={filters.startDate} onChange={(e)=>setFilters(f=>({...f, startDate: e.target.value}))} className="w-full border rounded px-3 py-2" />
@@ -714,20 +726,16 @@ const TimeLogReport = () => {
               {(departments || []).map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
             </select>
           </div>
-        </div>
-        <div className="mt-4 grid grid-cols-1 md:grid-cols-4 gap-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Search by Task Name
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Task name</label>
             <input
               type="text"
-              value={filters.taskTitle}
+              value={filters.taskName}
               onChange={(e) =>
-                setFilters((f) => ({ ...f, taskTitle: e.target.value }))
+                setFilters((f) => ({ ...f, taskName: e.target.value }))
               }
               className="w-full border rounded px-3 py-2"
-              placeholder="Type task name..."
+              placeholder="Search by task name"
             />
           </div>
         </div>
@@ -747,25 +755,7 @@ const TimeLogReport = () => {
             </tr>
           </thead>
           <tbody>
-            {rows
-              .filter((r) => {
-                if (filters.employee && r.employee_name !== filters.employee) {
-                  return false;
-                }
-                if (filters.department && r.department !== filters.department) {
-                  return false;
-                }
-                if (
-                  filters.taskTitle &&
-                  !(r.task_title || '')
-                    .toLowerCase()
-                    .includes(filters.taskTitle.toLowerCase())
-                ) {
-                  return false;
-                }
-                return true;
-              })
-              .map((r, idx) => (
+            {filteredRows.map((r, idx) => (
               <tr key={idx} className="border-b">
                 <td className="px-6 py-3">{r.employee_name}</td>
                 <td className="px-6 py-3">{r.task_title}</td>
@@ -788,13 +778,7 @@ const TimeLogReport = () => {
 // Consolidated Time Log Report Component
 const ConsolidatedTimeLogReport = () => {
   const [employees, setEmployees] = useState([]);
-  const [filters, setFilters] = useState({
-    startDate: '',
-    endDate: '',
-    employee: '',
-    department: '',
-    taskTitle: ''
-  });
+  const [filters, setFilters] = useState({ startDate: '', endDate: '', employee: '', department: '' });
   const [departments, setDepartments] = useState([]);
   const [rows, setRows] = useState([]);
   const [totalSeconds, setTotalSeconds] = useState(0);
@@ -842,15 +826,15 @@ const ConsolidatedTimeLogReport = () => {
   const fetchReport = async () => {
     if (!filters.startDate || !filters.endDate) return;
     const params = new URLSearchParams({ start: filters.startDate, end: filters.endDate });
+    if (filters.employee) params.append('employee', filters.employee);
+    if (filters.department) params.append('department', filters.department);
     const res = await fetch(`/api/reports/timelog/consolidated?${params.toString()}`);
     const data = res.ok ? await res.json() : { items: [], totalSeconds: 0 };
     setRows(data.items || []);
     setTotalSeconds(data.totalSeconds || 0);
   };
 
-  useEffect(() => {
-    fetchReport();
-  }, [filters.startDate, filters.endDate, filters.employee, filters.department, filters.taskTitle]);
+  useEffect(() => { fetchReport(); }, [filters.startDate, filters.endDate, filters.employee, filters.department]);
 
   return (
     <div className="space-y-6">
@@ -884,22 +868,6 @@ const ConsolidatedTimeLogReport = () => {
             </select>
           </div>
         </div>
-        <div className="mt-4 grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Search by Task Name
-            </label>
-            <input
-              type="text"
-              value={filters.taskTitle}
-              onChange={(e) =>
-                setFilters((f) => ({ ...f, taskTitle: e.target.value }))
-              }
-              className="w-full border rounded px-3 py-2"
-              placeholder="Type task name..."
-            />
-          </div>
-        </div>
       </div>
 
       {/* Table */}
@@ -916,25 +884,7 @@ const ConsolidatedTimeLogReport = () => {
             </tr>
           </thead>
           <tbody>
-            {rows
-              .filter((r) => {
-                if (filters.employee && r.employee_name !== filters.employee) {
-                  return false;
-                }
-                if (filters.department && r.department !== filters.department) {
-                  return false;
-                }
-                if (
-                  filters.taskTitle &&
-                  !(r.task_title || '')
-                    .toLowerCase()
-                    .includes(filters.taskTitle.toLowerCase())
-                ) {
-                  return false;
-                }
-                return true;
-              })
-              .map((r, idx) => (
+            {rows.map((r, idx) => (
               <tr key={idx} className="border-b">
                 <td className="px-6 py-3">{r.employee_name}</td>
                 <td className="px-6 py-3">{r.task_title}</td>

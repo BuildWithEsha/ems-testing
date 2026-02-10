@@ -7,7 +7,41 @@ export const useNotifications = (selectedDate = null) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  const fetchNotifications = async (dateOrRange = selectedDate) => {
+  const fetchForDate = async (dateStr) => {
+    // Use provided date string (YYYY-MM-DD) and return raw notifications
+    const targetDate = new Date(dateStr + 'T00:00:00');
+    const dateIso = targetDate.toISOString().split('T')[0];
+
+    const dateFormatted = targetDate.toLocaleDateString('en-US', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+
+    const response = await fetch(
+      `/api/notifications/dwm-incomplete?date=${dateIso}`,
+      {
+        headers: {
+          'x-user-role': 'Admin',
+          'x-user-permissions': '["all"]'
+        }
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch notifications');
+    }
+
+    const data = await response.json();
+    return data.map((notification) => ({
+      ...notification,
+      displayDate: dateFormatted,
+      date: dateIso
+    }));
+  };
+
+  const fetchNotifications = async (date = selectedDate) => {
     // Check if user has dwm_view permission
     if (!user?.permissions?.includes('dwm_view') && !user?.permissions?.includes('all') && user?.role !== 'admin') {
       setNotifications([]);
@@ -17,118 +51,24 @@ export const useNotifications = (selectedDate = null) => {
     try {
       setLoading(true);
       setError(null);
-      const isRange =
-        dateOrRange &&
-        typeof dateOrRange === 'object' &&
-        dateOrRange.from &&
-        dateOrRange.to;
 
-      if (isRange) {
-        // Date range: fetch notifications for each day in the range and combine
-        const from = new Date(dateOrRange.from);
-        const to = new Date(dateOrRange.to);
-        if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || from > to) {
-          throw new Error('Invalid date range');
-        }
+      // Use provided date or default to yesterday
+      const targetDate = date
+        ? new Date(date)
+        : (() => {
+            const yesterday = new Date();
+            yesterday.setDate(yesterday.getDate() - 1);
+            return yesterday;
+          })();
 
-        const allNotifications = [];
-        for (
-          let d = new Date(from.getTime());
-          d <= to;
-          d.setDate(d.getDate() + 1)
-        ) {
-          const targetDate = new Date(d.getTime());
-          const dateStr = targetDate.toISOString().split('T')[0];
-          const dateFormatted = targetDate.toLocaleDateString('en-US', {
-            weekday: 'long',
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric'
-          });
+      const dateStr = targetDate.toISOString().split('T')[0];
 
-          console.log('🔔 DWM Debug: Fetching notifications for date:', dateStr);
+      console.log('🔔 DWM Debug: Fetching notifications for date:', dateStr);
+      console.log('🔔 DWM Debug: Current date:', new Date().toISOString().split('T')[0]);
 
-          const response = await fetch(
-            `/api/notifications/dwm-incomplete?date=${dateStr}`,
-            {
-              headers: {
-                'x-user-role': 'Admin',
-                'x-user-permissions': '["all"]'
-              }
-            }
-          );
-
-          if (!response.ok) {
-            throw new Error('Failed to fetch notifications');
-          }
-
-          const data = await response.json();
-          const notificationsWithDate = data.map((notification) => ({
-            ...notification,
-            displayDate: dateFormatted,
-            date: dateStr
-          }));
-          allNotifications.push(...notificationsWithDate);
-        }
-
-        setNotifications(allNotifications);
-      } else {
-        const date = dateOrRange;
-        // Use provided date or default to yesterday
-        const targetDate = date
-          ? new Date(date)
-          : (() => {
-              const yesterday = new Date();
-              yesterday.setDate(yesterday.getDate() - 1);
-              return yesterday;
-            })();
-
-        const dateStr = targetDate.toISOString().split('T')[0];
-
-        // Format date for display
-        const dateFormatted = targetDate.toLocaleDateString('en-US', {
-          weekday: 'long',
-          year: 'numeric',
-          month: 'long',
-          day: 'numeric'
-        });
-
-        console.log('🔔 DWM Debug: Fetching notifications for date:', dateStr);
-        console.log('🔔 DWM Debug: Formatted date:', dateFormatted);
-        console.log(
-          '🔔 DWM Debug: Current date:',
-          new Date().toISOString().split('T')[0]
-        );
-
-        const response = await fetch(
-          `/api/notifications/dwm-incomplete?date=${dateStr}`,
-          {
-            headers: {
-              'x-user-role': 'Admin',
-              'x-user-permissions': '["all"]'
-            }
-          }
-        );
-
-        if (response.ok) {
-          const data = await response.json();
-          console.log('🔔 DWM Debug: API response data:', data);
-          console.log(
-            '🔔 DWM Debug: Number of notifications received:',
-            data.length
-          );
-
-          // Add the formatted date to each notification for better display
-          const notificationsWithDate = data.map((notification) => ({
-            ...notification,
-            displayDate: dateFormatted,
-            date: dateStr
-          }));
-          setNotifications(notificationsWithDate);
-        } else {
-          throw new Error('Failed to fetch notifications');
-        }
-      }
+      const notificationsForDay = await fetchForDate(dateStr);
+      console.log('🔔 DWM Debug: Number of notifications received:', notificationsForDay.length);
+      setNotifications(notificationsForDay);
     } catch (err) {
       console.error('Error fetching notifications:', err);
       setError(err.message);
@@ -147,8 +87,52 @@ export const useNotifications = (selectedDate = null) => {
     return () => clearInterval(interval);
   }, [user]);
 
-  const refreshNotifications = (dateOrRange = selectedDate) => {
-    fetchNotifications(dateOrRange);
+  const refreshNotifications = (date = selectedDate) => {
+    fetchNotifications(date);
+  };
+
+  const refreshNotificationsRange = async (startDate, endDate) => {
+    // Inclusive date range [startDate, endDate]
+    if (!startDate || !endDate) return;
+
+    // Check permission first (same as single-day)
+    if (
+      !user?.permissions?.includes('dwm_view') &&
+      !user?.permissions?.includes('all') &&
+      user?.role !== 'admin'
+    ) {
+      setNotifications([]);
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError(null);
+
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+        throw new Error('Invalid date range');
+      }
+
+      const all = [];
+      const cursor = new Date(start.getTime());
+      while (cursor <= end) {
+        const iso = cursor.toISOString().split('T')[0];
+        // eslint-disable-next-line no-await-in-loop
+        const dayNotifications = await fetchForDate(iso);
+        all.push(...dayNotifications);
+        cursor.setDate(cursor.getDate() + 1);
+      }
+
+      setNotifications(all);
+    } catch (err) {
+      console.error('Error fetching notifications range:', err);
+      setError(err.message);
+      setNotifications([]);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return {
@@ -156,6 +140,7 @@ export const useNotifications = (selectedDate = null) => {
     loading,
     error,
     refreshNotifications,
+    refreshNotificationsRange,
     hasNotifications: notifications.length > 0
   };
 };

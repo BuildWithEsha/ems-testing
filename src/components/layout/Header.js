@@ -45,7 +45,13 @@ const Header = ({ onSearch, onLogout, tasks, employees, onStartTimer, onStopTime
     yesterday.setDate(yesterday.getDate() - 1);
     return yesterday.toISOString().split('T')[0];
   });
-  const { notifications, hasNotifications, loading: notificationsLoading, refreshNotifications } = useNotifications(selectedNotificationDate);
+  const {
+    notifications,
+    hasNotifications,
+    loading: notificationsLoading,
+    refreshNotifications,
+    refreshNotificationsRange
+  } = useNotifications(selectedNotificationDate);
   
   // Absence notification system for admin users
   const { absenceNotifications, hasAbsenceNotifications, loading: absenceNotificationsLoading } = useAbsenceNotifications();
@@ -443,9 +449,14 @@ const Header = ({ onSearch, onLogout, tasks, employees, onStartTimer, onStopTime
     setSelectedNotificationDate(date);
   };
 
-  // Handle notification refresh
+  // Handle notification refresh (single date)
   const handleNotificationRefresh = (date) => {
     refreshNotifications(date);
+  };
+
+  // Handle notification refresh for a date range
+  const handleNotificationRefreshRange = (startDate, endDate) => {
+    refreshNotificationsRange(startDate, endDate);
   };
 
   return (
@@ -809,6 +820,7 @@ const Header = ({ onSearch, onLogout, tasks, employees, onStartTimer, onStopTime
         selectedDate={selectedNotificationDate}
         onDateChange={handleNotificationDateChange}
         onRefresh={handleNotificationRefresh}
+        onRefreshRange={handleNotificationRefreshRange}
       />
 
       {/* Absence Notification Panel */}

@@ -3,7 +3,15 @@ import { Bell, X, AlertTriangle, Calendar, Building, User, Briefcase, CheckCircl
 import MultiSelect from './MultiSelect';
 import { useDraggableModal } from '../../hooks/useDraggableModal';
 
-const NotificationPanel = ({ isOpen, onClose, notifications, selectedDate, onDateChange, onRefresh }) => {
+const NotificationPanel = ({
+  isOpen,
+  onClose,
+  notifications,
+  selectedDate,
+  onDateChange,
+  onRefresh,
+  onRefreshRange
+}) => {
   // Filter states
   const [filters, setFilters] = useState({
     searchTerm: '',
@@ -28,8 +36,8 @@ const NotificationPanel = ({ isOpen, onClose, notifications, selectedDate, onDat
   const [selectedTasks, setSelectedTasks] = useState(new Set());
   const [selectAll, setSelectAll] = useState(false);
   const [expandedDepartments, setExpandedDepartments] = useState(new Set());
-  const [fromDate, setFromDate] = useState('');
-  const [toDate, setToDate] = useState('');
+  const [rangeStart, setRangeStart] = useState(selectedDate || '');
+  const [rangeEnd, setRangeEnd] = useState(selectedDate || '');
   const { modalRef, modalStyle, dragHandleProps } = useDraggableModal();
 
   // Helper function for ordinal suffixes (1st, 2nd, 3rd, etc.)
@@ -53,15 +61,8 @@ const NotificationPanel = ({ isOpen, onClose, notifications, selectedDate, onDat
     return acc;
   }, {});
 
-  // Apply filters to notifications, including date range
+  // Apply filters to notifications
   const filteredNotifications = notifications.filter(notification => {
-    // Date range filter (notification.date is YYYY-MM-DD)
-    if (fromDate && notification.date && notification.date < fromDate) {
-      return false;
-    }
-    if (toDate && notification.date && notification.date > toDate) {
-      return false;
-    }
     if (filters.searchTerm && !notification.taskTitle?.toLowerCase().includes(filters.searchTerm.toLowerCase())) {
       return false;
     }
@@ -106,18 +107,6 @@ const NotificationPanel = ({ isOpen, onClose, notifications, selectedDate, onDat
       setExpandedDepartments(new Set(Object.keys(groupedFilteredNotifications)));
     }
   };
-
-  // Initialize/sync local date range when opening
-  useEffect(() => {
-    if (!isOpen) return;
-    const base =
-      selectedDate ||
-      new Date(Date.now() - 24 * 60 * 60 * 1000)
-        .toISOString()
-        .split('T')[0];
-    setFromDate((prev) => prev || base);
-    setToDate((prev) => prev || base);
-  }, [isOpen, selectedDate]);
 
   // Fetch employees and departments for filter options
   useEffect(() => {
@@ -258,81 +247,79 @@ const NotificationPanel = ({ isOpen, onClose, notifications, selectedDate, onDat
 
         {/* Date Selection Section */}
         <div className="border-b border-gray-200 bg-blue-50 p-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              <div className="flex items-center space-x-2">
-                <Calendar className="w-5 h-5 text-blue-600" />
-                <span className="text-sm font-medium text-gray-700">
-                  Date range:
-                </span>
-              </div>
-              <div className="flex items-center space-x-2">
-                <div className="flex items-center space-x-1">
-                  <label
-                    htmlFor="dwm-from-date"
-                    className="text-xs font-medium text-gray-600"
-                  >
-                    From
+          <div className="flex flex-col space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-4">
+                <div className="flex items-center space-x-2">
+                  <Calendar className="w-5 h-5 text-blue-600" />
+                  <label htmlFor="date-picker" className="text-sm font-medium text-gray-700">
+                    Select Date:
                   </label>
-                  <input
-                    id="dwm-from-date"
-                    type="date"
-                    value={fromDate || ''}
-                    onChange={(e) => setFromDate(e.target.value)}
-                    className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-xs"
-                    max={new Date().toISOString().split('T')[0]}
-                  />
                 </div>
-                <span className="text-xs text-gray-500">to</span>
-                <div className="flex items-center space-x-1">
-                  <label
-                    htmlFor="dwm-to-date"
-                    className="text-xs font-medium text-gray-600"
-                  >
-                    To
-                  </label>
-                  <input
-                    id="dwm-to-date"
-                    type="date"
-                    value={toDate || ''}
-                    onChange={(e) => setToDate(e.target.value)}
-                    className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-xs"
-                    max={new Date().toISOString().split('T')[0]}
-                  />
-                </div>
+                <input
+                  id="date-picker"
+                  type="date"
+                  value={selectedDate || ''}
+                  onChange={(e) => onDateChange(e.target.value)}
+                  className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                  max={new Date().toISOString().split('T')[0]} // Don't allow future dates
+                />
+                <button
+                  onClick={() => onRefresh(selectedDate)}
+                  className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+                >
+                  Refresh
+                </button>
               </div>
-              <button
-                onClick={() => {
-                  const from = fromDate || selectedDate;
-                  const to = toDate || from;
-                  onRefresh({ from, to });
-                }}
-                className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
-              >
-                Refresh
-              </button>
-            </div>
-            <div className="text-sm text-gray-600">
-              {fromDate && toDate ? (
-                <span>
-                  Showing data for:{' '}
-                  <span className="font-medium">
-                    {new Date(fromDate).toLocaleDateString('en-US', {
-                      year: 'numeric',
-                      month: 'short',
-                      day: 'numeric'
-                    })}{' '}
-                    –{' '}
-                    {new Date(toDate).toLocaleDateString('en-US', {
-                      year: 'numeric',
-                      month: 'short',
-                      day: 'numeric'
-                    })}
+              <div className="text-sm text-gray-600">
+                {selectedDate ? (
+                  <span>
+                    Showing data for:{' '}
+                    <span className="font-medium">
+                      {new Date(selectedDate).toLocaleDateString('en-US', {
+                        weekday: 'long',
+                        year: 'numeric',
+                        month: 'long',
+                        day: 'numeric'
+                      })}
+                    </span>
                   </span>
-                </span>
-              ) : (
-                <span className="text-gray-500">No date selected</span>
-              )}
+                ) : (
+                  <span className="text-gray-500">No date selected</span>
+                )}
+              </div>
+            </div>
+
+            {/* Date range controls */}
+            <div className="flex items-center space-x-3">
+              <span className="text-sm font-medium text-gray-700">Or apply date range:</span>
+              <input
+                type="date"
+                value={rangeStart}
+                onChange={(e) => setRangeStart(e.target.value)}
+                className="px-3 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-xs"
+                max={rangeEnd || new Date().toISOString().split('T')[0]}
+              />
+              <span className="text-xs text-gray-500">to</span>
+              <input
+                type="date"
+                value={rangeEnd}
+                onChange={(e) => setRangeEnd(e.target.value)}
+                className="px-3 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-xs"
+                min={rangeStart || undefined}
+                max={new Date().toISOString().split('T')[0]}
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  if (!onRefreshRange || !rangeStart || !rangeEnd) return;
+                  if (new Date(rangeStart) > new Date(rangeEnd)) return;
+                  onRefreshRange(rangeStart, rangeEnd);
+                }}
+                className="px-3 py-1.5 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 transition-colors text-xs font-medium"
+              >
+                Apply range
+              </button>
             </div>
           </div>
         </div>
