@@ -9855,7 +9855,8 @@ app.get('/api/admin/idle-accountability', async (req, res) => {
       SELECT
         ia.*,
         e.name AS employee_name,
-        e.department
+        e.department,
+        e.designation
       FROM idle_accountability ia
       LEFT JOIN employees e ON ia.employee_id = e.id
       WHERE ${where}

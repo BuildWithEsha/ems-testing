@@ -72,6 +72,12 @@ const LowIdleNotificationPanel = ({
     formatShortDate(endDate || todayIso())
   );
   const [creatingTickets, setCreatingTickets] = useState(false);
+  const [templateTitle, setTemplateTitle] = useState(
+    'High idle time – reason not submitted'
+  );
+  const [templateDescription, setTemplateDescription] = useState(
+    'This notification is to inform you that you had high idle time and did not submit an accountability reason for the selected date.'
+  );
 
   const displayStart = typeof startDate === 'string' ? formatShortDate(startDate) : todayIso();
   const displayEnd = typeof endDate === 'string' ? formatShortDate(endDate) : todayIso();
@@ -954,15 +960,15 @@ const LowIdleNotificationPanel = ({
         {/* Admin create idle tickets modal */}
         {isAdmin && createTicketsOpen && (
           <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg shadow-xl w-full max-w-lg p-6">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-xl mx-4 p-6">
               <h2 className="text-lg font-semibold text-gray-900 mb-3">
-                Create idle tickets
+                Create idle tickets – template preview
               </h2>
               <p className="text-sm text-gray-600 mb-4">
-                This will create high-priority{' '}
-                <span className="font-semibold">Idle Time</span> tickets for all
-                employees who have pending idle accountability for the selected
-                date and have not submitted a reason.
+                The following template will be used for all matching pending
+                accountability records (above 20 minutes) for the selected
+                date, department and designation. You can edit the title and
+                description below, then confirm to create tickets.
               </p>
               <div className="space-y-4 mb-4">
                 <div>
@@ -975,6 +981,43 @@ const LowIdleNotificationPanel = ({
                     onChange={(e) => setCreateTicketDate(e.target.value)}
                     className="w-full border border-gray-300 rounded-lg px-2 py-1 text-sm"
                   />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">
+                    Title
+                  </label>
+                  <input
+                    type="text"
+                    value={templateTitle}
+                    onChange={(e) => setTemplateTitle(e.target.value)}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                    placeholder="Ticket title"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">
+                    Description header
+                  </label>
+                  <textarea
+                    value={templateDescription}
+                    onChange={(e) => setTemplateDescription(e.target.value)}
+                    rows={3}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                    placeholder="Intro text for the ticket description"
+                  />
+                </div>
+                <div className="border border-gray-200 rounded-lg p-3 bg-gray-50 max-h-48 overflow-y-auto">
+                  <p className="text-xs font-semibold text-gray-700 mb-1">
+                    This will generate tickets with descriptions like:
+                  </p>
+                  <pre className="text-xs text-gray-700 whitespace-pre-wrap">
+{`${templateDescription}
+
+Date: 2026-02-09
+Employee: [Employee name]
+Idle time: [Idle minutes] minutes
+Status: pending`}
+                  </pre>
                 </div>
               </div>
               <div className="flex items-center justify-end space-x-2">
@@ -992,6 +1035,13 @@ const LowIdleNotificationPanel = ({
                     if (!createTicketDate) return;
                     try {
                       setCreatingTickets(true);
+                      const body = {
+                        date: createTicketDate,
+                        department: departmentFilter || null,
+                        designation: designationFilter || null,
+                        title: templateTitle,
+                        description: templateDescription
+                      };
                       const res = await fetch(
                         '/api/tickets/auto-idle-accountability',
                         {
@@ -1004,7 +1054,7 @@ const LowIdleNotificationPanel = ({
                             ),
                             'user-id': String(user?.id || '')
                           },
-                          body: JSON.stringify({ date: createTicketDate })
+                          body: JSON.stringify(body)
                         }
                       );
                       if (!res.ok) {
