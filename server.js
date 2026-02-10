@@ -6825,7 +6825,7 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                 connection = await mysqlPool.getConnection();
                 await connection.ping();
               // First get the task to get the timer start time and current logged_seconds
-              const getTaskQuery = 'SELECT timer_started_at, COALESCE(logged_seconds, 0) AS logged_seconds FROM tasks WHERE id = ?';
+              const getTaskQuery = 'SELECT timer_started_at, COALESCE(logged_seconds, 0) AS logged_seconds, assigned_to FROM tasks WHERE id = ?';
                 const [tasks] = await connection.execute(getTaskQuery, [taskId]);
                 
                 if (tasks.length === 0) {
@@ -6844,6 +6844,38 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                 }
                 
                 const task = tasks[0];
+                
+                // Resolve which employee should get credit for this time entry.
+                // Default to the user performing the action, but prefer the task's assignee
+                // so auto-stops (stale session / browser close / offline) are attributed to
+                // the actual assignee instead of the Admin fallback user.
+                const rawUserName = (user_name || '').toString().trim();
+                const rawUserId = user_id || 1;
+                let timesheetEmployeeName = rawUserName || 'Admin';
+                let timesheetEmployeeId = rawUserId;
+
+                try {
+                  const assignedTo = (task.assigned_to || '').toString().trim();
+                  if (assignedTo) {
+                    // Use the first assignee in a comma-separated list
+                    const firstAssigneeName = assignedTo.split(',')[0].trim();
+                    if (firstAssigneeName) {
+                      const [empMatch] = await connection.execute(
+                        'SELECT id, name FROM employees WHERE name = ? LIMIT 1',
+                        [firstAssigneeName]
+                      );
+                      if (Array.isArray(empMatch) && empMatch.length > 0) {
+                        timesheetEmployeeName = (empMatch[0].name || firstAssigneeName).toString().trim();
+                        timesheetEmployeeId = empMatch[0].id || timesheetEmployeeId;
+                      } else {
+                        // If no exact employee match, still prefer the assignee name for reporting
+                        timesheetEmployeeName = firstAssigneeName;
+                      }
+                    }
+                  }
+                } catch (assigneeErr) {
+                  console.error('Stop timer: failed to resolve assignee for task', taskId, assigneeErr);
+                }
                 
                 // Determine start and end times:
                 // 1) Prefer exact timestamps sent by frontend (startTimeMs/endTimeMs - epoch ms)
@@ -6937,8 +6969,8 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                   
                   await connection.execute(timesheetQuery, [
                     taskId,
-                    user_name || 'Admin',
-                    user_id || 1,
+                    timesheetEmployeeName,
+                    timesheetEmployeeId,
                     sanitizeForMySQL(startTimeForDB),
                     sanitizeForMySQL(endTimeForDB),
                     memo || '',
@@ -6958,8 +6990,8 @@ app.post('/api/employees/import', upload.single('file'), async (req, res) => {
                     taskId,
                     'Timer stopped',
                     historyDescription,
-                    user_name || 'Admin',
-                    user_id || 1
+                    timesheetEmployeeName,
+                    timesheetEmployeeId
                   );
                   
                   console.log('✅ Stop timer response - taskId:', taskId, 'logged_seconds:', updatedLoggedSeconds, 'finalLoggedSeconds:', finalLoggedSeconds); // Debug log
