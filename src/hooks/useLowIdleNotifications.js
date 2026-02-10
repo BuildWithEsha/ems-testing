@@ -13,6 +13,7 @@ export const useLowIdleNotifications = () => {
   const [endDate, setEndDate] = useState(today());
   const [minIdleHours, setMinIdleHours] = useState(0);
   const [minIdleMinutes, setMinIdleMinutes] = useState(30);
+  const [accountabilitySummary, setAccountabilitySummary] = useState({});
 
   // Currently idle (rolling window, e.g. last 15 min)
   const [currentlyIdleList, setCurrentlyIdleList] = useState([]);
@@ -93,6 +94,41 @@ export const useLowIdleNotifications = () => {
         const data = await response.json();
         setLowIdleNotifications(Array.isArray(data) ? data : []);
         setHasLowIdleNotifications(Array.isArray(data) ? data.length > 0 : false);
+
+        // If querying a single day, also load idle accountability summary for that date
+        if (s === e && Array.isArray(data) && data.length > 0) {
+          try {
+            const summaryRes = await fetch(
+              `/api/admin/idle-accountability/summary?date=${encodeURIComponent(s)}`,
+              {
+                headers: {
+                  'x-user-role': user?.role || 'Admin',
+                  'x-user-permissions': JSON.stringify(user?.permissions || ['all'])
+                }
+              }
+            );
+            if (summaryRes.ok) {
+              const summaryData = await summaryRes.json();
+              const byEmail = {};
+              (Array.isArray(summaryData) ? summaryData : []).forEach((row) => {
+                const key = (row.employee_email || '').toLowerCase();
+                if (!key) return;
+                byEmail[key] = {
+                  status: row.status,
+                  employeeId: row.employee_id,
+                  date: row.date
+                };
+              });
+              setAccountabilitySummary(byEmail);
+            } else {
+              setAccountabilitySummary({});
+            }
+          } catch {
+            setAccountabilitySummary({});
+          }
+        } else {
+          setAccountabilitySummary({});
+        }
       } else {
         const errData = await response.json().catch(() => ({}));
         const msg = errData.error || errData.message || `Request failed (${response.status})`;
@@ -146,6 +182,7 @@ export const useLowIdleNotifications = () => {
     setCurrentlyIdleWindowMinutes,
     setCurrentlyIdleMinMinutes,
     refreshCurrentlyIdle: () => fetchCurrentlyIdle(),
-    fetchCurrentlyIdle: (opts) => fetchCurrentlyIdle(opts)
+    fetchCurrentlyIdle: (opts) => fetchCurrentlyIdle(opts),
+    accountabilitySummary
   };
 };
