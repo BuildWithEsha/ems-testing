@@ -628,7 +628,13 @@ const TaskReport = ({ stats, tasks, filters, setFilters, employees }) => {
 // Time Log Report Component
 const TimeLogReport = () => {
   const [employees, setEmployees] = useState([]);
-  const [filters, setFilters] = useState({ startDate: '', endDate: '', employee: '', department: '' });
+  const [filters, setFilters] = useState({
+    startDate: '',
+    endDate: '',
+    employee: '',
+    department: '',
+    taskTitle: ''
+  });
   const [departments, setDepartments] = useState([]);
   const [rows, setRows] = useState([]);
   const [totalSeconds, setTotalSeconds] = useState(0);
@@ -669,6 +675,7 @@ const TimeLogReport = () => {
     const params = new URLSearchParams({ start: filters.startDate, end: filters.endDate });
     if (filters.employee) params.append('employee', filters.employee);
     if (filters.department) params.append('department', filters.department);
+    if (filters.taskTitle) params.append('taskTitle', filters.taskTitle);
     const res = await fetch(`/api/reports/timelog?${params.toString()}`);
     const data = res.ok ? await res.json() : { items: [], totalSeconds: 0 };
     setRows(data.items || []);
@@ -707,6 +714,22 @@ const TimeLogReport = () => {
               <option value="">All</option>
               {(departments || []).map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
             </select>
+          </div>
+        </div>
+        <div className="mt-4 grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Search by Task Name
+            </label>
+            <input
+              type="text"
+              value={filters.taskTitle}
+              onChange={(e) =>
+                setFilters((f) => ({ ...f, taskTitle: e.target.value }))
+              }
+              className="w-full border rounded px-3 py-2"
+              placeholder="Type task name..."
+            />
           </div>
         </div>
       </div>
@@ -748,7 +771,13 @@ const TimeLogReport = () => {
 // Consolidated Time Log Report Component
 const ConsolidatedTimeLogReport = () => {
   const [employees, setEmployees] = useState([]);
-  const [filters, setFilters] = useState({ startDate: '', endDate: '', employee: '', department: '' });
+  const [filters, setFilters] = useState({
+    startDate: '',
+    endDate: '',
+    employee: '',
+    department: '',
+    taskTitle: ''
+  });
   const [departments, setDepartments] = useState([]);
   const [rows, setRows] = useState([]);
   const [totalSeconds, setTotalSeconds] = useState(0);
@@ -798,6 +827,7 @@ const ConsolidatedTimeLogReport = () => {
     const params = new URLSearchParams({ start: filters.startDate, end: filters.endDate });
     if (filters.employee) params.append('employee', filters.employee);
     if (filters.department) params.append('department', filters.department);
+    if (filters.taskTitle) params.append('taskTitle', filters.taskTitle);
     const res = await fetch(`/api/reports/timelog/consolidated?${params.toString()}`);
     const data = res.ok ? await res.json() : { items: [], totalSeconds: 0 };
     setRows(data.items || []);

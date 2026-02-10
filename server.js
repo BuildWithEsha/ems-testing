@@ -2368,7 +2368,7 @@ app.get('/api/attendance/sample', (req, res) => {
 
 // Time Log Report API - grouped by task per day with filters and totals
 app.get('/api/reports/timelog', async (req, res) => {
-  const { start, end, employee, department } = req.query;
+  const { start, end, employee, department, taskTitle } = req.query;
   if (!start || !end) return res.status(400).json({ error: 'start and end are required (YYYY-MM-DD)' });
 
   // Build dynamic filters
@@ -2386,6 +2386,10 @@ app.get('/api/reports/timelog', async (req, res) => {
   if (department) {
     where += ` AND t.department = ?`;
     params.push(department);
+  }
+  if (taskTitle) {
+    where += ` AND t.title LIKE ?`;
+    params.push(`%${taskTitle}%`);
   }
 
   const query = `
@@ -2427,7 +2431,7 @@ app.get('/api/reports/timelog', async (req, res) => {
 });
 // Consolidated Time Log Report - grouped by task (parent-level) and assignee across selected dates
 app.get('/api/reports/timelog/consolidated', async (req, res) => {
-  const { start, end, employee, department } = req.query;
+  const { start, end, employee, department, taskTitle } = req.query;
   if (!start || !end) return res.status(400).json({ error: 'start and end are required (YYYY-MM-DD)' });
 
   // Build dynamic filters
@@ -2445,6 +2449,10 @@ app.get('/api/reports/timelog/consolidated', async (req, res) => {
   if (department) {
     where += ` AND t.department = ?`;
     params.push(department);
+  }
+  if (taskTitle) {
+    where += ` AND t.title LIKE ?`;
+    params.push(`%${taskTitle}%`);
   }
 
   const query = `

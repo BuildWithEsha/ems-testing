@@ -241,20 +241,52 @@ const NotificationPanel = ({ isOpen, onClose, notifications, selectedDate, onDat
             <div className="flex items-center space-x-4">
               <div className="flex items-center space-x-2">
                 <Calendar className="w-5 h-5 text-blue-600" />
-                <label htmlFor="date-picker" className="text-sm font-medium text-gray-700">
-                  Select Date:
-                </label>
+                <span className="text-sm font-medium text-gray-700">
+                  Date range:
+                </span>
               </div>
-              <input
-                id="date-picker"
-                type="date"
-                value={selectedDate || ''}
-                onChange={(e) => onDateChange(e.target.value)}
-                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
-                max={new Date().toISOString().split('T')[0]} // Don't allow future dates
-              />
+              <div className="flex items-center space-x-2">
+                <div className="flex items-center space-x-1">
+                  <label
+                    htmlFor="dwm-from-date"
+                    className="text-xs font-medium text-gray-600"
+                  >
+                    From
+                  </label>
+                  <input
+                    id="dwm-from-date"
+                    type="date"
+                    value={selectedDate || ''}
+                    onChange={(e) => onDateChange(e.target.value)}
+                    className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-xs"
+                    max={new Date().toISOString().split('T')[0]}
+                  />
+                </div>
+                <span className="text-xs text-gray-500">to</span>
+                <div className="flex items-center space-x-1">
+                  <label
+                    htmlFor="dwm-to-date"
+                    className="text-xs font-medium text-gray-600"
+                  >
+                    To
+                  </label>
+                  <input
+                    id="dwm-to-date"
+                    type="date"
+                    value={selectedDate || ''}
+                    onChange={(e) => onDateChange(e.target.value)}
+                    className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-xs"
+                    max={new Date().toISOString().split('T')[0]}
+                  />
+                </div>
+              </div>
               <button
-                onClick={() => onRefresh(selectedDate)}
+                onClick={() =>
+                  onRefresh({
+                    from: selectedDate,
+                    to: selectedDate
+                  })
+                }
                 className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
               >
                 Refresh
@@ -263,12 +295,15 @@ const NotificationPanel = ({ isOpen, onClose, notifications, selectedDate, onDat
             <div className="text-sm text-gray-600">
               {selectedDate ? (
                 <span>
-                  Showing data for: <span className="font-medium">{new Date(selectedDate).toLocaleDateString('en-US', { 
-                    weekday: 'long', 
-                    year: 'numeric', 
-                    month: 'long', 
-                    day: 'numeric' 
-                  })}</span>
+                  Showing data for:{' '}
+                  <span className="font-medium">
+                    {new Date(selectedDate).toLocaleDateString('en-US', {
+                      weekday: 'long',
+                      year: 'numeric',
+                      month: 'long',
+                      day: 'numeric'
+                    })}
+                  </span>
                 </span>
               ) : (
                 <span className="text-gray-500">No date selected</span>
