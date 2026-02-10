@@ -673,9 +673,6 @@ const TimeLogReport = () => {
   const fetchReport = async () => {
     if (!filters.startDate || !filters.endDate) return;
     const params = new URLSearchParams({ start: filters.startDate, end: filters.endDate });
-    if (filters.employee) params.append('employee', filters.employee);
-    if (filters.department) params.append('department', filters.department);
-    if (filters.taskTitle) params.append('taskTitle', filters.taskTitle);
     const res = await fetch(`/api/reports/timelog?${params.toString()}`);
     const data = res.ok ? await res.json() : { items: [], totalSeconds: 0 };
     setRows(data.items || []);
@@ -751,13 +748,23 @@ const TimeLogReport = () => {
           </thead>
           <tbody>
             {rows
-              .filter((r) =>
-                filters.taskTitle
-                  ? (r.task_title || '')
-                      .toLowerCase()
-                      .includes(filters.taskTitle.toLowerCase())
-                  : true
-              )
+              .filter((r) => {
+                if (filters.employee && r.employee_name !== filters.employee) {
+                  return false;
+                }
+                if (filters.department && r.department !== filters.department) {
+                  return false;
+                }
+                if (
+                  filters.taskTitle &&
+                  !(r.task_title || '')
+                    .toLowerCase()
+                    .includes(filters.taskTitle.toLowerCase())
+                ) {
+                  return false;
+                }
+                return true;
+              })
               .map((r, idx) => (
               <tr key={idx} className="border-b">
                 <td className="px-6 py-3">{r.employee_name}</td>
@@ -835,9 +842,6 @@ const ConsolidatedTimeLogReport = () => {
   const fetchReport = async () => {
     if (!filters.startDate || !filters.endDate) return;
     const params = new URLSearchParams({ start: filters.startDate, end: filters.endDate });
-    if (filters.employee) params.append('employee', filters.employee);
-    if (filters.department) params.append('department', filters.department);
-    if (filters.taskTitle) params.append('taskTitle', filters.taskTitle);
     const res = await fetch(`/api/reports/timelog/consolidated?${params.toString()}`);
     const data = res.ok ? await res.json() : { items: [], totalSeconds: 0 };
     setRows(data.items || []);
@@ -913,13 +917,23 @@ const ConsolidatedTimeLogReport = () => {
           </thead>
           <tbody>
             {rows
-              .filter((r) =>
-                filters.taskTitle
-                  ? (r.task_title || '')
-                      .toLowerCase()
-                      .includes(filters.taskTitle.toLowerCase())
-                  : true
-              )
+              .filter((r) => {
+                if (filters.employee && r.employee_name !== filters.employee) {
+                  return false;
+                }
+                if (filters.department && r.department !== filters.department) {
+                  return false;
+                }
+                if (
+                  filters.taskTitle &&
+                  !(r.task_title || '')
+                    .toLowerCase()
+                    .includes(filters.taskTitle.toLowerCase())
+                ) {
+                  return false;
+                }
+                return true;
+              })
               .map((r, idx) => (
               <tr key={idx} className="border-b">
                 <td className="px-6 py-3">{r.employee_name}</td>

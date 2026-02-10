@@ -2368,7 +2368,7 @@ app.get('/api/attendance/sample', (req, res) => {
 
 // Time Log Report API - grouped by task per day with filters and totals
 app.get('/api/reports/timelog', async (req, res) => {
-  const { start, end, employee, department, taskTitle } = req.query;
+  const { start, end } = req.query;
   if (!start || !end) return res.status(400).json({ error: 'start and end are required (YYYY-MM-DD)' });
 
   // Build dynamic filters
@@ -2378,19 +2378,6 @@ app.get('/api/reports/timelog', async (req, res) => {
   const startDate = `${start} 00:00:00`;
   const endDate = `${end} 23:59:59`;
   params.push(startDate, endDate);
-
-  if (employee) {
-    where += ` AND tt.employee_name = ?`;
-    params.push(employee);
-  }
-  if (department) {
-    where += ` AND t.department = ?`;
-    params.push(department);
-  }
-  if (taskTitle && String(taskTitle).trim() !== '') {
-    where += ` AND LOWER(t.title) LIKE ?`;
-    params.push(`%${String(taskTitle).trim().toLowerCase()}%`);
-  }
 
   const query = `
     SELECT tt.employee_name, t.title AS task_title, t.labels, t.priority,
@@ -2431,7 +2418,7 @@ app.get('/api/reports/timelog', async (req, res) => {
 });
 // Consolidated Time Log Report - grouped by task (parent-level) and assignee across selected dates
 app.get('/api/reports/timelog/consolidated', async (req, res) => {
-  const { start, end, employee, department, taskTitle } = req.query;
+  const { start, end } = req.query;
   if (!start || !end) return res.status(400).json({ error: 'start and end are required (YYYY-MM-DD)' });
 
   // Build dynamic filters
@@ -2441,19 +2428,6 @@ app.get('/api/reports/timelog/consolidated', async (req, res) => {
   const startDate = `${start} 00:00:00`;
   const endDate = `${end} 23:59:59`;
   params.push(startDate, endDate);
-
-  if (employee) {
-    where += ` AND tt.employee_name = ?`;
-    params.push(employee);
-  }
-  if (department) {
-    where += ` AND t.department = ?`;
-    params.push(department);
-  }
-  if (taskTitle && String(taskTitle).trim() !== '') {
-    where += ` AND LOWER(t.title) LIKE ?`;
-    params.push(`%${String(taskTitle).trim().toLowerCase()}%`);
-  }
 
   const query = `
     SELECT 
