@@ -9622,6 +9622,48 @@ app.post('/api/admin/idle-accountability/run', async (req, res) => {
   }
 });
 
+// ===== Daily idle accountability sync (Pakistan time) =====
+// Once per local day, pull Team Logger data for yesterday and upsert idle_accountability rows
+(function setupDailyIdleAccountability() {
+  const timeZone = 'Asia/Karachi';
+  const getYmd = () =>
+    new Intl.DateTimeFormat('en-CA', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    }).format(new Date());
+  let lastYmd = getYmd();
+
+  const runForYesterday = async () => {
+    try {
+      const result = await runIdleAccountabilityForDate();
+      console.log(
+        'Daily idle accountability sync ran automatically:',
+        result
+      );
+    } catch (e) {
+      console.error('Daily idle accountability sync failed:', e);
+    }
+  };
+
+  // On startup, run once so yesterday’s data is available immediately
+  runForYesterday();
+
+  setInterval(() => {
+    try {
+      const current = getYmd();
+      if (current !== lastYmd) {
+        // New local day → sync for previous day
+        runForYesterday();
+        lastYmd = current;
+      }
+    } catch (e) {
+      console.error('Idle accountability daily scheduler error:', e);
+    }
+  }, 60 * 1000); // check every minute
+})();
+
 // Admin listing endpoint for idle accountability records
 app.get('/api/admin/idle-accountability', async (req, res) => {
   const userRoleHeader = req.headers['user-role'] || req.headers['x-user-role'] || 'employee';
