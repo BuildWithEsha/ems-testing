@@ -350,12 +350,25 @@ const LowIdleNotificationPanel = ({
           <>
             {isAdmin ? (
               <div className="flex-1 overflow-auto p-6">
-                <div className="mb-4 text-sm text-gray-600">
-                  Showing idle accountability records above 20 minutes for date range{' '}
-                  <span className="font-medium">
-                    {displayStart} – {displayEnd}
-                  </span>
-                  .
+                <div className="flex items-center justify-between mb-4">
+                  <div className="text-sm text-gray-600">
+                    Showing idle accountability records above 20 minutes for date range{' '}
+                    <span className="font-medium">
+                      {displayStart} – {displayEnd}
+                    </span>
+                    .
+                  </div>
+                  {onRefreshAccountability && (
+                    <div className="flex items-center space-x-2">
+                      <button
+                        type="button"
+                        onClick={() => onRefreshAccountability()}
+                        className="px-3 py-1.5 text-xs rounded-lg bg-indigo-600 text-white hover:bg-indigo-700"
+                      >
+                        Refresh
+                      </button>
+                    </div>
+                  )}
                 </div>
                 {accountabilityError && (
                   <div className="mb-4 p-3 rounded bg-red-50 text-red-700 text-sm">
@@ -367,107 +380,188 @@ const LowIdleNotificationPanel = ({
                     Loading accountability records...
                   </div>
                 ) : (
-                  <>
-                    {(() => {
-                      const rows =
-                        viewMode === 'pendingAccountability'
-                          ? accountabilityPending
-                          : accountabilityResolved;
-                      if (!rows || rows.length === 0) {
-                        return (
-                          <div className="flex items-center justify-center py-12 text-gray-500">
-                            {viewMode === 'pendingAccountability'
-                              ? 'No pending accountability items in this date range.'
-                              : 'No resolved accountability items in this date range.'}
-                          </div>
-                        );
-                      }
+                  (() => {
+                    const rows =
+                      viewMode === 'pendingAccountability'
+                        ? accountabilityPending
+                        : accountabilityResolved;
+                    if (!rows || rows.length === 0) {
                       return (
-                        <div className="overflow-auto border border-gray-200 rounded-lg bg-white">
-                          <table className="min-w-full text-sm">
-                            <thead className="bg-gray-50">
-                              <tr>
-                                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                  Date
-                                </th>
-                                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                  Employee
-                                </th>
-                                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                  Department
-                                </th>
-                                <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                  Idle (min)
-                                </th>
-                                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                  Status
-                                </th>
-                                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                  Category
-                                </th>
-                                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                  Subcategory
-                                </th>
-                                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                  Reason
-                                </th>
-                                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                  Ticket
-                                </th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-100">
-                              {rows.map((item) => (
-                                <tr key={item.id} className="hover:bg-gray-50">
-                                  <td className="px-3 py-2 whitespace-nowrap text-gray-900">
-                                    {item.date}
-                                  </td>
-                                  <td className="px-3 py-2 whitespace-nowrap text-gray-900">
-                                    {item.employee_name || item.employee_email || 'Unknown'}
-                                  </td>
-                                  <td className="px-3 py-2 whitespace-nowrap text-gray-500">
-                                    {item.department || 'Unassigned'}
-                                  </td>
-                                  <td className="px-3 py-2 whitespace-nowrap text-right text-gray-900">
-                                    {item.idle_minutes}
-                                  </td>
-                                  <td className="px-3 py-2 whitespace-nowrap">
-                                    <span
-                                      className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
-                                        item.status === 'pending'
-                                          ? 'bg-yellow-50 text-yellow-800'
-                                          : item.status === 'submitted'
-                                          ? 'bg-green-50 text-green-800'
-                                          : item.status === 'ticket_created'
-                                          ? 'bg-red-50 text-red-800'
-                                          : 'bg-gray-50 text-gray-800'
-                                      }`}
-                                    >
-                                      {item.status}
-                                    </span>
-                                  </td>
-                                  <td className="px-3 py-2 whitespace-nowrap text-gray-900">
-                                    {item.category || '-'}
-                                  </td>
-                                  <td className="px-3 py-2 whitespace-nowrap text-gray-900">
-                                    {item.subcategory || '-'}
-                                  </td>
-                                  <td className="px-3 py-2 text-gray-700 max-w-xs">
-                                    <div className="truncate" title={item.reason_text || ''}>
-                                      {item.reason_text || '-'}
-                                    </div>
-                                  </td>
-                                  <td className="px-3 py-2 whitespace-nowrap text-gray-900">
-                                    {item.ticket_id ? `Ticket #${item.ticket_id}` : '-'}
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
+                        <div className="flex items-center justify-center py-12 text-gray-500">
+                          {viewMode === 'pendingAccountability'
+                            ? 'No pending accountability items in this date range.'
+                            : 'No resolved accountability items in this date range.'}
                         </div>
                       );
-                    })()}
-                  </>
+                    }
+
+                    const searchLower = searchTerm.toLowerCase();
+                    const rowsFiltered = rows.filter((r) => {
+                      const dept = r.department || 'Unassigned';
+                      const matchesDept =
+                        !departmentFilter || dept === departmentFilter;
+                      const empName = (r.employee_name || '').toLowerCase();
+                      const empEmail = (r.employee_email || '').toLowerCase();
+                      const matchesSearch =
+                        !searchLower ||
+                        empName.includes(searchLower) ||
+                        empEmail.includes(searchLower);
+                      return matchesDept && matchesSearch;
+                    });
+
+                    const grouped = rowsFiltered.reduce((acc, r) => {
+                      const dept = r.department || 'Unassigned';
+                      if (!acc[dept]) acc[dept] = [];
+                      acc[dept].push(r);
+                      return acc;
+                    }, {});
+
+                    const deptKeys = Object.keys(grouped).sort();
+
+                    return (
+                      <>
+                        <div className="p-4 border border-gray-200 rounded-lg mb-4 bg-gray-50">
+                          <div className="flex flex-wrap items-center justify-between gap-4">
+                            <div className="flex items-center space-x-4">
+                              <div className="relative">
+                                <Search className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+                                <input
+                                  type="text"
+                                  placeholder="Search employees..."
+                                  value={searchTerm}
+                                  onChange={(e) => setSearchTerm(e.target.value)}
+                                  className="pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 w-64"
+                                />
+                              </div>
+                              <select
+                                value={departmentFilter}
+                                onChange={(e) => setDepartmentFilter(e.target.value)}
+                                className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm"
+                              >
+                                <option value="">All Departments</option>
+                                {deptKeys.map((dept) => (
+                                  <option key={dept} value={dept}>
+                                    {dept}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            <span className="text-sm text-gray-600">
+                              {rowsFiltered.length} record
+                              {rowsFiltered.length !== 1 ? 's' : ''} in{' '}
+                              {deptKeys.length} department
+                              {deptKeys.length !== 1 ? 's' : ''}.
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="space-y-4">
+                          {deptKeys.map((dept) => {
+                            const deptRows = grouped[dept] || [];
+                            return (
+                              <div
+                                key={dept}
+                                className="border border-gray-200 rounded-lg overflow-hidden"
+                              >
+                                <button
+                                  onClick={() => handleDepartmentToggle(dept)}
+                                  className="w-full flex items-center justify-between p-4 bg-gray-50 hover:bg-gray-100 transition-colors"
+                                >
+                                  <div className="flex items-center space-x-3">
+                                    {expandedDepartments.has(dept) ? (
+                                      <ChevronDown className="w-5 h-5 text-gray-500" />
+                                    ) : (
+                                      <ChevronRight className="w-5 h-5 text-gray-500" />
+                                    )}
+                                    <Building className="w-5 h-5 text-gray-500" />
+                                    <span className="font-medium text-gray-900">
+                                      {dept}
+                                    </span>
+                                    <span className="px-2 py-1 text-xs bg-teal-100 text-teal-700 rounded-full">
+                                      {deptRows.length} record
+                                      {deptRows.length !== 1 ? 's' : ''}
+                                    </span>
+                                  </div>
+                                </button>
+                                {expandedDepartments.has(dept) && (
+                                  <div className="divide-y divide-gray-100">
+                                    {deptRows.map((item) => (
+                                      <div
+                                        key={item.id}
+                                        className="p-4 hover:bg-gray-50 flex items-start justify-between"
+                                      >
+                                        <div>
+                                          <div className="text-sm text-gray-500 mb-1">
+                                            Date:{' '}
+                                            <span className="font-medium text-gray-900">
+                                              {item.date}
+                                            </span>
+                                          </div>
+                                          <div className="text-sm text-gray-500 mb-1">
+                                            Employee:{' '}
+                                            <span className="font-medium text-gray-900">
+                                              {item.employee_name ||
+                                                item.employee_email ||
+                                                'Unknown'}
+                                            </span>
+                                          </div>
+                                          <div className="text-sm text-gray-500 mb-1">
+                                            Idle time:{' '}
+                                            <span className="font-medium text-gray-900">
+                                              {item.idle_minutes} minutes
+                                            </span>
+                                          </div>
+                                          <div className="text-sm text-gray-500 mb-1">
+                                            Status:{' '}
+                                            <span
+                                              className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                                                item.status === 'pending'
+                                                  ? 'bg-yellow-50 text-yellow-800'
+                                                  : item.status === 'submitted'
+                                                  ? 'bg-green-50 text-green-800'
+                                                  : item.status === 'ticket_created'
+                                                  ? 'bg-red-50 text-red-800'
+                                                  : 'bg-gray-50 text-gray-800'
+                                              }`}
+                                            >
+                                              {item.status}
+                                            </span>
+                                          </div>
+                                          <div className="text-sm text-gray-500">
+                                            Category:{' '}
+                                            <span className="text-gray-900">
+                                              {item.category || '-'}
+                                            </span>{' '}
+                                            · Subcategory:{' '}
+                                            <span className="text-gray-900">
+                                              {item.subcategory || '-'}
+                                            </span>
+                                          </div>
+                                          <div className="text-sm text-gray-500 mt-1">
+                                            Reason:{' '}
+                                            <span className="text-gray-900">
+                                              {item.reason_text || '—'}
+                                            </span>
+                                          </div>
+                                        </div>
+                                        <div className="text-right text-sm text-gray-600">
+                                          <div>
+                                            {item.ticket_id
+                                              ? `Ticket #${item.ticket_id}`
+                                              : 'No ticket'}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </>
+                    );
+                  })()
                 )}
               </div>
             ) : (
