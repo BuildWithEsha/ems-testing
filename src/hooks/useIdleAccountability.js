@@ -50,7 +50,11 @@ export const useIdleAccountability = () => {
       const pending = rows.filter(
         (i) => Number(i.idle_minutes) > 20 && i.status === 'pending'
       );
-      const resolved = rows.filter((i) => i.status !== 'pending');
+      // An accountability item is only considered "resolved" once
+      // the employee has submitted a form (or it has been waived).
+      const resolved = rows.filter(
+        (i) => i.status === 'submitted' || i.status === 'waived'
+      );
       setPendingItems(pending);
       setResolvedItems(resolved);
     } catch (e) {

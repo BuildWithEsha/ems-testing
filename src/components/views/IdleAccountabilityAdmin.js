@@ -75,7 +75,12 @@ const IdleAccountabilityAdmin = () => {
     (i) => Number(i.idle_minutes) > 20 && i.status === 'pending'
   );
 
-  const resolvedItems = items.filter((i) => i.status !== 'pending');
+  // Only treat items as resolved once a form has been submitted
+  // (or the record has been waived). Creating a ticket alone does
+  // not move an item into the resolved list.
+  const resolvedItems = items.filter(
+    (i) => i.status === 'submitted' || i.status === 'waived'
+  );
 
   const currentItems = activeTab === 'pending' ? pendingItems : resolvedItems;
 

@@ -9176,7 +9176,13 @@ async function upsertIdleAccountabilityFromListForDate(list, date, thresholdMinu
 async function createIdleTicketsForDate(targetDate, opts = {}) {
   const todayIso = new Date().toISOString().split('T')[0];
   const date = (targetDate || todayIso).split('T')[0];
-  const { department, designation, title: customTitle, description: customDescription } = opts || {};
+  const {
+    department,
+    designation,
+    title: customTitle,
+    description: customDescription,
+    createdBy
+  } = opts || {};
 
   let connection;
   try {
@@ -9225,19 +9231,22 @@ async function createIdleTicketsForDate(targetDate, opts = {}) {
       const employeeId = row.employee_id;
       const employeeName = row.employee_name || row.employee_email || 'Employee';
       const dept = row.department || 'Unassigned';
+      const dateOnly = row.date
+        ? new Date(row.date).toISOString().split('T')[0]
+        : date;
 
       const title =
         customTitle ||
-        `High idle time on ${row.date} – reason not submitted`;
+        `High idle time on ${dateOnly} – reason not submitted`;
       const descriptionHeader =
         customDescription ||
         'This ticket was auto-created because idle time accountability was not submitted.';
       const description =
         `${descriptionHeader}\n\n` +
-        `Date: ${row.date}\n` +
+        `Date: ${dateOnly}\n` +
         `Employee: ${employeeName}\n` +
         `Department: ${dept}\n` +
-        `Idle time: ${row.idle_minutes} minutes (threshold ${row.threshold_minutes} minutes)\n` +
+        `Idle time: ${row.idle_minutes} minutes\n` +
         `Status: ${row.status}\n\n` +
         `Please review the employee's activity and follow up as needed.`;
 
@@ -9260,7 +9269,7 @@ async function createIdleTicketsForDate(targetDate, opts = {}) {
           'Open',
           employeeId || null,
           dept,
-          employeeId || null
+          createdBy || null
         ]
       );
 
@@ -11094,6 +11103,11 @@ app.post('/api/tickets/auto-idle-accountability', async (req, res) => {
   }
 
   const body = req.body || {};
+  const creatorIdHeader = req.headers['user-id'] || req.headers['x-user-id'];
+  const createdBy =
+    (typeof creatorIdHeader === 'string' && creatorIdHeader.trim()
+      ? Number(creatorIdHeader)
+      : null) || null;
   const dateFromBody = body.date;
   const dateFromQuery = req.query.date;
   const targetDate = (dateFromBody || dateFromQuery || new Date().toISOString().split('T')[0]).split('T')[0];
@@ -11111,7 +11125,8 @@ app.post('/api/tickets/auto-idle-accountability', async (req, res) => {
       department,
       designation,
       title: customTitle,
-      description: customDescription
+      description: customDescription,
+      createdBy
     });
     res.json(result);
   } catch (err) {

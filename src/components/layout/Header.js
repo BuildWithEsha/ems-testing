@@ -141,7 +141,12 @@ const Header = ({ onSearch, onLogout, tasks, employees, onStartTimer, onStopTime
       const pending = rows.filter(
         (i) => Number(i.idle_minutes) > 20 && i.status === 'pending'
       );
-      const resolved = rows.filter((i) => i.status !== 'pending');
+      // Admin "Resolved Accountability" should only show entries
+      // where the accountability has actually been completed by a
+      // form submission (or explicitly waived), not merely ticketed.
+      const resolved = rows.filter(
+        (i) => i.status === 'submitted' || i.status === 'waived'
+      );
       setIdleAccPending(pending);
       setIdleAccResolved(resolved);
     } catch (e) {
@@ -177,7 +182,11 @@ const Header = ({ onSearch, onLogout, tasks, employees, onStartTimer, onStopTime
       const pending = rows.filter(
         (i) => Number(i.idle_minutes) > 20 && i.status === 'pending'
       );
-      const resolved = rows.filter((i) => i.status !== 'pending');
+      // For employees as well, only consider items resolved once a
+      // form is submitted (or waived).
+      const resolved = rows.filter(
+        (i) => i.status === 'submitted' || i.status === 'waived'
+      );
       setIdleAccPending(pending);
       setIdleAccResolved(resolved);
     } catch (e) {
