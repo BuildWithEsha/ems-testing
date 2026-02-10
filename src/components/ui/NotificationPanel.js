@@ -28,6 +28,8 @@ const NotificationPanel = ({ isOpen, onClose, notifications, selectedDate, onDat
   const [selectedTasks, setSelectedTasks] = useState(new Set());
   const [selectAll, setSelectAll] = useState(false);
   const [expandedDepartments, setExpandedDepartments] = useState(new Set());
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
   const { modalRef, modalStyle, dragHandleProps } = useDraggableModal();
 
   // Helper function for ordinal suffixes (1st, 2nd, 3rd, etc.)
@@ -97,6 +99,18 @@ const NotificationPanel = ({ isOpen, onClose, notifications, selectedDate, onDat
       setExpandedDepartments(new Set(Object.keys(groupedFilteredNotifications)));
     }
   };
+
+  // Initialize/sync local date range when opening
+  useEffect(() => {
+    if (!isOpen) return;
+    const base =
+      selectedDate ||
+      new Date(Date.now() - 24 * 60 * 60 * 1000)
+        .toISOString()
+        .split('T')[0];
+    setFromDate((prev) => prev || base);
+    setToDate((prev) => prev || base);
+  }, [isOpen, selectedDate]);
 
   // Fetch employees and departments for filter options
   useEffect(() => {
@@ -256,8 +270,8 @@ const NotificationPanel = ({ isOpen, onClose, notifications, selectedDate, onDat
                   <input
                     id="dwm-from-date"
                     type="date"
-                    value={selectedDate || ''}
-                    onChange={(e) => onDateChange(e.target.value)}
+                    value={fromDate || ''}
+                    onChange={(e) => setFromDate(e.target.value)}
                     className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-xs"
                     max={new Date().toISOString().split('T')[0]}
                   />
@@ -273,34 +287,38 @@ const NotificationPanel = ({ isOpen, onClose, notifications, selectedDate, onDat
                   <input
                     id="dwm-to-date"
                     type="date"
-                    value={selectedDate || ''}
-                    onChange={(e) => onDateChange(e.target.value)}
+                    value={toDate || ''}
+                    onChange={(e) => setToDate(e.target.value)}
                     className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-xs"
                     max={new Date().toISOString().split('T')[0]}
                   />
                 </div>
               </div>
               <button
-                onClick={() =>
-                  onRefresh({
-                    from: selectedDate,
-                    to: selectedDate
-                  })
-                }
+                onClick={() => {
+                  const from = fromDate || selectedDate;
+                  const to = toDate || from;
+                  onRefresh({ from, to });
+                }}
                 className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
               >
                 Refresh
               </button>
             </div>
             <div className="text-sm text-gray-600">
-              {selectedDate ? (
+              {fromDate && toDate ? (
                 <span>
                   Showing data for:{' '}
                   <span className="font-medium">
-                    {new Date(selectedDate).toLocaleDateString('en-US', {
-                      weekday: 'long',
+                    {new Date(fromDate).toLocaleDateString('en-US', {
                       year: 'numeric',
-                      month: 'long',
+                      month: 'short',
+                      day: 'numeric'
+                    })}{' '}
+                    –{' '}
+                    {new Date(toDate).toLocaleDateString('en-US', {
+                      year: 'numeric',
+                      month: 'short',
                       day: 'numeric'
                     })}
                   </span>

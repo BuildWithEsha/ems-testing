@@ -682,7 +682,9 @@ const TimeLogReport = () => {
     setTotalSeconds(data.totalSeconds || 0);
   };
 
-  useEffect(() => { fetchReport(); }, [filters.startDate, filters.endDate, filters.employee, filters.department]);
+  useEffect(() => {
+    fetchReport();
+  }, [filters.startDate, filters.endDate, filters.employee, filters.department, filters.taskTitle]);
 
   return (
     <div className="space-y-6">
@@ -834,7 +836,9 @@ const ConsolidatedTimeLogReport = () => {
     setTotalSeconds(data.totalSeconds || 0);
   };
 
-  useEffect(() => { fetchReport(); }, [filters.startDate, filters.endDate, filters.employee, filters.department]);
+  useEffect(() => {
+    fetchReport();
+  }, [filters.startDate, filters.endDate, filters.employee, filters.department, filters.taskTitle]);
 
   return (
     <div className="space-y-6">
@@ -866,6 +870,22 @@ const ConsolidatedTimeLogReport = () => {
               <option value="">All</option>
               {(departments || []).map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
             </select>
+          </div>
+        </div>
+        <div className="mt-4 grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Search by Task Name
+            </label>
+            <input
+              type="text"
+              value={filters.taskTitle}
+              onChange={(e) =>
+                setFilters((f) => ({ ...f, taskTitle: e.target.value }))
+              }
+              className="w-full border rounded px-3 py-2"
+              placeholder="Type task name..."
+            />
           </div>
         </div>
       </div>
