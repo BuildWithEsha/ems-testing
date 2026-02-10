@@ -50,9 +50,6 @@ const cacheMiddleware = (key, ttl = CACHE_TTL) => {
 };
 
 const app = express();
-// Disable ETag headers so API responses (especially small JSON like idle-accountability)
-// are always sent fresh and not served as 304 Not Modified with stale empty bodies.
-app.set('etag', false);
 const PORT = process.env.PORT || 5000;
 
 // MySQL Database Configuration for Tasks and Designations
@@ -9788,7 +9785,7 @@ app.get('/api/admin/idle-accountability', async (req, res) => {
   }
 
   const norm = (s) => (typeof s === 'string' && s.includes('T') ? s.split('T')[0] : s);
-  const { from, to, date, status, department, category } = req.query || {};
+  const { from, to, status, department, category } = req.query || {};
 
   const todayIso = new Date().toISOString().split('T')[0];
   const today = norm(todayIso);
@@ -9796,12 +9793,8 @@ app.get('/api/admin/idle-accountability', async (req, res) => {
   dFrom.setUTCDate(dFrom.getUTCDate() - 30);
   const defaultFrom = dFrom.toISOString().split('T')[0];
 
-  // If a single date is provided, treat it as both from and to
-  const effectiveFrom = date || from;
-  const effectiveTo = date || to;
-
-  const fromDate = norm(effectiveFrom || defaultFrom);
-  const toDate = norm(effectiveTo || today);
+  const fromDate = norm(from || defaultFrom);
+  const toDate = norm(to || today);
 
   let connection;
   try {
@@ -9843,93 +9836,6 @@ app.get('/api/admin/idle-accountability', async (req, res) => {
   } catch (err) {
     console.error('Error fetching idle accountability admin list:', err.message || err, err.stack || '');
     res.status(500).json({ error: 'Failed to fetch idle accountability admin list', message: err.message || 'Unknown error' });
-  } finally {
-    if (connection) {
-      try { connection.release(); } catch (e) { /* ignore */ }
-    }
-  }
-});
-
-// Debug: raw idle_accountability rows for a specific date (admin only)
-app.get('/api/admin/idle-accountability/raw', async (req, res) => {
-  const userRoleHeader = req.headers['user-role'] || req.headers['x-user-role'] || 'employee';
-  const userRole = String(userRoleHeader || '').toLowerCase();
-  if (userRole !== 'admin') {
-    return res.status(403).json({ error: 'Access denied. Raw idle accountability view is for admins only.' });
-  }
-
-  const { date } = req.query || {};
-  if (!date) {
-    return res.status(400).json({ error: 'date query parameter is required (YYYY-MM-DD)' });
-  }
-
-  let connection;
-  try {
-    connection = await mysqlPool.getConnection();
-    await connection.ping();
-
-    const [rows] = await connection.execute(
-      'SELECT * FROM idle_accountability WHERE date = ? ORDER BY id DESC',
-      [date.split('T')[0]]
-    );
-    res.json(rows);
-  } catch (err) {
-    console.error('Error fetching raw idle accountability rows:', err.message || err, err.stack || '');
-    res.status(500).json({ error: 'Failed to fetch raw idle accountability rows', message: err.message || 'Unknown error' });
-  } finally {
-    if (connection) {
-      try { connection.release(); } catch (e) { /* ignore */ }
-    }
-  }
-});
-
-// Admin summary: per-employee accountability status for a given date
-app.get('/api/admin/idle-accountability/summary', async (req, res) => {
-  const userRoleHeader = req.headers['user-role'] || req.headers['x-user-role'] || 'employee';
-  const userRole = String(userRoleHeader || '').toLowerCase();
-  const permsHeader = req.headers['user-permissions'] || req.headers['x-user-permissions'] || '[]';
-  let perms = [];
-  try {
-    perms = typeof permsHeader === 'string' ? JSON.parse(permsHeader) : [];
-  } catch {
-    // ignore
-  }
-
-  const isAdmin = userRole === 'admin';
-  if (!isAdmin && !perms.includes('all') && !perms.includes('idle_accountability_admin_view')) {
-    return res.status(403).json({ error: 'Access denied. Idle accountability summary is for admins only.' });
-  }
-
-  const { date } = req.query || {};
-  if (!date) {
-    return res.status(400).json({ error: 'date query parameter is required (YYYY-MM-DD)' });
-  }
-
-  let connection;
-  try {
-    connection = await mysqlPool.getConnection();
-    await connection.ping();
-
-    const [rows] = await connection.execute(
-      `
-      SELECT
-        ia.employee_id,
-        ia.employee_email,
-        ia.status,
-        ia.date,
-        e.name AS employee_name,
-        e.department
-      FROM idle_accountability ia
-      LEFT JOIN employees e ON ia.employee_id = e.id
-      WHERE ia.date = ?
-      `,
-      [date.split('T')[0]]
-    );
-
-    res.json(rows);
-  } catch (err) {
-    console.error('Error fetching idle accountability summary:', err.message || err, err.stack || '');
-    res.status(500).json({ error: 'Failed to fetch idle accountability summary', message: err.message || 'Unknown error' });
   } finally {
     if (connection) {
       try { connection.release(); } catch (e) { /* ignore */ }
@@ -10001,120 +9907,6 @@ app.get('/api/idle-accountability/my-pending', async (req, res) => {
   } catch (err) {
     console.error('Error fetching my idle accountability items:', err.message || err, err.stack || '');
     res.status(500).json({ error: 'Failed to fetch idle accountability items', message: err.message || 'Unknown error' });
-  } finally {
-    if (connection) {
-      try { connection.release(); } catch (e) { /* ignore */ }
-    }
-  }
-});
-
-// Per-employee daily idle accountability summary (previous days)
-app.get('/api/idle-accountability/my-summary', async (req, res) => {
-  const userId = Number(req.headers['x-user-id'] || req.headers['user-id'] || 0);
-  const userEmailHeader = (req.headers['x-user-email'] || req.headers['user-email'] || '').toString().trim();
-
-  if (!userId && !userEmailHeader) {
-    return res.status(401).json({ error: 'User identification required (user-id or user-email header).' });
-  }
-
-  const norm = (s) => (typeof s === 'string' && s.includes('T') ? s.split('T')[0] : s);
-  const { from, to } = req.query || {};
-
-  const today = new Date();
-  const defaultTo = norm(today.toISOString().split('T')[0]);
-  const dFrom = new Date(today);
-  dFrom.setDate(dFrom.getDate() - 30);
-  const defaultFrom = dFrom.toISOString().split('T')[0];
-
-  const fromDate = norm(from || defaultFrom);
-  const toDate = norm(to || defaultTo);
-
-  let connection;
-  try {
-    connection = await mysqlPool.getConnection();
-    await connection.ping();
-
-    const params = [fromDate, toDate];
-    let where = 'ia.date BETWEEN ? AND ?';
-
-    if (userId) {
-      where += ' AND (ia.employee_id = ?';
-      params.push(userId);
-      if (userEmailHeader) {
-        where += ' OR (ia.employee_id IS NULL AND LOWER(ia.employee_email) = LOWER(?))';
-        params.push(userEmailHeader);
-      }
-      where += ')';
-    } else if (userEmailHeader) {
-      where += ' AND LOWER(ia.employee_email) = LOWER(?)';
-      params.push(userEmailHeader);
-    }
-
-    const sql = `
-      SELECT
-        ia.date,
-        ia.idle_minutes,
-        ia.threshold_minutes,
-        ia.status
-      FROM idle_accountability ia
-      WHERE ${where}
-      ORDER BY ia.date DESC
-    `;
-
-    const [rows] = await connection.execute(sql, params);
-    res.json(rows);
-  } catch (err) {
-    console.error('Error fetching my idle accountability summary:', err.message || err, err.stack || '');
-    res.status(500).json({ error: 'Failed to fetch idle accountability summary', message: err.message || 'Unknown error' });
-  } finally {
-    if (connection) {
-      try { connection.release(); } catch (e) { /* ignore */ }
-    }
-  }
-});
-
-// Per-employee count of pending idle accountability days
-app.get('/api/idle-accountability/my-pending-count', async (req, res) => {
-  const userId = Number(req.headers['x-user-id'] || req.headers['user-id'] || 0);
-  const userEmailHeader = (req.headers['x-user-email'] || req.headers['user-email'] || '').toString().trim();
-
-  if (!userId && !userEmailHeader) {
-    return res.status(401).json({ error: 'User identification required (user-id or user-email header).' });
-  }
-
-  let connection;
-  try {
-    connection = await mysqlPool.getConnection();
-    await connection.ping();
-
-    const params = [];
-    let where = 'ia.status = \'pending\'';
-
-    if (userId) {
-      where += ' AND (ia.employee_id = ?';
-      params.push(userId);
-      if (userEmailHeader) {
-        where += ' OR (ia.employee_id IS NULL AND LOWER(ia.employee_email) = LOWER(?))';
-        params.push(userEmailHeader);
-      }
-      where += ')';
-    } else if (userEmailHeader) {
-      where += ' AND LOWER(ia.employee_email) = LOWER(?)';
-      params.push(userEmailHeader);
-    }
-
-    const sql = `
-      SELECT COUNT(*) AS pending_count
-      FROM idle_accountability ia
-      WHERE ${where}
-    `;
-
-    const [rows] = await connection.execute(sql, params);
-    const count = rows && rows[0] ? Number(rows[0].pending_count || 0) : 0;
-    res.json({ count });
-  } catch (err) {
-    console.error('Error fetching my pending idle accountability count:', err.message || err, err.stack || '');
-    res.status(500).json({ error: 'Failed to fetch pending idle accountability count', message: err.message || 'Unknown error' });
   } finally {
     if (connection) {
       try { connection.release(); } catch (e) { /* ignore */ }

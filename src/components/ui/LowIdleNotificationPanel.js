@@ -21,8 +21,7 @@ const LowIdleNotificationPanel = ({
   onCurrentlyIdleWindowChange,
   onCurrentlyIdleMinMinutesChange,
   onRefreshCurrentlyIdle,
-  onFetchCurrentlyIdle,
-  accountabilitySummary = {}
+  onFetchCurrentlyIdle
 }) => {
   const [viewMode, setViewMode] = useState('range'); // 'range' | 'current'
   const [showSettings, setShowSettings] = useState(false);
@@ -403,36 +402,6 @@ const LowIdleNotificationPanel = ({
                                 {formatIdleHMS(n.idleHours)} idle
                               </span>
                               <p className="text-xs text-gray-500 mt-1">{n.dateRange || `${startDate} to ${endDate}`}</p>
-                              {viewMode === 'range' && displayStart === displayEnd && n.email && (
-                                (() => {
-                                  const key = String(n.email || '').toLowerCase();
-                                  const acc = accountabilitySummary[key];
-                                  if (!acc) {
-                                    return (
-                                      <p className="text-[11px] text-yellow-700 mt-1">
-                                        Accountability: <span className="font-semibold">no form yet</span>
-                                      </p>
-                                    );
-                                  }
-                                  let label = 'no form yet';
-                                  let cls = 'text-yellow-700';
-                                  if (acc.status === 'submitted') {
-                                    label = 'submitted';
-                                    cls = 'text-green-700';
-                                  } else if (acc.status === 'ticket_created') {
-                                    label = 'ticket created';
-                                    cls = 'text-red-700';
-                                  } else if (acc.status === 'waived') {
-                                    label = 'waived';
-                                    cls = 'text-gray-600';
-                                  }
-                                  return (
-                                    <p className={`text-[11px] mt-1 ${cls}`}>
-                                      Accountability: <span className="font-semibold">{label}</span>
-                                    </p>
-                                  );
-                                })()
-                              )}
                             </div>
                           </div>
                         </div>

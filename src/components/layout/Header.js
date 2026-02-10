@@ -16,7 +16,6 @@ import { useNotifications } from '../../hooks/useNotifications';
 import { useAbsenceNotifications } from '../../hooks/useAbsenceNotifications';
 import { useCLETNotifications } from '../../hooks/useCLETNotifications';
 import { useMissedTaskNotifications } from '../../hooks/useMissedTaskNotifications';
-import { useIdleAccountabilitySummary } from '../../hooks/useIdleAccountabilitySummary';
 import { useLessTrainedEmployeeNotifications } from '../../hooks/useLessTrainedEmployeeNotifications';
 import { useOverEstimateTaskNotifications } from '../../hooks/useOverEstimateTaskNotifications';
 import { useLowHoursNotifications } from '../../hooks/useLowHoursNotifications';
@@ -93,15 +92,11 @@ const Header = ({ onSearch, onLogout, tasks, employees, onStartTimer, onStopTime
     setCurrentlyIdleWindowMinutes,
     setCurrentlyIdleMinMinutes,
     refreshCurrentlyIdle,
-    fetchCurrentlyIdle,
-    accountabilitySummary
+    fetchCurrentlyIdle
   } = useLowIdleNotifications();
   
   // MTW notification system for admin users
   const { missedTaskNotifications, hasMissedTaskNotifications, loading: missedTaskNotificationsLoading, daysThreshold, updateDaysThreshold } = useMissedTaskNotifications();
-  const {
-    pendingCount: idlePendingCount
-  } = useIdleAccountabilitySummary();
 
   // Close menu when clicking outside
   useEffect(() => {
@@ -510,9 +505,9 @@ const Header = ({ onSearch, onLogout, tasks, employees, onStartTimer, onStopTime
                 disabled={lowIdleNotificationsLoading}
               >
                 <span className={`text-sm font-medium ${lowIdleNotificationsLoading ? 'text-gray-400' : 'text-teal-600'}`}>Idle</span>
-                {(hasLowIdleNotifications || idlePendingCount > 0) && !lowIdleNotificationsLoading && (
+                {hasLowIdleNotifications && !lowIdleNotificationsLoading && (
                   <span className="absolute -top-1 -right-1 bg-teal-500 text-white text-xs rounded-full h-4 min-w-[1rem] px-1 flex items-center justify-center">
-                    {idlePendingCount > 0 ? idlePendingCount : lowIdleNotifications.length}
+                    {lowIdleNotifications.length}
                   </span>
                 )}
                 {lowIdleNotificationsLoading && (
@@ -733,7 +728,6 @@ const Header = ({ onSearch, onLogout, tasks, employees, onStartTimer, onStopTime
         onCurrentlyIdleMinMinutesChange={setCurrentlyIdleMinMinutes}
         onRefreshCurrentlyIdle={refreshCurrentlyIdle}
         onFetchCurrentlyIdle={fetchCurrentlyIdle}
-        accountabilitySummary={accountabilitySummary}
       />
 
       {/* MTW Notification Panel */}
