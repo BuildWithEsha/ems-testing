@@ -9192,8 +9192,7 @@ async function createIdleTicketsForDate(targetDate, opts = {}) {
     const clauses = [
       'ia.date = ?',
       "ia.status = 'pending'",
-      'ia.idle_minutes > 20',
-      'ia.ticket_id IS NULL'
+      'ia.idle_minutes > 20'
     ];
     const params = [date];
 
