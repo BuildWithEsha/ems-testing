@@ -11097,6 +11097,14 @@ app.post('/api/tickets/auto-idle-accountability', async (req, res) => {
   const dateFromBody = body.date;
   const dateFromQuery = req.query.date;
   const targetDate = (dateFromBody || dateFromQuery || new Date().toISOString().split('T')[0]).split('T')[0];
+  const departmentFromBody = body.department || null;
+  const designationFromBody = body.designation || null;
+  const departmentFromQuery = req.query.department || null;
+  const designationFromQuery = req.query.designation || null;
+  const department = departmentFromBody || departmentFromQuery || null;
+  const designation = designationFromBody || designationFromQuery || null;
+  const customTitle = body.title || null;
+  const customDescription = body.description || null;
 
   try {
     const result = await createIdleTicketsForDate(targetDate, {
