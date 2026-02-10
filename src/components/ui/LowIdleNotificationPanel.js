@@ -3,6 +3,19 @@ import { X, User, Settings, Download, Clock, Building, Search, ChevronDown, Chev
 import { useDraggableModal } from '../../hooks/useDraggableModal';
 import { useAuth } from '../../contexts/AuthContext';
 
+const todayIso = () => new Date().toISOString().split('T')[0];
+
+const formatShortDate = (value) => {
+  if (!value) return '';
+  const str = String(value);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+  const datePart = str.split('T')[0];
+  if (/^\d{4}-\d{2}-\d{2}$/.test(datePart)) return datePart;
+  const d = new Date(str);
+  if (Number.isNaN(d.getTime())) return str;
+  return d.toISOString().slice(0, 10);
+};
+
 const LowIdleNotificationPanel = ({
   isOpen,
   onClose,
@@ -54,21 +67,10 @@ const LowIdleNotificationPanel = ({
   });
   const [reasonSubmitting, setReasonSubmitting] = useState(false);
   const [createTicketsOpen, setCreateTicketsOpen] = useState(false);
-  const [createTicketDate, setCreateTicketDate] = useState(() => formatShortDate(todayIso()));
+  const [createTicketDate, setCreateTicketDate] = useState(() =>
+    formatShortDate(endDate || todayIso())
+  );
   const [creatingTickets, setCreatingTickets] = useState(false);
-
-  const todayIso = () => new Date().toISOString().split('T')[0];
-
-  const formatShortDate = (value) => {
-    if (!value) return '';
-    const str = String(value);
-    if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
-    const datePart = str.split('T')[0];
-    if (/^\d{4}-\d{2}-\d{2}$/.test(datePart)) return datePart;
-    const d = new Date(str);
-    if (Number.isNaN(d.getTime())) return str;
-    return d.toISOString().slice(0, 10);
-  };
 
   const displayStart = typeof startDate === 'string' ? formatShortDate(startDate) : todayIso();
   const displayEnd = typeof endDate === 'string' ? formatShortDate(endDate) : todayIso();
