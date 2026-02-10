@@ -9,6 +9,7 @@ import MissedTaskNotificationPanel from '../ui/MissedTaskNotificationPanel';
 import LessTrainedEmployeeNotificationPanel from '../ui/LessTrainedEmployeeNotificationPanel';
 import OverEstimateTaskNotificationPanel from '../ui/OverEstimateTaskNotificationPanel';
 import LowHoursNotificationPanel from '../ui/LowHoursNotificationPanel';
+import LowIdleNotificationPanel from '../ui/LowIdleNotificationPanel';
 import NotificationBell from '../ui/NotificationBell';
 import ChangePasswordModal from '../ui/ChangePasswordModal';
 import { useNotifications } from '../../hooks/useNotifications';
@@ -72,9 +73,7 @@ const Header = ({ onSearch, onLogout, tasks, employees, onStartTimer, onStopTime
   // LHE (Low Hours Employees) notification system for admin users
   const { lowHoursNotifications, hasLowHoursNotifications, loading: lowHoursNotificationsLoading, minHoursThreshold, selectedDate: lowHoursSelectedDate, updateMinHoursThreshold, updateSelectedDate: updateLowHoursDate, updateSettings: updateLowHoursSettings } = useLowHoursNotifications();
   
-  // Low Idle (Team Logger API) notification system was previously used for a tracking-app panel.
-  // We still initialize the hook so data remains available if needed elsewhere,
-  // but the main Idle button now routes to the idle accountability views.
+  // Low Idle (Team Logger API) notification system for admin users
   const {
     lowIdleNotifications,
     hasLowIdleNotifications,
@@ -96,9 +95,113 @@ const Header = ({ onSearch, onLogout, tasks, employees, onStartTimer, onStopTime
     fetchCurrentlyIdle
   } = useLowIdleNotifications();
   
+  // Idle accountability data for Idle notification (admins and employees)
+  const [idleAccPending, setIdleAccPending] = useState([]);
+  const [idleAccResolved, setIdleAccResolved] = useState([]);
+  const [idleAccLoading, setIdleAccLoading] = useState(false);
+  const [idleAccError, setIdleAccError] = useState(null);
+  const [idleAccEmployeeDate, setIdleAccEmployeeDate] = useState(() => new Date().toISOString().split('T')[0]);
+  
   // MTW notification system for admin users
   const { missedTaskNotifications, hasMissedTaskNotifications, loading: missedTaskNotificationsLoading, daysThreshold, updateDaysThreshold } = useMissedTaskNotifications();
+  
+  const isAdminUser =
+    user?.role === 'admin' ||
+    user?.role === 'Admin' ||
+    user?.user_role === 'admin' ||
+    user?.user_role === 'Admin';
+  
+  const fetchAdminIdleAccountability = async () => {
+    if (!isAdminUser) return;
+    try {
+      setIdleAccLoading(true);
+      setIdleAccError(null);
+      const params = new URLSearchParams();
+      if (lowIdleStartDate) params.set('from', lowIdleStartDate);
+      if (lowIdleEndDate) params.set('to', lowIdleEndDate);
+      const res = await fetch(`/api/admin/idle-accountability?${params.toString()}`, {
+        headers: {
+          'x-user-role': user?.role || 'admin',
+          'x-user-permissions': JSON.stringify(user?.permissions || ['all'])
+        }
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || 'Failed to load idle accountability records');
+      }
+      const data = await res.json();
+      const rows = Array.isArray(data) ? data : [];
+      const pending = rows.filter(
+        (i) => Number(i.idle_minutes) > 20 && i.status === 'pending'
+      );
+      const resolved = rows.filter((i) => i.status !== 'pending');
+      setIdleAccPending(pending);
+      setIdleAccResolved(resolved);
+    } catch (e) {
+      console.error('Error fetching admin idle accountability for Idle modal:', e);
+      setIdleAccError(e.message || 'Failed to load idle accountability records');
+      setIdleAccPending([]);
+      setIdleAccResolved([]);
+    } finally {
+      setIdleAccLoading(false);
+    }
+  };
+  
+  const fetchEmployeeIdleAccountability = async (dateOverride) => {
+    if (!user?.id && !user?.email) return;
+    const date = dateOverride || idleAccEmployeeDate;
+    if (!date) return;
+    try {
+      setIdleAccLoading(true);
+      setIdleAccError(null);
+      const params = new URLSearchParams({ from: date, to: date });
+      const headers = {};
+      if (user?.id) headers['x-user-id'] = String(user.id);
+      if (user?.email) headers['x-user-email'] = user.email;
+      const res = await fetch(`/api/idle-accountability/my?${params.toString()}`, {
+        headers
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || 'Failed to load idle accountability items');
+      }
+      const data = await res.json();
+      const rows = Array.isArray(data) ? data : [];
+      const pending = rows.filter(
+        (i) => Number(i.idle_minutes) > 20 && i.status === 'pending'
+      );
+      const resolved = rows.filter((i) => i.status !== 'pending');
+      setIdleAccPending(pending);
+      setIdleAccResolved(resolved);
+    } catch (e) {
+      console.error('Error fetching employee idle accountability for Idle modal:', e);
+      setIdleAccError(e.message || 'Failed to load idle accountability items');
+      setIdleAccPending([]);
+      setIdleAccResolved([]);
+    } finally {
+      setIdleAccLoading(false);
+    }
+  };
+  
+  const refreshIdleAccountability = (opts = {}) => {
+    if (isAdminUser) {
+      return fetchAdminIdleAccountability();
+    }
+    const date = opts.date || idleAccEmployeeDate;
+    return fetchEmployeeIdleAccountability(date);
+  };
 
+  // Keep idle accountability data in sync when user or low-idle range changes
+  useEffect(() => {
+    if (!user) return;
+    if (isAdminUser) {
+      fetchAdminIdleAccountability();
+    } else {
+      fetchEmployeeIdleAccountability();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, lowIdleStartDate, lowIdleEndDate]);
+  
   // Close menu when clicking outside
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -497,15 +600,25 @@ const Header = ({ onSearch, onLogout, tasks, employees, onStartTimer, onStopTime
               </button>
             )}
 
-            {/* Idle Accountability entry point - all users can access their idle accountability via this */}
+            {/* Idle notifications (tracking + accountability) - available to all authenticated users */}
             {user && (
               <button 
                 className="p-2 rounded-lg hover:bg-gray-100 relative transition-colors"
                 onClick={() => setShowLowIdleNotificationPanel(true)}
-                title="Idle Accountability"
-                disabled={false}
+                title="Low Idle Employees (from tracking app)"
+                disabled={lowIdleNotificationsLoading}
               >
-                <span className="text-sm font-medium text-teal-600">Idle</span>
+                <span className={`text-sm font-medium ${lowIdleNotificationsLoading ? 'text-gray-400' : 'text-teal-600'}`}>Idle</span>
+                {hasLowIdleNotifications && !lowIdleNotificationsLoading && (
+                  <span className="absolute -top-1 -right-1 bg-teal-500 text-white text-xs rounded-full h-4 min-w-[1rem] px-1 flex items-center justify-center">
+                    {lowIdleNotifications.length}
+                  </span>
+                )}
+                {lowIdleNotificationsLoading && (
+                  <span className="absolute -top-1 -right-1 bg-gray-400 text-white text-xs rounded-full h-4 w-4 flex items-center justify-center">
+                    <div className="w-2 h-2 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  </span>
+                )}
               </button>
             )}
 
@@ -699,21 +812,35 @@ const Header = ({ onSearch, onLogout, tasks, employees, onStartTimer, onStopTime
         onUpdateSettings={updateLowHoursSettings}
       />
 
-      {/* Idle Notification – route to appropriate idle accountability view for admin/employee */}
-      {showLowIdleNotificationPanel && user && (
-        <>
-          {(() => {
-            const isAdminUser = user.role === 'admin' || user.role === 'Admin';
-            window.dispatchEvent(
-              new CustomEvent('open-idle-accountability', {
-                detail: { view: isAdminUser ? 'idleAccountabilityAdmin' : 'idleReasonForms' }
-              })
-            );
-            setShowLowIdleNotificationPanel(false);
-            return null;
-          })()}
-        </>
-      )}
+      <LowIdleNotificationPanel
+        isOpen={showLowIdleNotificationPanel}
+        onClose={() => setShowLowIdleNotificationPanel(false)}
+        lowIdleNotifications={lowIdleNotifications}
+        startDate={lowIdleStartDate}
+        endDate={lowIdleEndDate}
+        minIdleHours={lowIdleMinHours}
+        minIdleMinutes={lowIdleMinMinutes}
+        onUpdateSettings={updateLowIdleSettings}
+        loading={lowIdleNotificationsLoading}
+        error={lowIdleError}
+        currentlyIdleList={currentlyIdleList}
+        currentlyIdleLoading={currentlyIdleLoading}
+        currentlyIdleError={currentlyIdleError}
+        currentlyIdleWindowMinutes={currentlyIdleWindowMinutes}
+        currentlyIdleMinMinutes={currentlyIdleMinMinutes}
+        onCurrentlyIdleWindowChange={setCurrentlyIdleWindowMinutes}
+        onCurrentlyIdleMinMinutesChange={setCurrentlyIdleMinMinutes}
+        onRefreshCurrentlyIdle={refreshCurrentlyIdle}
+        onFetchCurrentlyIdle={fetchCurrentlyIdle}
+        isAdmin={isAdminUser}
+        accountabilityPending={idleAccPending}
+        accountabilityResolved={idleAccResolved}
+        accountabilityLoading={idleAccLoading}
+        accountabilityError={idleAccError}
+        accountabilityDate={idleAccEmployeeDate}
+        onChangeAccountabilityDate={setIdleAccEmployeeDate}
+        onRefreshAccountability={refreshIdleAccountability}
+      />
 
       {/* MTW Notification Panel */}
       <MissedTaskNotificationPanel
