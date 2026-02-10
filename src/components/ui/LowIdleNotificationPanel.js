@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, User, Settings, Download, Clock, Building, Search, ChevronDown, ChevronRight, RefreshCw } from 'lucide-react';
 import { useDraggableModal } from '../../hooks/useDraggableModal';
+import { useAuth } from '../../contexts/AuthContext';
 
 const LowIdleNotificationPanel = ({
   isOpen,
@@ -32,6 +33,7 @@ const LowIdleNotificationPanel = ({
   onChangeAccountabilityDate,
   onRefreshAccountability
 }) => {
+  const { user } = useAuth();
   const [viewMode, setViewMode] = useState(
     isAdmin ? 'range' : 'pendingAccountability'
   ); // 'range' | 'current' | 'pendingAccountability' | 'resolvedAccountability'
@@ -52,8 +54,19 @@ const LowIdleNotificationPanel = ({
   });
   const [reasonSubmitting, setReasonSubmitting] = useState(false);
 
-  const displayStart = typeof startDate === 'string' ? startDate : new Date().toISOString().split('T')[0];
-  const displayEnd = typeof endDate === 'string' ? endDate : new Date().toISOString().split('T')[0];
+  const formatShortDate = (value) => {
+    if (!value) return '';
+    const str = String(value);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+    const datePart = str.split('T')[0];
+    if (/^\d{4}-\d{2}-\d{2}$/.test(datePart)) return datePart;
+    const d = new Date(str);
+    if (Number.isNaN(d.getTime())) return str;
+    return d.toISOString().slice(0, 10);
+  };
+
+  const displayStart = typeof startDate === 'string' ? formatShortDate(startDate) : new Date().toISOString().split('T')[0];
+  const displayEnd = typeof endDate === 'string' ? formatShortDate(endDate) : new Date().toISOString().split('T')[0];
 
   useEffect(() => {
     if (showSettings) {
@@ -525,7 +538,7 @@ const LowIdleNotificationPanel = ({
                                           <div className="text-sm text-gray-500 mb-1">
                                             Date:{' '}
                                             <span className="font-medium text-gray-900">
-                                              {item.date}
+                                              {formatShortDate(item.date)}
                                             </span>
                                           </div>
                                           <div className="text-sm text-gray-500 mb-1">
@@ -568,12 +581,14 @@ const LowIdleNotificationPanel = ({
                                               {item.subcategory || '-'}
                                             </span>
                                           </div>
-                                          <div className="text-sm text-gray-500 mt-1">
-                                            Reason:{' '}
-                                            <span className="text-gray-900">
-                                              {item.reason_text || '—'}
-                                            </span>
-                                          </div>
+                                          {viewMode === 'resolvedAccountability' && (
+                                            <div className="text-sm text-gray-500 mt-1">
+                                              Reason:{' '}
+                                              <span className="text-gray-900 whitespace-pre-line">
+                                                {item.reason_text || '—'}
+                                              </span>
+                                            </div>
+                                          )}
                                         </div>
                                         <div className="text-right text-sm text-gray-600">
                                           <div>
@@ -645,61 +660,84 @@ const LowIdleNotificationPanel = ({
                       }
                       return (
                         <div className="space-y-4">
-                          {rows.map((item) => (
-                            <div
-                              key={item.id}
-                              className="border border-gray-200 rounded-lg p-4 bg-white shadow-sm flex items-start justify-between"
-                            >
-                              <div>
-                                <div className="text-sm text-gray-500 mb-1">
-                                  Date:{' '}
-                                  <span className="font-medium text-gray-900">
-                                    {item.date}
-                                  </span>
+                          {rows.map((item) => {
+                            const isPending = item.status === 'pending';
+                            return (
+                              <div
+                                key={item.id}
+                                className="border border-gray-200 rounded-lg p-4 bg-white shadow-sm flex items-start justify-between"
+                              >
+                                <div>
+                                  <div className="text-sm text-gray-500 mb-1">
+                                    Date:{' '}
+                                    <span className="font-medium text-gray-900">
+                                      {formatShortDate(item.date)}
+                                    </span>
+                                  </div>
+                                  <div className="text-sm text-gray-500 mb-1">
+                                    Employee:{' '}
+                                    <span className="font-medium text-gray-900">
+                                      {item.employee_name || item.employee_email || 'You'}
+                                    </span>
+                                  </div>
+                                  <div className="text-sm text-gray-500 mb-1">
+                                    Idle time:{' '}
+                                    <span className="font-medium text-gray-900">
+                                      {item.idle_minutes} minutes
+                                    </span>
+                                  </div>
+                                  <div className="text-sm text-gray-500 mb-1">
+                                    Status:{' '}
+                                    <span
+                                      className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                                        item.status === 'pending'
+                                          ? 'bg-yellow-50 text-yellow-800'
+                                          : item.status === 'submitted'
+                                          ? 'bg-green-50 text-green-800'
+                                          : item.status === 'ticket_created'
+                                          ? 'bg-red-50 text-red-800'
+                                          : 'bg-gray-50 text-gray-800'
+                                      }`}
+                                    >
+                                      {item.status}
+                                    </span>
+                                  </div>
+                                  {!isPending && (
+                                    <div className="text-sm text-gray-500">
+                                      Reason:{' '}
+                                      <span className="text-gray-900 whitespace-pre-line">
+                                        {item.reason_text || '—'}
+                                      </span>
+                                    </div>
+                                  )}
+                                  {item.ticket_id && (
+                                    <div className="mt-1 text-xs text-gray-500">
+                                      Ticket already created for this day (Ticket #
+                                      {item.ticket_id})
+                                    </div>
+                                  )}
                                 </div>
-                                <div className="text-sm text-gray-500 mb-1">
-                                  Employee:{' '}
-                                  <span className="font-medium text-gray-900">
-                                    {item.employee_name || item.employee_email || 'You'}
-                                  </span>
-                                </div>
-                                <div className="text-sm text-gray-500 mb-1">
-                                  Idle time:{' '}
-                                  <span className="font-medium text-gray-900">
-                                    {item.idle_minutes} minutes
-                                  </span>
-                                </div>
-                                <div className="text-sm text-gray-500 mb-1">
-                                  Status:{' '}
-                                  <span
-                                    className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
-                                      item.status === 'pending'
-                                        ? 'bg-yellow-50 text-yellow-800'
-                                        : item.status === 'submitted'
-                                        ? 'bg-green-50 text-green-800'
-                                        : item.status === 'ticket_created'
-                                        ? 'bg-red-50 text-red-800'
-                                        : 'bg-gray-50 text-gray-800'
-                                    }`}
-                                  >
-                                    {item.status}
-                                  </span>
-                                </div>
-                                <div className="text-sm text-gray-500">
-                                  Reason:{' '}
-                                  <span className="text-gray-900">
-                                    {item.reason_text || '—'}
-                                  </span>
-                                </div>
-                                {item.ticket_id && (
-                                  <div className="mt-1 text-xs text-gray-500">
-                                    Ticket already created for this day (Ticket #
-                                    {item.ticket_id})
+                                {isPending && (
+                                  <div className="ml-4">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setSelectedPendingId(item.id);
+                                        setReasonForm({
+                                          category: item.category || '',
+                                          subcategory: item.subcategory || '',
+                                          reason: item.reason_text || ''
+                                        });
+                                      }}
+                                      className="px-3 py-1.5 text-sm rounded-lg bg-indigo-600 text-white hover:bg-indigo-700"
+                                    >
+                                      Submit reason
+                                    </button>
                                   </div>
                                 )}
                               </div>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       );
                     })()}
@@ -845,6 +883,160 @@ const LowIdleNotificationPanel = ({
               </div>
             </div>
           </>
+        )}
+
+        {/* Employee submit reason modal */}
+        {!isAdmin && selectedPendingId && (
+          <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-lg p-6">
+              <h2 className="text-lg font-semibold text-gray-900 mb-4">
+                Submit idle accountability reason
+              </h2>
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  if (
+                    !reasonForm.category ||
+                    !reasonForm.subcategory ||
+                    !reasonForm.reason.trim()
+                  ) {
+                    return;
+                  }
+                  try {
+                    setReasonSubmitting(true);
+                    const headers = {
+                      'Content-Type': 'application/json'
+                    };
+                    if (user?.id) headers['x-user-id'] = String(user.id);
+                    if (user?.email) headers['x-user-email'] = user.email;
+                    const res = await fetch(
+                      `/api/idle-accountability/${selectedPendingId}/reason`,
+                      {
+                        method: 'POST',
+                        headers,
+                        body: JSON.stringify({
+                          category: reasonForm.category,
+                          subcategory: reasonForm.subcategory,
+                          reason: reasonForm.reason
+                        })
+                      }
+                    );
+                    if (!res.ok) {
+                      const errData = await res.json().catch(() => ({}));
+                      throw new Error(
+                        errData.error || 'Failed to submit reason'
+                      );
+                    }
+                    setSelectedPendingId(null);
+                    setReasonForm({
+                      category: '',
+                      subcategory: '',
+                      reason: ''
+                    });
+                    onRefreshAccountability?.({ date: accountabilityDate });
+                  } catch (err) {
+                    alert(err.message || 'Failed to submit reason');
+                  } finally {
+                    setReasonSubmitting(false);
+                  }
+                }}
+                className="space-y-4"
+              >
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Category
+                  </label>
+                  <select
+                    value={reasonForm.category}
+                    onChange={(e) =>
+                      setReasonForm((prev) => ({
+                        ...prev,
+                        category: e.target.value,
+                        subcategory: ''
+                      }))
+                    }
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    required
+                  >
+                    <option value="">Select category...</option>
+                    {categories.map((cat) => (
+                      <option key={cat.key} value={cat.key}>
+                        {cat.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Subcategory
+                  </label>
+                  <select
+                    value={reasonForm.subcategory}
+                    onChange={(e) =>
+                      setReasonForm((prev) => ({
+                        ...prev,
+                        subcategory: e.target.value
+                      }))
+                    }
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    required
+                    disabled={!reasonForm.category}
+                  >
+                    <option value="">Select subcategory...</option>
+                    {(categories.find((c) => c.key === reasonForm.category)
+                      ?.subcategories || []
+                    ).map((s) => (
+                      <option key={s.key} value={s.key}>
+                        {s.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Additional details
+                  </label>
+                  <textarea
+                    value={reasonForm.reason}
+                    onChange={(e) =>
+                      setReasonForm((prev) => ({
+                        ...prev,
+                        reason: e.target.value
+                      }))
+                    }
+                    rows={4}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    placeholder="Explain why you had higher idle time on this day..."
+                    required
+                  />
+                </div>
+                <div className="flex items-center justify-end space-x-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedPendingId(null);
+                      setReasonForm({
+                        category: '',
+                        subcategory: '',
+                        reason: ''
+                      });
+                    }}
+                    className="px-3 py-2 text-sm rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50"
+                    disabled={reasonSubmitting}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-4 py-2 text-sm rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50"
+                    disabled={reasonSubmitting}
+                  >
+                    {reasonSubmitting ? 'Submitting...' : 'Submit'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
         )}
       </div>
     </div>
