@@ -9191,7 +9191,9 @@ async function createIdleTicketsForDate(targetDate, opts = {}) {
 
     const clauses = [
       'ia.date = ?',
-      "ia.status = 'pending'",
+      // Allow tickets to be (re)created for both brand-new pending
+      // items and ones that already had a ticket created earlier.
+      "ia.status IN ('pending', 'ticket_created')",
       'ia.idle_minutes > 20'
     ];
     const params = [date];
