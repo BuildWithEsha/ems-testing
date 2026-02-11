@@ -9672,76 +9672,52 @@ async function runIdleAccountabilityForDate(targetDate) {
 
   const thresholdMinutes = 20;
 
-  let connection;
-  try {
-    connection = await mysqlPool.getConnection();
-    await connection.ping();
+  // Aggregate idle hours per employee (matching low-idle notifications logic)
+  const employeeKey = (row) => {
+    const name = (row.title ?? row.name ?? row.employeeName ?? '').toString().trim();
+    const email = (row.email ?? '').toString().trim();
+    const code = (row.code ?? row.employeeCode ?? '').toString().trim();
+    return (email || name || code || 'unknown').toLowerCase();
+  };
 
-    const [empRows] = await connection.execute(
-      'SELECT id, LOWER(TRIM(email)) AS email_key, LOWER(TRIM(name)) AS name_key, email FROM employees WHERE status = ?',
-      ['Active']
-    );
-    const emailToEmp = {};
-    const nameToEmp = {};
-    for (const r of empRows) {
-      if (r.email_key) emailToEmp[r.email_key] = { id: r.id, email: r.email };
-      if (r.name_key) nameToEmp[r.name_key] = { id: r.id, email: r.email };
+  const aggregated = {};
+  for (const row of rows) {
+    const idleH = getIdleHours(row);
+    const idleM = Math.round(Number(idleH) * 60);
+    if (!Number.isFinite(idleM) || idleM < thresholdMinutes) continue;
+
+    const key = employeeKey(row);
+    if (!aggregated[key]) {
+      aggregated[key] = {
+        employeeName: (row.title ?? row.name ?? row.employeeName ?? '').toString().trim(),
+        email: (row.email ?? '').toString().trim(),
+        employeeCode: (row.code ?? row.employeeCode ?? '').toString().trim(),
+        idleHours: 0
+      };
     }
-
-    const insertSql = `
-      INSERT INTO idle_accountability (
-        employee_id,
-        employee_email,
-        date,
-        idle_hours,
-        idle_minutes,
-        threshold_minutes
-      ) VALUES (?, ?, ?, ?, ?, ?)
-      ON DUPLICATE KEY UPDATE
-        idle_hours = VALUES(idle_hours),
-        idle_minutes = VALUES(idle_minutes),
-        threshold_minutes = VALUES(threshold_minutes),
-        updated_at = CURRENT_TIMESTAMP
-    `;
-
-    let createdCount = 0;
-    for (const row of rows) {
-      const idleH = getIdleHours(row);
-      const idleM = Math.round(Number(idleH) * 60);
-      if (!Number.isFinite(idleM) || idleM < thresholdMinutes) continue;
-
-      const rawEmail = (row.email ?? '').toString().trim();
-      const name = (row.title ?? row.name ?? row.employeeName ?? '').toString().trim();
-      const emailKey = rawEmail.toLowerCase();
-      const nameKey = name.toLowerCase();
-
-      let emp = null;
-      if (emailKey && emailToEmp[emailKey]) emp = emailToEmp[emailKey];
-      else if (nameKey && nameToEmp[nameKey]) emp = nameToEmp[nameKey];
-
-      const employeeId = emp ? emp.id : null;
-      const employeeEmail = rawEmail || (emp ? emp.email : null) || null;
-
-      await connection.execute(insertSql, [
-        employeeId,
-        employeeEmail,
-        date,
-        Number(Number(idleH).toFixed(4)),
-        idleM,
-        thresholdMinutes
-      ]);
-      createdCount += 1;
-    }
-
-    console.log('Idle accountability run complete for date=%s, rowsFromApi=%d, createdOrUpdated=%d (threshold=%dmin)',
-      date, rows.length, createdCount, thresholdMinutes);
-
-    return { date, rowsFromApi: rows.length, processed: createdCount, thresholdMinutes };
-  } finally {
-    if (connection) {
-      try { connection.release(); } catch (e) { /* ignore */ }
-    }
+    aggregated[key].idleHours += idleH;
   }
+
+  const list = Object.values(aggregated).map((agg) => ({
+    employeeName: agg.employeeName,
+    email: agg.email,
+    employeeCode: agg.employeeCode,
+    idleHours: Number(Number(agg.idleHours).toFixed(4))
+  }));
+
+  // Reuse the same upsert helper as the low-idle route so that
+  // idle_accountability minutes match the tracking app's idle data.
+  await upsertIdleAccountabilityFromListForDate(list, date, thresholdMinutes);
+
+  console.log(
+    'Idle accountability run complete for date=%s, rowsFromApi=%d, aggregatedEmployees=%d (threshold=%dmin)',
+    date,
+    rows.length,
+    list.length,
+    thresholdMinutes
+  );
+
+  return { date, rowsFromApi: rows.length, processed: list.length, thresholdMinutes };
 }
 
 // Manual trigger endpoint for idle accountability detection (admin use)
