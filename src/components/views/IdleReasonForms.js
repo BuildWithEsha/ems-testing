@@ -17,6 +17,14 @@ const IdleReasonForms = () => {
   const [form, setForm] = useState({ category: '', subcategory: '', reason: '' });
   const [submitting, setSubmitting] = useState(false);
   const [activeTab, setActiveTab] = useState('pending');
+  const formatIdleMinutes = (minutes) => {
+    const total = Number(minutes) || 0;
+    const h = Math.floor(total / 60);
+    const m = total % 60;
+    if (h && m) return `${h}h ${m}m`;
+    if (h) return `${h}h`;
+    return `${m}m`;
+  };
 
   const handleOpen = (item) => {
     setSelectedId(item.id);
@@ -162,7 +170,7 @@ const IdleReasonForms = () => {
                   <div className="text-sm text-gray-500 mb-1">
                     Idle time:{' '}
                     <span className="font-medium text-gray-900">
-                      {item.idle_minutes} minutes
+                      {formatIdleMinutes(item.idle_minutes)}
                     </span>{' '}
                     (threshold {item.threshold_minutes}m)
                   </div>
@@ -203,7 +211,7 @@ const IdleReasonForms = () => {
                   Date
                 </th>
                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Idle (min)
+                  Idle time
                 </th>
                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Status
@@ -227,7 +235,7 @@ const IdleReasonForms = () => {
                 <tr key={item.id} className="hover:bg-gray-50">
                   <td className="px-3 py-2 whitespace-nowrap text-gray-900">{item.date}</td>
                   <td className="px-3 py-2 whitespace-nowrap text-gray-900">
-                    {item.idle_minutes}
+                    {formatIdleMinutes(item.idle_minutes)}
                   </td>
                   <td className="px-3 py-2 whitespace-nowrap">
                     <span

@@ -1833,11 +1833,36 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
   }, [selectedTasks, displayTasks]);
 
 
-  // Use summary statistics from API (optimized - no need to process all tasks)
-  const completedTasks = completedTasksFromState;
-  const inProgressTasks = inProgressTasksFromState;
-  const pendingTasks = pendingTasksFromState;
-  const overdueTasks = overdueTasksFromState;
+  // Summary statistics
+  // For employees, base summary cards on the currently displayed tasks so
+  // that switching view mode (workload / assigned / all) updates counts.
+  const now = new Date();
+  const totalTasksForView = isEmployeeView ? displayTasks.length : totalTasks;
+  const completedTasks = isEmployeeView
+    ? displayTasks.filter(
+        (t) => (t.status || '').toString().toLowerCase() === 'completed'
+      ).length
+    : completedTasksFromState;
+  const inProgressTasks = isEmployeeView
+    ? displayTasks.filter((t) => {
+        const s = (t.status || '').toString().toLowerCase();
+        return s.includes('progress');
+      }).length
+    : inProgressTasksFromState;
+  const pendingTasks = isEmployeeView
+    ? displayTasks.filter((t) => {
+        const s = (t.status || '').toString().toLowerCase();
+        return !s.includes('progress') && s !== 'completed';
+      }).length
+    : pendingTasksFromState;
+  const overdueTasks = isEmployeeView
+    ? displayTasks.filter((t) => {
+        if (!t.due_date) return false;
+        const due = new Date(t.due_date);
+        const s = (t.status || '').toString().toLowerCase();
+        return due < now && s !== 'completed';
+      }).length
+    : overdueTasksFromState;
 
 
 
@@ -4325,7 +4350,9 @@ const Tasks = memo(function Tasks({ initialOpenTask, onConsumeInitialOpenTask })
           <div className="flex items-center">
             <Briefcase className="w-8 h-8 text-purple-600 mr-3" />
             <div>
-              <div className="text-2xl font-bold text-gray-900">{totalTasks}</div>
+              <div className="text-2xl font-bold text-gray-900">
+                {totalTasksForView}
+              </div>
               <div className="text-sm text-gray-600">
                 Total Tasks
                 {hasMoreTasks && user?.role !== 'admin' && (

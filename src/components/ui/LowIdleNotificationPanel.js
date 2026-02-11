@@ -79,6 +79,15 @@ const LowIdleNotificationPanel = ({
     'This notification is to inform you that you had high idle time and did not submit an accountability reason for the selected date.'
   );
 
+  const formatIdleMinutes = (minutes) => {
+    const total = Number(minutes) || 0;
+    const h = Math.floor(total / 60);
+    const m = total % 60;
+    if (h && m) return `${h}h ${m}m`;
+    if (h) return `${h}h`;
+    return `${m}m`;
+  };
+
   const displayStart = typeof startDate === 'string' ? formatShortDate(startDate) : todayIso();
   const displayEnd = typeof endDate === 'string' ? formatShortDate(endDate) : todayIso();
 
@@ -602,7 +611,7 @@ const LowIdleNotificationPanel = ({
                                           <div className="text-sm text-gray-500 mb-1">
                                             Idle time:{' '}
                                             <span className="font-medium text-gray-900">
-                                              {item.idle_minutes} minutes
+                                              {formatIdleMinutes(item.idle_minutes)}
                                             </span>
                                           </div>
                                           <div className="text-sm text-gray-500 mb-1">
@@ -745,7 +754,7 @@ const LowIdleNotificationPanel = ({
                                   <div className="text-sm text-gray-500 mb-1">
                                     Idle time:{' '}
                                     <span className="font-medium text-gray-900">
-                                      {item.idle_minutes} minutes
+                                      {formatIdleMinutes(item.idle_minutes)}
                                     </span>
                                   </div>
                                   <div className="text-sm text-gray-500 mb-1">

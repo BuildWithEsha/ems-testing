@@ -20,6 +20,14 @@ const IdleAccountabilityAdmin = () => {
   const [templateDescription, setTemplateDescription] = useState(
     'This notification is to inform you that you had high idle time and did not submit an accountability reason for the selected date.'
   );
+  const formatIdleMinutes = (minutes) => {
+    const total = Number(minutes) || 0;
+    const h = Math.floor(total / 60);
+    const m = total % 60;
+    if (h && m) return `${h}h ${m}m`;
+    if (h) return `${h}h`;
+    return `${m}m`;
+  };
   const [creatingTickets, setCreatingTickets] = useState(false);
   const [ticketInfoMessage, setTicketInfoMessage] = useState('');
 
@@ -304,7 +312,7 @@ const IdleAccountabilityAdmin = () => {
                   Department
                 </th>
                 <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Idle (min)
+                  Idle time
                 </th>
                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Status
@@ -334,7 +342,7 @@ const IdleAccountabilityAdmin = () => {
                     {item.department || 'Unassigned'}
                   </td>
                   <td className="px-3 py-2 whitespace-nowrap text-right text-gray-900">
-                    {item.idle_minutes}
+                    {formatIdleMinutes(item.idle_minutes)}
                   </td>
                   <td className="px-3 py-2 whitespace-nowrap">
                     <span
