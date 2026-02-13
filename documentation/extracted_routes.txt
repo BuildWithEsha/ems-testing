@@ -1,0 +1,30 @@
+﻿At line:1 char:244
++ ... ction\s+\w+|module\.exports)' | ForEach-Object 
+{ '{0}:{1}' -f .LineNu ...
++                                                     
+             ~
+You must provide a value expression following the 
+'-f' operator.
+At line:1 char:245
++ ... module\.exports)' | ForEach-Object { '{0}:{1}' 
+-f .LineNumber, .Line. ...
++                                                     
+  ~~~~~~~~~~~
+Unexpected token '.LineNumber' in expression or 
+statement.
+At line:1 char:256
++ ... odule\.exports)' | ForEach-Object { '{0}:{1}' 
+-f .LineNumber, .Line.T ...
++                                                     
+            ~
+Missing argument in parameter list.
+At line:1 char:269
++ ... exports)' | ForEach-Object { '{0}:{1}' -f 
+.LineNumber, .Line.Trim() }
++                                                     
+                  ~
+An expression was expected after '('.
+    + CategoryInfo          : ParserError: (:) [], Pa 
+   rentContainsErrorRecordException
+    + FullyQualifiedErrorId : ExpectedValueExpression
+ 

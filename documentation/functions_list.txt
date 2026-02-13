@@ -1,0 +1,326 @@
+﻿================================================================================
+  server.js — COMPLETE FUNCTION & ROUTE LIST (14,177 lines)
+================================================================================
+
+================================================================================
+  IMPORTS (Lines 2-9)
+================================================================================
+Line 2:     const express = require('express')
+Line 3:     const cors = require('cors')
+Line 4:     const multer = require('multer')
+Line 5:     const xlsx = require('xlsx')
+Line 6:     const path = require('path')
+Line 7:     const fs = require('fs')
+Line 8:     const mysql = require('mysql2/promise')
+Line 9:     const axios = require('axios')
+
+================================================================================
+  CONSTANTS (Lines 12-9063)
+================================================================================
+Line 12:    const cache = new Map()
+Line 13:    const CACHE_TTL = 5 * 60 * 1000
+Line 53:    const app = express()
+Line 54:    const PORT = process.env.PORT || 5000
+Line 57:    const mysqlConfig = { host, port, user, password, database }
+Line 68:    const mysqlPool = mysql.createPool(...)
+Line 578:   const storage = multer.memoryStorage()
+Line 579:   const upload = multer({ storage: storage })
+Line 9004:  const TEAMLOGGER_EMPLOYEE_SUMMARY_REPORT_URL = 'https://api2.teamlogger.com/api/employee_summary_report'
+Line 9006:  const TEAMLOGGER_API_KEY_HARDCODED = '...'
+Line 9007:  const TEAMLOGGER_KEY_ID = 'K8KIk6AT'
+Line 9063:  const IDLE_REASON_CATEGORIES = [...]
+Line 12800: let lastAutoSyncAbsentDate = null
+
+================================================================================
+  MIDDLEWARE (Lines 162-166)
+================================================================================
+Line 162:   app.use(cors())
+Line 164:   app.use(express.json({ limit: '10mb' }))
+Line 165:   app.use(express.urlencoded({ limit: '10mb', extended: true }))
+Line 166:   app.use(express.static('build'))
+
+================================================================================
+  HELPER / UTILITY FUNCTIONS
+================================================================================
+Line 16:    const cacheMiddleware = (key, ttl) => { ... }           — Cache middleware factory
+Line 124:   const checkMySQLHealth = async () => { ... }             — MySQL health check
+Line 169:   const logTaskHistory = async (...) => { ... }             — Log task history entry
+Line 194:   const toAssignedToString = (taskData) => { ... }          — Convert assigned_to to string
+Line 219:   const sanitizeForMySQL = (value) => { ... }               — Sanitize value for MySQL
+Line 269:   const initializeDatabaseTables = async () => { ... }      — Create all DB tables
+Line 582:   const getPermissionsFromHeaders = (req) => { ... }        — Parse permissions from headers
+Line 593:   const createNotification = async (...) => { ... }         — Create ticket notification
+Line 1372:  const formatAttendanceDate = (value) => { ... }            — Format attendance date
+Line 1569:  const normalizeToDate = (value) => { ... }                 — Normalize to Date object
+Line 1623:  const norm = (s) => { ... }                                — Normalize string for comparison
+Line 1634:  const formatForMySQL = (date) => { ... }                   — Format Date for MySQL
+Line 1639:  const parseTimerStartedAt = (val) => { ... }               — Parse timer value
+Line 5888:  const insertTask = async (connection, taskData) => { ... } — Insert task into DB
+Line 5971:  const createTasksByDesignation = async (...) => { ... }    — Create tasks by designation
+Line 6985:  const formatForMySQL = (date) => { ... }                   — (Duplicate) Format for MySQL
+Line 7296:  const parseCSVLine = (line) => { ... }                     — Parse CSV line
+Line 7440:  const normalizeDateValue = (val) => { ... }                — Normalize date formats
+Line 7455:  const pad = (n) => { ... }                                 — Zero-pad number
+Line 9009:  function getEpochMsForDay(dateStr, tz) { ... }             — Day epoch range (TeamLogger)
+Line 9016:  function getEpochMsForRange(start, end, tz) { ... }        — Date range epoch (TeamLogger)
+Line 9028:  function getIdleHours(row) { ... }                         — Get idle hours from TL row
+Line 9092:  async function upsertIdleAccountabilityFromListForDate(...) — Upsert idle records
+Line 9177:  async function createIdleTicketsForDate(...) { ... }       — Create idle tickets
+Line 9358:  const getIdleHours = (row) => { ... }                      — (Scoped duplicate)
+Line 9390:  const getTotalHours = (row) => { ... }                     — Get total hours from TL row
+Line 9419:  const employeeKey = (row) => { ... }                       — Unique key per employee
+Line 9636:  async function runIdleAccountabilityForDate(...) { ... }   — Run idle detection
+Line 10076: const getIdleHours = (row) => { ... }                     — (Scoped duplicate)
+Line 10177: async function resetRecurringTasks(callback) { ... }      — Reset DWM tasks
+Line 10578: async function generateTicketNumber(connection) { ... }   — Generate TKT-YYYYMMDD-XXX
+Line 10688: async function createLessHoursTicketsForDate(...) { ... } — Create less-hours tickets
+Line 10811: async function createOverEstTicketsForRange(...) { ... }  — Create over-estimate tickets
+Line 11732: async function getHealthSettings(connection) { ... }      — Get health settings
+Line 11969: const getYearMonthFromDate = (dateStr) => { ... }         — Extract year/month
+Line 11987: const allocateUninformedToFutureMonths = async (...) => {} — Distribute uninformed deductions
+Line 12020: const getOrCreateLeaveBalance = async (...) => { ... }    — Get/create leave balance
+Line 12041: const recalculateUninformedDeductionsForEmployee = async (...) => {} — Recalc deductions
+Line 12742: async function runSyncAbsentForDate(targetDate, minHours)  — Mark absent employees
+
+================================================================================
+  BACKGROUND TIMERS / SCHEDULERS
+================================================================================
+Line 84:    setInterval(() => { ... }, 60000)                        — Keep MySQL alive (ping)
+Line 9744:  setupDailyIdleAccountability() IIFE                       — Daily idle detection at midnight PKT
+Line 10210: setupDailyRecurringTaskReset() IIFE                      — Daily task reset at midnight PKT
+Line 12801: setInterval(() => { ... }, 60000)                        — Auto sync-absent for yesterday after 2AM
+
+================================================================================
+  API ROUTES — 170 TOTAL
+================================================================================
+
+--- HEALTH CHECK (1 route) ---
+Line 137:   GET    /api/health
+
+--- AUTHENTICATION (4 routes) ---
+Line 1112:  POST   /api/auth
+Line 7652:  POST   /api/auth/login
+Line 7733:  GET    /api/auth/profile
+Line 11581: POST   /api/auth/change-password
+
+--- NOTICES / ANNOUNCEMENTS (8 routes) ---
+Line 617:   GET    /api/notices
+Line 746:   GET    /api/notices/unread-count
+Line 815:   GET    /api/notices/:id
+Line 865:   POST   /api/notices
+Line 931:   PUT    /api/notices/:id
+Line 999:   DELETE /api/notices/:id
+Line 1024:  POST   /api/notices/:id/mark-read
+Line 1070:  POST   /api/notices/upload
+
+--- REPORTS (4 routes) ---
+Line 1152:  GET    /api/reports/dwm
+Line 7990:  GET    /api/reports/dwm/details
+Line 2371:  GET    /api/reports/timelog
+Line 2430:  GET    /api/reports/timelog/consolidated
+
+--- ATTENDANCE (15 routes) ---
+Line 1425:  GET    /api/attendance/status
+Line 1466:  POST   /api/attendance/clock-in
+Line 1544:  POST   /api/attendance/clock-out
+Line 1696:  GET    /api/attendance/summary
+Line 1799:  POST   /api/attendance/add
+Line 1858:  PUT    /api/attendance/:id
+Line 1915:  DELETE /api/attendance/clear-all
+Line 1960:  DELETE /api/attendance/bulk
+Line 2016:  DELETE /api/attendance/:id
+Line 2043:  GET    /api/attendance/records
+Line 2105:  GET    /api/attendance/debug
+Line 2129:  GET    /api/attendance/test-clear-all
+Line 2138:  POST   /api/attendance/import
+Line 2325:  GET    /api/attendance/sample
+Line 2628:  GET    /api/attendance/day-summary
+Line 2668:  GET    /api/attendance/daily-log
+
+--- ERRORS (4 routes) ---
+Line 2707:  GET    /api/errors
+Line 2732:  POST   /api/errors
+Line 2785:  DELETE /api/errors/:id
+Line 2809:  DELETE /api/errors/bulk
+
+--- APPRECIATIONS (6 routes) ---
+Line 2852:  GET    /api/appreciations
+Line 2876:  POST   /api/appreciations
+Line 2921:  DELETE /api/appreciations/:id
+Line 2945:  DELETE /api/appreciations/bulk
+Line 2987:  GET    /api/appreciation-types
+Line 3006:  POST   /api/appreciation-types
+
+--- DEPARTMENTS (7 routes) ---
+Line 3042:  GET    /api/departments/:id/dashboard
+Line 4443:  GET    /api/departments
+Line 4476:  GET    /api/departments/:id
+Line 4493:  POST   /api/departments
+Line 4523:  PUT    /api/departments/:id
+Line 4556:  DELETE /api/departments/:id
+Line 4594:  POST   /api/departments/import
+
+--- EMPLOYEES (8 routes) ---
+Line 3169:  GET    /api/employees
+Line 3287:  GET    /api/employees/stats
+Line 3347:  GET    /api/employees/debug
+Line 3366:  GET    /api/employees/:id/health
+Line 4017:  GET    /api/employees/:id
+Line 4054:  POST   /api/employees
+Line 4156:  PUT    /api/employees/:id
+Line 4262:  DELETE /api/employees/:id
+Line 4301:  POST   /api/employees/import
+
+--- DESIGNATIONS (6 routes) ---
+Line 4684:  GET    /api/designations
+Line 4696:  GET    /api/designations/:id
+Line 4713:  POST   /api/designations
+Line 4743:  PUT    /api/designations/:id
+Line 4776:  DELETE /api/designations/:id
+Line 4792:  POST   /api/designations/import
+
+--- LABELS (6 routes) ---
+Line 4860:  GET    /api/labels
+Line 4884:  GET    /api/labels/:id
+Line 4912:  POST   /api/labels
+Line 4954:  PUT    /api/labels/:id
+Line 5000:  DELETE /api/labels/:id
+Line 5027:  POST   /api/labels/import
+
+--- TASK CONFIG (2 routes) ---
+Line 5120:  GET    /api/task-config
+Line 5198:  POST   /api/task-config
+
+--- TASKS (24 routes) ---
+Line 5239:  GET    /api/tasks
+Line 5540:  GET    /api/tasks/workload-completion
+Line 5563:  GET    /api/tasks/summary
+Line 5698:  GET    /api/tasks/export
+Line 5841:  GET    /api/tasks/:id
+Line 5947:  POST   /api/tasks
+Line 6012:  POST   /api/tasks/by-designation
+Line 6045:  PUT    /api/tasks/:id
+Line 6267:  POST   /api/tasks/clear-timers
+Line 6284:  POST   /api/task-history/:id/delete
+Line 6328:  POST   /api/task-history/task/:taskId/delete-all
+Line 6383:  POST   /api/tasks/:id/start-timer
+Line 6488:  PUT    /api/tasks/:id/status
+Line 6534:  GET    /api/tasks/:id/history
+Line 6570:  DELETE /api/tasks/bulk
+Line 6750:  DELETE /api/tasks/:id
+Line 6846:  POST   /api/tasks/:id/stop-timer
+Line 7046:  POST   /api/tasks/:id/upload
+Line 7146:  GET    /api/tasks/:id/attachments
+Line 7185:  DELETE /api/tasks/:id/attachments/:attachmentId
+Line 7227:  GET    /api/tasks/:id/attachments/:attachmentId/download
+Line 7263:  POST   /api/tasks/import
+Line 7531:  POST   /api/tasks/update
+Line 7950:  GET    /api/tasks/:id/timesheet
+
+--- ROLES & PERMISSIONS (5 routes) ---
+Line 7785:  GET    /api/roles
+Line 7804:  POST   /api/roles
+Line 7844:  PUT    /api/roles/:id
+Line 7890:  DELETE /api/roles/:id
+Line 7928:  GET    /api/permissions
+
+--- NOTIFICATIONS (17 routes) ---
+Line 2495:  GET    /api/notifications/tasks-over-estimate
+Line 8080:  GET    /api/notifications/dwm-incomplete
+Line 8294:  GET    /api/notifications
+Line 8338:  GET    /api/notifications/unread-count
+Line 8368:  PUT    /api/notifications/:id/read
+Line 8399:  PUT    /api/notifications/mark-all-read
+Line 8433:  DELETE /api/notifications/:id
+Line 8458:  PUT    /api/notifications/mark-ticket-read
+Line 8492:  GET    /api/clet-notifications
+Line 8602:  GET    /api/notifications/consecutive-absences
+Line 8698:  GET    /api/notifications/missed-tasks
+Line 8788:  GET    /api/notifications/less-trained-employees
+Line 8898:  GET    /api/notifications/low-hours-employees
+Line 9471:  GET    /api/notifications/low-idle-employees
+Line 10021: GET    /api/notifications/currently-idle-employees
+
+--- TICKETS (9 routes) ---
+Line 10492: GET    /api/tickets
+Line 10595: POST   /api/tickets
+Line 10965: POST   /api/tickets/auto-less-hours
+Line 11017: POST   /api/tickets/auto-over-estimate
+Line 11061: POST   /api/tickets/auto-idle-accountability
+Line 11114: GET    /api/tickets/:id
+Line 11163: PUT    /api/tickets/:id
+Line 11233: DELETE /api/tickets/:id
+Line 11265: POST   /api/tickets/bulk-delete
+Line 11697: PUT    /api/tickets/:id/mark-unread
+
+--- TICKET REPLIES (4 routes) ---
+Line 11301: GET    /api/tickets/:id/replies
+Line 11337: POST   /api/tickets/:id/replies
+Line 11497: PUT    /api/tickets/:ticketId/replies/:replyId
+Line 11556: DELETE /api/tickets/:ticketId/replies/:replyId
+
+--- WARNING LETTERS (8 routes) ---
+Line 10238: GET    /api/warning-letter-types
+Line 10258: POST   /api/warning-letter-types
+Line 10295: GET    /api/warning-letters
+Line 10320: DELETE /api/warning-letters/bulk
+Line 10361: GET    /api/employees/:id/warning-letters
+Line 10388: POST   /api/warning-letters
+Line 10432: PUT    /api/warning-letters/:id
+Line 10469: DELETE /api/warning-letters/:id
+
+--- HEALTH SETTINGS (4 routes) ---
+Line 11777: GET    /api/health-settings
+Line 11810: PUT    /api/health-settings
+Line 11864: POST   /api/health-settings/reset
+Line 11914: POST   /api/health-settings/defaults
+
+--- WAGES / TIME SUMMARY (1 route) ---
+Line 9310:  GET    /api/wages/employee-time-summary
+
+--- IDLE ACCOUNTABILITY (6 routes) ---
+Line 9725:  POST   /api/admin/idle-accountability/run
+Line 9785:  GET    /api/admin/idle-accountability
+Line 9865:  GET    /api/idle-accountability/categories
+Line 9870:  GET    /api/idle-accountability/my
+Line 9947:  POST   /api/idle-accountability/:id/reason
+Line 10194: POST   /api/admin/reset-recurring
+
+--- LEAVE MANAGEMENT (22 routes) ---
+Line 12073: GET    /api/leave-types
+Line 12094: POST   /api/leaves/apply
+Line 12375: GET    /api/leaves/date-availability
+Line 12437: GET    /api/leaves/calendar
+Line 12531: POST   /api/leaves/blocked-dates
+Line 12583: DELETE /api/leaves/blocked-dates/:date
+Line 12641: GET    /api/leaves/department-restricted-days
+Line 12671: POST   /api/leaves/department-restricted-days
+Line 12706: DELETE /api/leaves/department-restricted-days
+Line 12821: POST   /api/leaves/sync-absent
+Line 12836: GET    /api/leaves/pending-actions
+Line 12983: GET    /api/leaves/swap-requests
+Line 13067: POST   /api/leaves/:id/reject-swap-after-accept
+Line 13095: POST   /api/leaves/:id/respond-swap
+Line 13131: POST   /api/leaves/:id/acknowledge
+Line 13186: PATCH  /api/leaves/:id
+Line 13302: DELETE /api/leaves/:id
+Line 13334: DELETE /api/leaves/admin/:id
+Line 13370: GET    /api/leaves/acknowledged-history
+Line 13417: GET    /api/leaves/all
+Line 13478: GET    /api/leaves/my
+Line 13559: GET    /api/leaves/department
+Line 13659: POST   /api/leaves/:id/decision
+Line 13799: POST   /api/leaves/mark-uninformed
+Line 13932: DELETE /api/leaves/uninformed/:id
+Line 13999: GET    /api/leaves/policy
+Line 14047: GET    /api/leaves/report
+
+--- CATCH-ALL / SPA (1 route) ---
+Line 14165: GET    *
+
+--- SERVER STARTUP ---
+Line 14174: app.listen(PORT, '0.0.0.0', ...)
+
+================================================================================
+  END OF LIST - 170 Routes | ~35 Helper Functions | 292 Total Definitions
+================================================================================

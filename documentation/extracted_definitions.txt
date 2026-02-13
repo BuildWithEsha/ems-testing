@@ -1,0 +1,292 @@
+﻿2: [REQUIRE] const express = require('express');
+3: [REQUIRE] const cors = require('cors');
+4: [REQUIRE] const multer = require('multer');
+5: [REQUIRE] const xlsx = require('xlsx');
+6: [REQUIRE] const path = require('path');
+7: [REQUIRE] const fs = require('fs');
+8: [REQUIRE] const mysql = require('mysql2/promise');
+9: [REQUIRE] const axios = require('axios');
+12: [CONST] const cache = new Map();
+13: [CONST] const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+16: [ARROW_FN] const cacheMiddleware = (key, ttl = CACHE_TTL) => {
+18: [CONST] const cacheKey = `${key}_${JSON.stringify(req.query)}`;
+19: [CONST] const cached = cache.get(cacheKey);
+53: [CONST] const app = express();
+54: [CONST] const PORT = process.env.PORT || 5000;
+57: [CONST] const mysqlConfig = {
+68: [CONST] const mysqlPool = mysql.createPool({
+84: [TIMER] setInterval(async () => {
+124: [ARROW_FN] const checkMySQLHealth = async () => {
+137: [ROUTE] app.get('/api/health', async (req, res) => {
+162: [MIDDLEWARE] app.use(cors());
+164: [MIDDLEWARE] app.use(express.json({ limit: '10mb' }));
+165: [MIDDLEWARE] app.use(express.urlencoded({ limit: '10mb', extended: true }));
+166: [MIDDLEWARE] app.use(express.static('build'));
+169: [ARROW_FN] const logTaskHistory = async (taskId, action, description, userName, userId, oldValue = null, newValue = null) => {
+194: [ARROW_FN] const toAssignedToString = (taskData) => {
+219: [ARROW_FN] const sanitizeForMySQL = (value) => {
+269: [ARROW_FN] const initializeDatabaseTables = async () => {
+578: [CONST] const storage = multer.memoryStorage();
+579: [CONST] const upload = multer({ storage: storage });
+582: [ARROW_FN] const getPermissionsFromHeaders = (req) => {
+593: [ARROW_FN] const createNotification = async (userId, ticketId, type, title, message) => {
+617: [ROUTE] app.get('/api/notices', async (req, res) => {
+746: [ROUTE] app.get('/api/notices/unread-count', async (req, res) => {
+815: [ROUTE] app.get('/api/notices/:id', async (req, res) => {
+865: [ROUTE] app.post('/api/notices', async (req, res) => {
+931: [ROUTE] app.put('/api/notices/:id', async (req, res) => {
+999: [ROUTE] app.delete('/api/notices/:id', async (req, res) => {
+1024: [ROUTE] app.post('/api/notices/:id/mark-read', async (req, res) => {
+1070: [ROUTE] app.post('/api/notices/upload', async (req, res) => {
+1071: [CONST] const upload = multer({
+1074: [CONST] const uploadDir = path.join(__dirname, 'uploads', 'notice-attachments');
+1112: [ROUTE] app.post('/api/auth', async (req, res) => {
+1152: [ROUTE] app.get('/api/reports/dwm', async (req, res) => {
+1372: [ARROW_FN] const formatAttendanceDate = (value) => {
+1425: [ROUTE] app.get('/api/attendance/status', async (req, res) => {
+1466: [ROUTE] app.post('/api/attendance/clock-in', async (req, res) => {
+1544: [ROUTE] app.post('/api/attendance/clock-out', async (req, res) => {
+1569: [ARROW_FN] const normalizeToDate = (value) => {
+1623: [ARROW_FN] const norm = (s) => (s || '').trim().toLowerCase().replace(/\s+/g, '');
+1634: [ARROW_FN] const formatForMySQL = (date) => {
+1639: [ARROW_FN] const parseTimerStartedAt = (val) => {
+1696: [ROUTE] app.get('/api/attendance/summary', async (req, res) => {
+1799: [ROUTE] app.post('/api/attendance/add', async (req, res) => {
+1858: [ROUTE] app.put('/api/attendance/:id', async (req, res) => {
+1915: [ROUTE] app.delete('/api/attendance/clear-all', async (req, res) => {
+1960: [ROUTE] app.delete('/api/attendance/bulk', async (req, res) => {
+2016: [ROUTE] app.delete('/api/attendance/:id', async (req, res) => {
+2043: [ROUTE] app.get('/api/attendance/records', async (req, res) => {
+2105: [ROUTE] app.get('/api/attendance/debug', async (req, res) => {
+2129: [ROUTE] app.get('/api/attendance/test-clear-all', (req, res) => {
+2138: [ROUTE] app.post('/api/attendance/import', upload.single('file'), async (req, res) => {
+2325: [ROUTE] app.get('/api/attendance/sample', (req, res) => {
+2371: [ROUTE] app.get('/api/reports/timelog', async (req, res) => {
+2430: [ROUTE] app.get('/api/reports/timelog/consolidated', async (req, res) => {
+2495: [ROUTE] app.get('/api/notifications/tasks-over-estimate', async (req, res) => {
+2628: [ROUTE] app.get('/api/attendance/day-summary', async (req, res) => {
+2668: [ROUTE] app.get('/api/attendance/daily-log', async (req, res) => {
+2707: [ROUTE] app.get('/api/errors', async (req, res) => {
+2732: [ROUTE] app.post('/api/errors', async (req, res) => {
+2785: [ROUTE] app.delete('/api/errors/:id', async (req, res) => {
+2809: [ROUTE] app.delete('/api/errors/bulk', async (req, res) => {
+2852: [ROUTE] app.get('/api/appreciations', async (req, res) => {
+2876: [ROUTE] app.post('/api/appreciations', async (req, res) => {
+2921: [ROUTE] app.delete('/api/appreciations/:id', async (req, res) => {
+2945: [ROUTE] app.delete('/api/appreciations/bulk', async (req, res) => {
+2987: [ROUTE] app.get('/api/appreciation-types', async (req, res) => {
+3006: [ROUTE] app.post('/api/appreciation-types', async (req, res) => {
+3042: [ROUTE] app.get('/api/departments/:id/dashboard', async (req, res) => {
+3055: [ARROW_FN] const buildResponse = async (departmentName) => {
+3169: [ROUTE] app.get('/api/employees', async (req, res) => {
+3287: [ROUTE] app.get('/api/employees/stats', async (req, res) => {
+3347: [ROUTE] app.get('/api/employees/debug', async (req, res) => {
+3366: [ROUTE] app.get('/api/employees/:id/health', async (req, res) => {
+3835: [CONST] const appreciationQuery = `
+3852: [CONST] const appreciationCount = result && result.length > 0 ? result[0].count : 0;
+3853: [CONST] const appreciationScore = appreciationCount * healthSettings.appreciation_bonus;
+4017: [ROUTE] app.get('/api/employees/:id', async (req, res) => {
+4054: [ROUTE] app.post('/api/employees', async (req, res) => {
+4156: [ROUTE] app.put('/api/employees/:id', async (req, res) => {
+4262: [ROUTE] app.delete('/api/employees/:id', async (req, res) => {
+4301: [ROUTE] app.post('/api/employees/import', upload.single('file'), async (req, res) => {
+4324: [ARROW_FN] const processData = async () => {
+4443: [ROUTE] app.get('/api/departments', cacheMiddleware('departments'), async (req, res) => {
+4476: [ROUTE] app.get('/api/departments/:id', async (req, res) => {
+4493: [ROUTE] app.post('/api/departments', async (req, res) => {
+4523: [ROUTE] app.put('/api/departments/:id', async (req, res) => {
+4556: [ROUTE] app.delete('/api/departments/:id', async (req, res) => {
+4594: [ROUTE] app.post('/api/departments/import', upload.single('file'), async (req, res) => {
+4684: [ROUTE] app.get('/api/designations', async (req, res) => {
+4696: [ROUTE] app.get('/api/designations/:id', async (req, res) => {
+4713: [ROUTE] app.post('/api/designations', async (req, res) => {
+4743: [ROUTE] app.put('/api/designations/:id', async (req, res) => {
+4776: [ROUTE] app.delete('/api/designations/:id', async (req, res) => {
+4792: [ROUTE] app.post('/api/designations/import', upload.single('file'), async (req, res) => {
+4860: [ROUTE] app.get('/api/labels', async (req, res) => {
+4884: [ROUTE] app.get('/api/labels/:id', async (req, res) => {
+4912: [ROUTE] app.post('/api/labels', async (req, res) => {
+4954: [ROUTE] app.put('/api/labels/:id', async (req, res) => {
+5000: [ROUTE] app.delete('/api/labels/:id', async (req, res) => {
+5027: [ROUTE] app.post('/api/labels/import', upload.single('file'), async (req, res) => {
+5120: [ROUTE] app.get('/api/task-config', async (req, res) => {
+5198: [ROUTE] app.post('/api/task-config', async (req, res) => {
+5239: [ROUTE] app.get('/api/tasks', async (req, res) => {
+5540: [ROUTE] app.get('/api/tasks/workload-completion', async (req, res) => {
+5563: [ROUTE] app.get('/api/tasks/summary', async (req, res) => {
+5698: [ROUTE] app.get('/api/tasks/export', async (req, res) => {
+5841: [ROUTE] app.get('/api/tasks/:id', async (req, res) => {
+5888: [ARROW_FN] const insertTask = async (connection, taskData) => {
+5897: [ARROW_FN] const opt = (v) => sanitizeForMySQL(v === undefined || v === null || (typeof v === 'string' && v.trim && v.trim() === '') ? null : v);
+5947: [ROUTE] app.post('/api/tasks', async (req, res) => {
+5971: [ARROW_FN] const createTasksByDesignation = async (baseTaskPayload, designation) => {
+6012: [ROUTE] app.post('/api/tasks/by-designation', async (req, res) => {
+6045: [ROUTE] app.put('/api/tasks/:id', async (req, res) => {
+6267: [ROUTE] app.post('/api/tasks/clear-timers', async (req, res) => {
+6284: [ROUTE] app.post('/api/task-history/:id/delete', async (req, res) => {
+6328: [ROUTE] app.post('/api/task-history/task/:taskId/delete-all', async (req, res) => {
+6383: [ROUTE] app.post('/api/tasks/:id/start-timer', async (req, res) => {
+6488: [ROUTE] app.put('/api/tasks/:id/status', async (req, res) => {
+6534: [ROUTE] app.get('/api/tasks/:id/history', async (req, res) => {
+6570: [ROUTE] app.delete('/api/tasks/bulk', async (req, res) => {
+6750: [ROUTE] app.delete('/api/tasks/:id', async (req, res) => {
+6846: [ROUTE] app.post('/api/tasks/:id/stop-timer', async (req, res) => {
+6985: [ARROW_FN] const formatForMySQL = (date) => {
+7046: [ROUTE] app.post('/api/tasks/:id/upload', async (req, res) => {
+7048: [CONST] const upload = multer({
+7051: [CONST] const uploadDir = path.join(__dirname, 'uploads', 'task-attachments');
+7100: [CONST] const uploadedFiles = [];
+7110: [CONST] const uploadedBy = req.body.uploaded_by || 1; // Default to user ID 1 if not provided
+7146: [ROUTE] app.get('/api/tasks/:id/attachments', async (req, res) => {
+7185: [ROUTE] app.delete('/api/tasks/:id/attachments/:attachmentId', async (req, res) => {
+7227: [ROUTE] app.get('/api/tasks/:id/attachments/:attachmentId/download', async (req, res) => {
+7263: [ROUTE] app.post('/api/tasks/import', upload.single('file'), async (req, res) => {
+7296: [ARROW_FN] const parseCSVLine = (line) => {
+7440: [ARROW_FN] const normalizeDateValue = (val) => {
+7455: [ARROW_FN] const pad = (n) => String(n).padStart(2, '0');
+7531: [ROUTE] app.post('/api/tasks/update', upload.single('file'), async (req, res) => {
+7652: [ROUTE] app.post('/api/auth/login', async (req, res) => {
+7733: [ROUTE] app.get('/api/auth/profile', async (req, res) => {
+7785: [ROUTE] app.get('/api/roles', async (req, res) => {
+7804: [ROUTE] app.post('/api/roles', async (req, res) => {
+7844: [ROUTE] app.put('/api/roles/:id', async (req, res) => {
+7890: [ROUTE] app.delete('/api/roles/:id', async (req, res) => {
+7928: [ROUTE] app.get('/api/permissions', async (req, res) => {
+7950: [ROUTE] app.get('/api/tasks/:id/timesheet', async (req, res) => {
+7990: [ROUTE] app.get('/api/reports/dwm/details', async (req, res) => {
+8080: [ROUTE] app.get('/api/notifications/dwm-incomplete', async (req, res) => {
+8151: [CONST] const apparelQuery = `SELECT id, title, labels, status, department, assigned_to FROM tasks WHERE LOWER(title) LIKE '%apparel%'`;
+8294: [ROUTE] app.get('/api/notifications', async (req, res) => {
+8338: [ROUTE] app.get('/api/notifications/unread-count', async (req, res) => {
+8368: [ROUTE] app.put('/api/notifications/:id/read', async (req, res) => {
+8399: [ROUTE] app.put('/api/notifications/mark-all-read', async (req, res) => {
+8433: [ROUTE] app.delete('/api/notifications/:id', async (req, res) => {
+8458: [ROUTE] app.put('/api/notifications/mark-ticket-read', async (req, res) => {
+8492: [ROUTE] app.get('/api/clet-notifications', async (req, res) => {
+8602: [ROUTE] app.get('/api/notifications/consecutive-absences', async (req, res) => {
+8698: [ROUTE] app.get('/api/notifications/missed-tasks', async (req, res) => {
+8788: [ROUTE] app.get('/api/notifications/less-trained-employees', async (req, res) => {
+8898: [ROUTE] app.get('/api/notifications/low-hours-employees', async (req, res) => {
+9004: [CONST] const TEAMLOGGER_EMPLOYEE_SUMMARY_REPORT_URL = 'https://api2.teamlogger.com/api/employee_summary_report';
+9006: [CONST] const TEAMLOGGER_API_KEY_HARDCODED = 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwOi8vaGlwZXJyLmNvbSIsInN1YiI6IjNlZDcxOTM5NTVkOTQxNGZhMTVlYjM0YjFiMDNiNGQwIiwiYXVkIjoic2VydmVyIn0.E6dQfypd_CzlpNjSG2S3HQp0epBlezMk4770M_G_sxY';
+9007: [CONST] const TEAMLOGGER_KEY_ID = '3ed7193955d9414fa15eb34b1b03b4d0';
+9009: [FUNCTION] function getEpochMsForDay(dateStr, timezoneOffsetMinutes = 330) {
+9016: [FUNCTION] function getEpochMsForRange(startDateStr, endDateStr, timezoneOffsetMinutes = 330) {
+9017: [ARROW_FN] const norm = (s) => (typeof s === 'string' && s.includes('T') ? s.split('T')[0] : s);
+9028: [FUNCTION] function getIdleHours(row) {
+9063: [CONST] const IDLE_REASON_CATEGORIES = [
+9092: [FUNCTION] async function upsertIdleAccountabilityFromListForDate(list, date, thresholdMinutes) {
+9177: [FUNCTION] async function createIdleTicketsForDate(targetDate, opts = {}) {
+9310: [ROUTE] app.get('/api/wages/employee-time-summary', async (req, res) => {
+9317: [ARROW_FN] const norm = (s) => (typeof s === 'string' && s.includes('T') ? s.split('T')[0] : String(s || '').trim());
+9358: [ARROW_FN] const getIdleHours = (row) => {
+9390: [ARROW_FN] const getTotalHours = (row) => {
+9419: [ARROW_FN] const employeeKey = (row) => {
+9471: [ROUTE] app.get('/api/notifications/low-idle-employees', async (req, res) => {
+9501: [ARROW_FN] const norm = (s) => (typeof s === 'string' && s.includes('T') ? s.split('T')[0] : s);
+9636: [FUNCTION] async function runIdleAccountabilityForDate(targetDate) {
+9643: [ARROW_FN] const norm = (s) => (typeof s === 'string' && s.includes('T') ? s.split('T')[0] : s);
+9677: [ARROW_FN] const employeeKey = (row) => {
+9725: [ROUTE] app.post('/api/admin/idle-accountability/run', async (req, res) => {
+9744: [IIFE] (function setupDailyIdleAccountability() {
+9746: [ARROW_FN] const getYmd = () =>
+9755: [ARROW_FN] const runForYesterday = async () => {
+9770: [TIMER] setInterval(() => {
+9785: [ROUTE] app.get('/api/admin/idle-accountability', async (req, res) => {
+9801: [ARROW_FN] const norm = (s) => (typeof s === 'string' && s.includes('T') ? s.split('T')[0] : s);
+9865: [ROUTE] app.get('/api/idle-accountability/categories', (req, res) => {
+9870: [ROUTE] app.get('/api/idle-accountability/my', async (req, res) => {
+9878: [ARROW_FN] const norm = (s) => (typeof s === 'string' && s.includes('T') ? s.split('T')[0] : s);
+9947: [ROUTE] app.post('/api/idle-accountability/:id/reason', async (req, res) => {
+10021: [ROUTE] app.get('/api/notifications/currently-idle-employees', async (req, res) => {
+10076: [ARROW_FN] const getIdleHours = (row) => {
+10177: [FUNCTION] async function resetRecurringTasks(callback) {
+10194: [ROUTE] app.post('/api/admin/reset-recurring', async (req, res) => {
+10210: [IIFE] (function setupDailyRecurringTaskReset() {
+10212: [ARROW_FN] const getYmd = () => new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+10215: [ARROW_FN] const resetTasks = async () => {
+10225: [TIMER] setInterval(() => {
+10238: [ROUTE] app.get('/api/warning-letter-types', async (req, res) => {
+10258: [ROUTE] app.post('/api/warning-letter-types', async (req, res) => {
+10295: [ROUTE] app.get('/api/warning-letters', async (req, res) => {
+10320: [ROUTE] app.delete('/api/warning-letters/bulk', async (req, res) => {
+10361: [ROUTE] app.get('/api/employees/:id/warning-letters', async (req, res) => {
+10388: [ROUTE] app.post('/api/warning-letters', async (req, res) => {
+10432: [ROUTE] app.put('/api/warning-letters/:id', async (req, res) => {
+10469: [ROUTE] app.delete('/api/warning-letters/:id', async (req, res) => {
+10492: [ROUTE] app.get('/api/tickets', async (req, res) => {
+10578: [FUNCTION] async function generateTicketNumber(connection) {
+10595: [ROUTE] app.post('/api/tickets', async (req, res) => {
+10688: [FUNCTION] async function createLessHoursTicketsForDate(targetDate, thresholdHours = 6, createdByUserId = null, department = null, designation = null) {
+10811: [FUNCTION] async function createOverEstTicketsForRange(startDate, endDate, minOverMinutes = 10, designation = null, department = null, createdByUserId = null) {
+10965: [ROUTE] app.post('/api/tickets/auto-less-hours', async (req, res) => {
+11017: [ROUTE] app.post('/api/tickets/auto-over-estimate', async (req, res) => {
+11061: [ROUTE] app.post('/api/tickets/auto-idle-accountability', async (req, res) => {
+11114: [ROUTE] app.get('/api/tickets/:id', async (req, res) => {
+11163: [ROUTE] app.put('/api/tickets/:id', async (req, res) => {
+11233: [ROUTE] app.delete('/api/tickets/:id', async (req, res) => {
+11265: [ROUTE] app.post('/api/tickets/bulk-delete', async (req, res) => {
+11301: [ROUTE] app.get('/api/tickets/:id/replies', async (req, res) => {
+11337: [ROUTE] app.post('/api/tickets/:id/replies', upload.any(), async (req, res) => {
+11399: [CONST] const uploadsDir = path.join(__dirname, 'uploads', 'ticket-attachments');
+11497: [ROUTE] app.put('/api/tickets/:ticketId/replies/:replyId', async (req, res) => {
+11556: [ROUTE] app.delete('/api/tickets/:ticketId/replies/:replyId', async (req, res) => {
+11581: [ROUTE] app.post('/api/auth/change-password', async (req, res) => {
+11697: [ROUTE] app.put('/api/tickets/:id/mark-unread', async (req, res) => {
+11732: [FUNCTION] async function getHealthSettings(connection) {
+11777: [ROUTE] app.get('/api/health-settings', async (req, res) => {
+11810: [ROUTE] app.put('/api/health-settings', async (req, res) => {
+11864: [ROUTE] app.post('/api/health-settings/reset', async (req, res) => {
+11914: [ROUTE] app.post('/api/health-settings/defaults', async (req, res) => {
+11969: [ARROW_FN] const getYearMonthFromDate = (dateStr) => {
+11987: [ARROW_FN] const allocateUninformedToFutureMonths = async (connection, employeeId, baseDateStr, daysToAllocate) => {
+12020: [ARROW_FN] const getOrCreateLeaveBalance = async (connection, employeeId, year, month) => {
+12041: [ARROW_FN] const recalculateUninformedDeductionsForEmployee = async (connection, employeeId) => {
+12073: [ROUTE] app.get('/api/leave-types', async (req, res) => {
+12094: [ROUTE] app.post('/api/leaves/apply', async (req, res) => {
+12196: [CONST] const applicantDesignation = String(empRows[0].designation || '').toLowerCase();
+12375: [ROUTE] app.get('/api/leaves/date-availability', async (req, res) => {
+12437: [ROUTE] app.get('/api/leaves/calendar', async (req, res) => {
+12470: [ARROW_FN] const fmtDate = (d) => (d && typeof d.toISOString === 'function' ? d.toISOString().slice(0, 10) : (d && typeof d === 'string' ? d.slice(0, 10) : d));
+12531: [ROUTE] app.post('/api/leaves/blocked-dates', async (req, res) => {
+12583: [ROUTE] app.delete('/api/leaves/blocked-dates/:date', async (req, res) => {
+12641: [ROUTE] app.get('/api/leaves/department-restricted-days', async (req, res) => {
+12671: [ROUTE] app.post('/api/leaves/department-restricted-days', async (req, res) => {
+12706: [ROUTE] app.delete('/api/leaves/department-restricted-days', async (req, res) => {
+12742: [FUNCTION] async function runSyncAbsentForDate(targetDate, minHours = 4) {
+12801: [TIMER] setInterval(() => {
+12821: [ROUTE] app.post('/api/leaves/sync-absent', async (req, res) => {
+12836: [ROUTE] app.get('/api/leaves/pending-actions', async (req, res) => {
+12878: [ARROW_FN] const acceptedSwapTargets = (acceptedSwapRows || []).map((r) => ({
+12892: [ARROW_FN] const fmtDate = (d) => (d && typeof d.toISOString === 'function' ? d.toISOString().slice(0, 10) : (d && typeof d === 'string' ? d.slice(0, 10) : (d ? String(d).slice(0, 10) : '')));
+12893: [ARROW_FN] const rejected_swap_notifications = (rejectedSwapRows || []).map((r) => ({
+12907: [ARROW_FN] const rejected_leave_notifications = (rejectedLeaveRows || []).map((r) => ({
+12952: [ARROW_FN] const fmt = (d) => (d && typeof d.toISOString === 'function' ? d.toISOString().slice(0, 10) : (d && typeof d === 'string' ? d.slice(0, 10) : (d ? String(d).slice(0, 10) : '')));
+12983: [ROUTE] app.get('/api/leaves/swap-requests', async (req, res) => {
+12991: [ARROW_FN] const fmt = (d) => (d && typeof d.toISOString === 'function' ? d.toISOString().slice(0, 10) : (d && typeof d === 'string' ? d.slice(0, 10) : (d ? String(d).slice(0, 10) : '')));
+13067: [ROUTE] app.post('/api/leaves/:id/reject-swap-after-accept', async (req, res) => {
+13095: [ROUTE] app.post('/api/leaves/:id/respond-swap', async (req, res) => {
+13131: [ROUTE] app.post('/api/leaves/:id/acknowledge', async (req, res) => {
+13186: [ROUTE] app.patch('/api/leaves/:id', async (req, res) => {
+13302: [ROUTE] app.delete('/api/leaves/:id', async (req, res) => {
+13334: [ROUTE] app.delete('/api/leaves/admin/:id', async (req, res) => {
+13370: [ROUTE] app.get('/api/leaves/acknowledged-history', async (req, res) => {
+13417: [ROUTE] app.get('/api/leaves/all', async (req, res) => {
+13478: [ROUTE] app.get('/api/leaves/my', async (req, res) => {
+13503: [ARROW_FN] const fmtDate = (d) => (d && typeof d.toISOString === 'function' ? d.toISOString().slice(0, 10) : (d && typeof d === 'string' ? d.slice(0, 10) : (d ? String(d).slice(0, 10) : '')));
+13504: [ARROW_FN] const normalizeRow = (r) => ({
+13511: [CONST] const approved = [];
+13559: [ROUTE] app.get('/api/leaves/department', async (req, res) => {
+13619: [ARROW_FN] const fmtDate = (d) => (d && typeof d.toISOString === 'function' ? d.toISOString().slice(0, 10) : (d && typeof d === 'string' ? d.slice(0, 10) : (d ? String(d).slice(0, 10) : '')));
+13620: [ARROW_FN] const normalizeRow = (r) => ({
+13627: [CONST] const approved = [];
+13659: [ROUTE] app.post('/api/leaves/:id/decision', async (req, res) => {
+13698: [CONST] const applicantDesignation = empRows.length
+13799: [ROUTE] app.post('/api/leaves/mark-uninformed', async (req, res) => {
+13932: [ROUTE] app.delete('/api/leaves/uninformed/:id', async (req, res) => {
+13999: [ROUTE] app.get('/api/leaves/policy', async (req, res) => {
+14047: [ROUTE] app.get('/api/leaves/report', async (req, res) => {
+14126: [ARROW_FN] const fmtReportDate = (d) => (d && typeof d.toISOString === 'function' ? d.toISOString().slice(0, 10) : (d && typeof d === 'string' ? d.slice(0, 10) : (d ? String(d).slice(0, 10) : '')));
+14127: [ARROW_FN] const paid_leave_deductions = (paidDeductionRows || []).map((r) => ({
+14165: [ROUTE] app.get('*', (req, res) => {
+14174: [LISTEN] app.listen(PORT, '0.0.0.0', () => {

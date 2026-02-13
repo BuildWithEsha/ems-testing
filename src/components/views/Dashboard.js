@@ -1,8 +1,8 @@
 import React, { memo, useMemo } from 'react';
-import { 
-  Users, 
-  Briefcase, 
-  CheckCircle, 
+import {
+  Users,
+  Briefcase,
+  CheckCircle,
   AlertTriangle,
   TrendingUp,
   Calendar,
@@ -12,24 +12,21 @@ import { useAuth } from '../../contexts/AuthContext';
 import EmployeeHealth from './EmployeeHealth';
 import { useNotifications } from '../../hooks/useNotifications';
 
-const Dashboard = memo(({ employees, tasks, departments }) => {
+const Dashboard = memo(({ employees, tasks, departments, stats }) => {
   const { user } = useAuth();
   const { notifications, hasNotifications } = useNotifications();
 
-  // Memoize expensive calculations
-  const stats = useMemo(() => {
-    const safeEmployees = Array.isArray(employees) ? employees : [];
-    const safeTasks = Array.isArray(tasks) ? tasks : [];
-    
-    const totalEmployees = safeEmployees.length;
-    const activeTasks = safeTasks.length;
-    const completedTasks = safeTasks.filter(t => t.status === 'Completed').length;
-    const overdueTasks = safeTasks.filter(t => t.status === 'Due').length;
+  // Memoize calculations, prioritizing passed stats
+  const dashboardStats = useMemo(() => {
+    const safeEmployeesCount = stats?.totalEmployees ?? (Array.isArray(employees) ? employees.length : 0);
+    const safeTasksCount = stats?.totalTasks ?? (Array.isArray(tasks) ? tasks.length : 0);
+    const completedTasksCount = stats?.completedTasks ?? (Array.isArray(tasks) ? tasks.filter(t => t.status === 'Completed').length : 0);
+    const overdueTasksCount = stats?.overdueTasks ?? (Array.isArray(tasks) ? tasks.filter(t => t.status === 'Due').length : 0);
 
     return [
       {
         title: 'Total Employees',
-        value: totalEmployees,
+        value: safeEmployeesCount,
         icon: Users,
         color: 'bg-blue-500',
         change: '+12%',
@@ -37,7 +34,7 @@ const Dashboard = memo(({ employees, tasks, departments }) => {
       },
       {
         title: 'Active Tasks',
-        value: activeTasks,
+        value: safeTasksCount,
         icon: Briefcase,
         color: 'bg-indigo-500',
         change: '+5%',
@@ -45,7 +42,7 @@ const Dashboard = memo(({ employees, tasks, departments }) => {
       },
       {
         title: 'Completed Tasks',
-        value: completedTasks,
+        value: completedTasksCount,
         icon: CheckCircle,
         color: 'bg-green-500',
         change: '+8%',
@@ -53,20 +50,20 @@ const Dashboard = memo(({ employees, tasks, departments }) => {
       },
       {
         title: 'Overdue Tasks',
-        value: overdueTasks,
+        value: overdueTasksCount,
         icon: AlertTriangle,
         color: 'bg-red-500',
         change: '-3%',
         changeType: 'negative'
       }
     ];
-  }, [employees.length, tasks.length, tasks]);
+  }, [employees.length, tasks.length, tasks, stats]);
 
   const recentTasks = useMemo(() => {
     const safeTasks = Array.isArray(tasks) ? tasks : [];
     return safeTasks.slice(0, 5);
   }, [tasks]);
-  
+
   const recentEmployees = useMemo(() => {
     const safeEmployees = Array.isArray(employees) ? employees : [];
     return safeEmployees.slice(0, 5);
@@ -81,7 +78,7 @@ const Dashboard = memo(({ employees, tasks, departments }) => {
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {stats.map((stat, index) => {
+        {dashboardStats.map((stat, index) => {
           const Icon = stat.icon;
           return (
             <div key={index} className="bg-white rounded-lg shadow p-6">
@@ -90,9 +87,8 @@ const Dashboard = memo(({ employees, tasks, departments }) => {
                   <p className="text-sm font-medium text-gray-600">{stat.title}</p>
                   <p className="text-3xl font-bold text-gray-900">{stat.value}</p>
                   <div className="flex items-center mt-2">
-                    <span className={`text-sm ${
-                      stat.changeType === 'positive' ? 'text-green-600' : 'text-red-600'
-                    }`}>
+                    <span className={`text-sm ${stat.changeType === 'positive' ? 'text-green-600' : 'text-red-600'
+                      }`}>
                       {stat.change}
                     </span>
                     <span className="text-sm text-gray-500 ml-1">from last month</span>
@@ -148,12 +144,11 @@ const Dashboard = memo(({ employees, tasks, departments }) => {
                       <p className="font-medium text-gray-900">{task.title}</p>
                       <p className="text-sm text-gray-500">{task.department}</p>
                     </div>
-                    <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
-                      task.status === 'Completed' ? 'bg-green-100 text-green-800' :
+                    <span className={`px-2 py-1 text-xs font-semibold rounded-full ${task.status === 'Completed' ? 'bg-green-100 text-green-800' :
                       task.status === 'Doing' ? 'bg-blue-100 text-blue-800' :
-                      task.status === 'Due' ? 'bg-red-100 text-red-800' :
-                      'bg-gray-100 text-gray-800'
-                    }`}>
+                        task.status === 'Due' ? 'bg-red-100 text-red-800' :
+                          'bg-gray-100 text-gray-800'
+                      }`}>
                       {task.status || 'To Do'}
                     </span>
                   </div>

@@ -1,14 +1,14 @@
 version: '3.9'
 
 services:
-  ems-app:
+  ems-app-testing:
     build:
       context: .
       dockerfile: Dockerfile
-    image: ems-app:latest
-    container_name: ems-app
+    image: ems-app-testing:latest
+    container_name: ems-app-testing
     ports:
-      - "${PORT:-5000}:5000"
+      - "${PORT:-5001}:5000"
     environment:
       NODE_ENV: production
       PORT: ${PORT:-5000}
@@ -20,14 +20,15 @@ services:
       MYSQL_CONNECT_TIMEOUT: ${MYSQL_CONNECT_TIMEOUT:-60000}
       MYSQL_CHARSET: ${MYSQL_CHARSET:-utf8mb4}
       MYSQL_CONNECTION_LIMIT: ${MYSQL_CONNECTION_LIMIT:-10}
+      TEAMLOGGER_API_KEY: ${TEAMLOGGER_API_KEY}
     volumes:
-      - uploads_data:/app/uploads
+      - uploads_data_testing:/app/uploads
     restart: unless-stopped
     networks:
       - mysql_network
 
 volumes:
-  uploads_data:
+  uploads_data_testing:
 
 networks:
   mysql_network:

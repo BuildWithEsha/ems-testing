@@ -91,7 +91,7 @@ const AppContent = () => {
 // Authenticated App Component
 const AuthenticatedApp = () => {
   const { logout, user } = useAuth();
-  
+
   // Consolidated state management
   const [appState, setAppState] = useState({
     view: user?.email === 'admin@daataadirect.co.uk' ? 'dashboard' : 'myHealth',
@@ -110,6 +110,7 @@ const AuthenticatedApp = () => {
     projects: [],
     taskLabels: [],
     milestones: [],
+    dashboardStats: null,
     errors: {}
   });
 
@@ -135,7 +136,7 @@ const AuthenticatedApp = () => {
 
   // Destructured state for easier access
   const { view, searchTerm, taskToOpen, loading, openDepartment } = appState;
-  const { employees, departments, designations, tasks, taskCategories, projects, taskLabels, milestones, errors } = dataState;
+  const { employees, departments, designations, tasks, taskCategories, projects, taskLabels, milestones, dashboardStats, errors } = dataState;
 
   // Timer functions
   const startTimer = async (taskId) => {
@@ -204,19 +205,20 @@ const AuthenticatedApp = () => {
     const fetchData = async () => {
       try {
         updateAppState({ loading: true });
-        
+
         // Fetch dashboard data from new endpoint
         const dashboardResponse = await fetch('/api/dashboard');
-        
+
         if (dashboardResponse.ok) {
           const dashboardData = await dashboardResponse.json();
-          
+
           // Set dashboard data with additional safety checks
           updateDataState({
             tasks: Array.isArray(dashboardData.recentTasks) ? dashboardData.recentTasks : [],
-            employees: Array.isArray(dashboardData.recentEmployees) ? dashboardData.recentEmployees : []
+            employees: Array.isArray(dashboardData.recentEmployees) ? dashboardData.recentEmployees : [],
+            dashboardStats: dashboardData
           });
-          
+
           // Also fetch departments separately for other views
           const departmentsResponse = await fetch('/api/departments');
           if (departmentsResponse.ok) {
@@ -235,7 +237,7 @@ const AuthenticatedApp = () => {
             });
             tasksUrl = `/api/tasks?${params.toString()}`;
           }
-          
+
           // Prepare headers with user permissions for the tasks request (same as TimerModal)
           const tasksHeaders = {};
           if (user) {
@@ -243,7 +245,7 @@ const AuthenticatedApp = () => {
             tasksHeaders['user-permissions'] = JSON.stringify((user.role === 'admin' || user.role === 'Admin') ? ['all'] : (user.permissions || []));
             tasksHeaders['user-name'] = user.name || '';
           }
-          
+
           const [tasksResponse, employeesResponse, departmentsResponse] = await Promise.all([
             fetch(tasksUrl, { headers: tasksHeaders }),
             fetch('/api/employees?page=1&limit=20'),
@@ -405,7 +407,7 @@ const AuthenticatedApp = () => {
   // Data handling
   const handleFormSubmit = (itemData, type, shouldClose = true) => {
     const errors = validateFormData(itemData, type);
-    
+
     if (Object.keys(errors).length > 0) {
       updateDataState({ errors });
       return;
@@ -449,17 +451,17 @@ const AuthenticatedApp = () => {
   // PHASE 2: Check if user has specific permission
   const hasPermission = (permission) => {
     if (!user) return false;
-    
+
     // Admin has all permissions
     if (user.role && user.role.toLowerCase() === 'admin') return true;
     if (user.user_role && user.user_role.toLowerCase() === 'admin') return true;
     if (user.permissions && Array.isArray(user.permissions) && user.permissions.includes('all')) return true;
-    
+
     // Check specific permission
     if (user.permissions && Array.isArray(user.permissions)) {
       return user.permissions.includes(permission);
     }
-    
+
     return false;
   };
 
@@ -483,7 +485,7 @@ const AuthenticatedApp = () => {
           </p>
         </div>
         <div className="mt-6 text-xs text-gray-400">
-          Logged in as: {user?.name || user?.email || 'Unknown User'} 
+          Logged in as: {user?.name || user?.email || 'Unknown User'}
           <br />
           Role: {user?.role || user?.user_role || 'No Role Assigned'}
           <br />
@@ -504,20 +506,21 @@ const AuthenticatedApp = () => {
   // Render current view
   const renderCurrentView = () => {
     console.log('Current view:', view);
-    
+
     // PHASE 2: Block all views for users without sidebar access
     if (!hasPermission('view_sidebar')) {
       return <NoAccess />;
     }
-    
+
     switch (view) {
       case 'dashboard':
         return (
           <Suspense fallback={<LoadingFallback />}>
-            <Dashboard 
+            <Dashboard
               employees={employees}
               tasks={tasks}
               departments={departments}
+              stats={dashboardStats}
             />
           </Suspense>
         );
@@ -531,7 +534,7 @@ const AuthenticatedApp = () => {
         console.log('Rendering Tasks component');
         return (
           <Suspense fallback={<LoadingFallback />}>
-            <Tasks 
+            <Tasks
               initialOpenTask={taskToOpen}
               onConsumeInitialOpenTask={() => updateAppState({ taskToOpen: null })}
             />
@@ -609,10 +612,11 @@ const AuthenticatedApp = () => {
           updateAppState({ view: 'dashboard' });
           return (
             <Suspense fallback={<LoadingFallback />}>
-              <Dashboard 
+              <Dashboard
                 employees={employees}
                 tasks={tasks}
                 departments={departments}
+                stats={dashboardStats}
               />
             </Suspense>
           );
@@ -717,10 +721,11 @@ const AuthenticatedApp = () => {
         if (user?.email === 'admin@daataadirect.co.uk') {
           return (
             <Suspense fallback={<LoadingFallback />}>
-              <Dashboard 
+              <Dashboard
                 employees={employees}
                 tasks={tasks}
                 departments={departments}
+                stats={dashboardStats}
               />
             </Suspense>
           );
@@ -739,12 +744,12 @@ const AuthenticatedApp = () => {
       <div className="flex-shrink-0 h-screen">
         <Sidebar currentView={view} onViewChange={handleViewChange} />
       </div>
-      
+
       {/* Main Content */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Header */}
-        <Header 
-          onSearch={handleSearch} 
+        <Header
+          onSearch={handleSearch}
           onLogout={logout}
           tasks={tasks}
           employees={employees}
@@ -754,7 +759,7 @@ const AuthenticatedApp = () => {
             updateAppState({ taskToOpen: task, view: 'tasks' });
           }}
         />
-        
+
         {/* Main Content Area */}
         <main className="flex-1 overflow-y-auto p-6">
           {loading ? (
